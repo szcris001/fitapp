@@ -7,131 +7,175 @@ datasource db {
   provider = "postgresql"
 }
 
-enum UserRole {
-  SUPER_ADMIN
-  ADMIN
-  COACH
-  MEMBER
-}
-
-enum MembershipStatus {
-  ACTIVE
-  TRIAL
-  INACTIVE
-  EXPIRED
-}
-
-enum BookingStatus {
-  CONFIRMED
-  WAITLIST
-  CANCELLED
-  ATTENDED
-}
-
-enum ClassFrequency {
-  ONCE
-  RECURRING
-}
-
-enum GymStatus {
-  ACTIVE
-  SUSPENDED
-  TRIAL
-}
-
 model Gym {
-  id                 String    @id @default(uuid())
-  name               String
-  slug               String    @unique
-  logoUrl            String?
-  brandColors        Json      @default("{\"primary\":\"#6366f1\",\"secondary\":\"#4f46e5\",\"accent\":\"#818cf8\"}")
-  bookingWindowDays  Int       @default(1)
-  bookingCutoffMins  Int       @default(60)
-  cancelCutoffMins   Int       @default(30)
-  address            String?
-  phone              String?
-  email              String?
-  instagram          String?
-  facebook           String?
-  termsAndConditions String?
-  status             GymStatus @default(ACTIVE)
-  subscriptionPlan   String    @default("trial")
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  users      User[]
-  plans      Plan[]
-  classTypes ClassType[]
-  classes    Class[]
+  id                  String                   @id @default(uuid())
+  name                String
+  slug                String                   @unique
+  logoUrl             String?
+  brandColors         Json                     @default("{\"accent\": \"#818cf8\", \"primary\": \"#6366f1\", \"secondary\": \"#4f46e5\"}")
+  bookingWindowDays   Int                      @default(1)
+  address             String?
+  phone               String?
+  email               String?
+  instagram           String?
+  facebook            String?
+  termsAndConditions  String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  status              GymStatus                @default(ACTIVE)
+  subscriptionPlan    String                   @default("trial")
+  bookingCutoffMins   Int                      @default(60)
+  cancelCutoffMins    Int                      @default(30)
+  bsaleBoletaTypeId   Int?
+  bsaleFacturaTypeId  Int?
+  bsaleOfficeId       Int?
+  bsalePriceListId    Int?
+  bsaleToken          String?
+  dteCiudad           String?
+  dteComuna           String?
+  dteDireccion        String?
+  dteGiro             String?
+  dteRazonSocial      String?
+  dteRut              String?
+  expiryReminderDays  Int                      @default(3)
+  smtpFrom            String?
+  smtpHost            String?
+  smtpPass            String?
+  smtpPort            Int?
+  smtpUser            String?
+  emailExpiryBody     String?
+  emailExpirySubject  String?
+  emailPaymentBody    String?
+  emailPaymentSubject String?
+  sportTheme          String                   @default("neutral")
+  paymentGateways     Json                     @default("{}")
+  bankAccount         Json                     @default("{}")
+  ownerEmail          String?
+  deletedAt           DateTime?
+  stripeCustomerId    String?
+  attendanceMode         String                   @default("manual")
+  gymLat                 Float?
+  gymLng                 Float?
+  gymRadiusMeters        Int                      @default(200)
+  waitlistConfirmEnabled Boolean                  @default(false)
+  waitlistConfirmMins    Int                      @default(30)
+  country             String                   @default("CL")
+  movementLibrary     Json                     @default("[]")
+  benchmarks          Benchmark[]
+  classes             Class[]
+  classTypes          ClassType[]
+  skills              GymSkill[]
+  subscriptions       GymSubscription[]
+  subPayments         GymSubscriptionPayment[]
+  plans               Plan[]
+  users               User[]
 }
 
 model User {
-  id           String    @id @default(uuid())
-  gymId        String?
-  role         UserRole  @default(MEMBER)
-  name         String
-  email        String    @unique
-  passwordHash String
-  phone        String?
-  avatarUrl    String?
-  birthDate    DateTime?
-  gender       String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                 String               @id @default(uuid())
+  gymId              String?
+  role               UserRole             @default(MEMBER)
+  name               String
+  email              String
+  passwordHash       String
+  phone              String?
+  avatarUrl          String?
+  birthDate          DateTime?
+  gender             String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  source             String?
+  pushToken            String?
+  mustChangePassword   Boolean              @default(false)
+  stripeCustomerId     String?
+  rut                  String?
+  bookings           Booking[]
+  coachClasses       Class[]              @relation("CoachClasses")
+  gymnasticProgress  GymnasticProgress[]
+  memberships        Membership[]
+  passwordResets     PasswordResetToken[]
+  rmRecords          RmRecord[]
+  gym                Gym?                 @relation(fields: [gymId], references: [id])
 
-  gym               Gym?                @relation(fields: [gymId], references: [id])
-  memberships       Membership[]
-  bookings          Booking[]
-  rmRecords         RmRecord[]
-  gymnasticProgress GymnasticProgress[]
+  @@unique([gymId, email])
+  @@unique([gymId, rut])
 }
 
 model Plan {
-  id           String   @id @default(uuid())
-  gymId        String
-  name         String
-  description  String?
-  priceCents   Int
-  currency     String   @default("CLP")
-  durationDays Int
-  maxClasses   Int?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  gym         Gym          @relation(fields: [gymId], references: [id])
-  memberships Membership[]
-  classTypes  ClassType[]  @relation("PlanClassTypes")
+  id                   String       @id @default(uuid())
+  gymId                String
+  name                 String
+  description          String?
+  priceCents           Int
+  currency             String       @default("CLP")
+  durationDays         Int
+  maxClasses           Int?
+  isActive             Boolean      @default(true)
+  autoRenewEnabled     Boolean      @default(false)
+  autoRenewDaysBefore  Int          @default(3)
+  autoRenewMaxRetries  Int          @default(2)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  memberships          Membership[]
+  gym                  Gym          @relation(fields: [gymId], references: [id])
+  classTypes           ClassType[]  @relation("PlanClassTypes")
 }
 
 model Membership {
-  id        String           @id @default(uuid())
-  userId    String
-  planId    String
-  status    MembershipStatus @default(ACTIVE)
-  startsAt  DateTime
-  endsAt    DateTime
-  paidAt    DateTime?
-  pricePaid Int
-  currency  String           @default("CLP")
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id                    String           @id @default(uuid())
+  userId                String
+  planId                String
+  status                MembershipStatus @default(ACTIVE)
+  startsAt              DateTime
+  endsAt                DateTime
+  paidAt                DateTime?
+  pricePaid             Int
+  currency              String           @default("CLP")
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  paymentMethod         String?
+  paymentNotes          String?
+  transferReceiptUrl    String?
+  transferStatus        String?
+  invoiceNumber         Int?
+  invoicePdfUrl         String?
+  invoiceReceiverName   String?
+  invoiceReceiverRut    String?
+  invoiceType           String?
+  autoRenew             Boolean          @default(false)
+  autoRenewConsent      Boolean          @default(false)
+  autoRenewFailures     Int              @default(0)
+  nextAutoRenewAt       DateTime?
+  stripePaymentMethodId String?
+  plan                  Plan             @relation(fields: [planId], references: [id])
+  user                  User             @relation(fields: [userId], references: [id])
 
-  user User @relation(fields: [userId], references: [id])
-  plan Plan @relation(fields: [planId], references: [id])
+  @@index([userId, status, endsAt])
 }
 
 model ClassType {
-  id          String   @id @default(uuid())
+  id          String           @id @default(uuid())
   gymId       String
   name        String
   description String?
   color       String?
-  createdAt   DateTime @default(now())
+  discipline  String?          // crossfit | weightlifting | endurance | hyrox | manual
+  createdAt   DateTime         @default(now())
+  blocks      ClassTypeBlock[]
+  classes     Class[]
+  gym         Gym              @relation(fields: [gymId], references: [id])
+  plans       Plan[]           @relation("PlanClassTypes")
+}
 
-  gym     Gym     @relation(fields: [gymId], references: [id])
-  classes Class[]
-  plans   Plan[]  @relation("PlanClassTypes")
+model ClassTypeBlock {
+  id           String    @id @default(uuid())
+  classTypeId  String
+  order        Int
+  name         String
+  durationMins Int
+  notes        String?
+  isOptional   Boolean   @default(false)
+  classType    ClassType @relation(fields: [classTypeId], references: [id], onDelete: Cascade)
 }
 
 model Class {
@@ -145,38 +189,44 @@ model Class {
   frequency   ClassFrequency @default(ONCE)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+  bookings    Booking[]
+  classType   ClassType      @relation(fields: [classTypeId], references: [id])
+  coach       User           @relation("CoachClasses", fields: [coachId], references: [id])
+  gym         Gym            @relation(fields: [gymId], references: [id])
+  wods        Wod[]
 
-  gym       Gym       @relation(fields: [gymId], references: [id])
-  classType ClassType @relation(fields: [classTypeId], references: [id])
-  bookings  Booking[]
-  wods      Wod[]
+  @@index([gymId, startsAt])
+  @@index([gymId, classTypeId, startsAt])
 }
 
 model Booking {
-  id        String        @id @default(uuid())
-  userId    String
-  classId   String
-  status    BookingStatus @default(CONFIRMED)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-
-  user  User  @relation(fields: [userId], references: [id])
-  class Class @relation(fields: [classId], references: [id])
+  id              String        @id @default(uuid())
+  userId          String
+  classId         String
+  status          BookingStatus @default(CONFIRMED)
+  confirmDeadline DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  class           Class         @relation(fields: [classId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
 
   @@unique([userId, classId])
+  @@index([classId, status])
 }
 
 model Wod {
-  id          String   @id @default(uuid())
+  id          String        @id @default(uuid())
   classId     String
   title       String?
   description String?
   date        DateTime
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  class       Class         @relation(fields: [classId], references: [id])
+  movements   WodMovement[]
 
-  class     Class         @relation(fields: [classId], references: [id])
-  movements WodMovement[]
+  @@index([classId])
+  @@index([date])
 }
 
 model WodMovement {
@@ -187,8 +237,7 @@ model WodMovement {
   reps         Int?
   percentage   Int?
   notes        String?
-
-  wod Wod @relation(fields: [wodId], references: [id])
+  wod          Wod     @relation(fields: [wodId], references: [id])
 }
 
 model RmRecord {
@@ -198,8 +247,9 @@ model RmRecord {
   weightKg     Float
   recordedAt   DateTime @default(now())
   notes        String?
+  user         User     @relation(fields: [userId], references: [id])
 
-  user User @relation(fields: [userId], references: [id])
+  @@index([userId, movementName])
 }
 
 model GymnasticProgress {
@@ -209,8 +259,213 @@ model GymnasticProgress {
   milestone    String
   achievedAt   DateTime @default(now())
   notes        String?
-  evidenceUrl  String?
   evidenceType String?
+  evidenceUrl  String?
+  user         User     @relation(fields: [userId], references: [id])
+}
 
-  user User @relation(fields: [userId], references: [id])
+model GymSkill {
+  id          String              @id @default(uuid())
+  gymId       String
+  name        String
+  description String?
+  isActive    Boolean             @default(true)
+  order       Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  gym         Gym                 @relation(fields: [gymId], references: [id])
+  milestones  GymSkillMilestone[]
+}
+
+model GymSkillMilestone {
+  id               String   @id @default(uuid())
+  skillId          String
+  name             String
+  order            Int      @default(0)
+  requiresEvidence Boolean  @default(false)
+  skill            GymSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+}
+
+model PlatformSettings {
+  id                    String   @id @default("system")
+  smtpHost              String?
+  smtpPort              Int?
+  smtpUser              String?
+  smtpPass              String?
+  smtpFrom              String?
+  subExpiryReminderDays Int      @default(7)
+  updatedAt             DateTime @updatedAt
+}
+
+model PlatformAsset {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  url       String
+  filename  String
+  sizeBytes Int      @default(0)
+  mimeType  String   @default("image/jpeg")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EmailTemplate {
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique
+  description  String?
+  subject      String   @default("")
+  body         String   @default("")
+  placeholders Json     @default("[]")
+  isSystem     Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model FitAppPlan {
+  id            String            @id @default(uuid())
+  name          String
+  slug          String            @unique
+  description   String?
+  priceCLP      Int               @default(0)
+  priceUSD      Int               @default(0)
+  durationDays  Int               @default(30)
+  features      Json              @default("[]")
+  isActive      Boolean           @default(true)
+  isFree        Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  color         String?
+  subscriptions GymSubscription[]
+}
+
+model GymSubscription {
+  id                      String                   @id @default(uuid())
+  gymId                   String
+  planId                  String
+  status                  GymSubscriptionStatus    @default(TRIAL)
+  startsAt                DateTime
+  endsAt                  DateTime
+  stripeCheckoutSessionId String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  gym                     Gym                      @relation(fields: [gymId], references: [id])
+  plan                    FitAppPlan               @relation(fields: [planId], references: [id])
+  payments                GymSubscriptionPayment[]
+}
+
+model GymSubscriptionPayment {
+  id             String           @id @default(uuid())
+  gymId          String
+  subscriptionId String?
+  planId         String
+  amount         Int
+  currency       String           @default("CLP")
+  country        String           @default("CL")
+  gateway        String
+  gatewayOrderId String?
+  gatewayData    Json?
+  status         GymPaymentStatus @default(PENDING)
+  paidAt         DateTime?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  gym            Gym              @relation(fields: [gymId], references: [id])
+  subscription   GymSubscription? @relation(fields: [subscriptionId], references: [id])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Benchmark {
+  id              String              @id @default(uuid())
+  externalId      String?             @unique
+  gymId           String?
+  nombre          String
+  categoria       BenchmarkCategory
+  año             Int?
+  formato         String
+  duracionMins    Int?
+  tiempoEstMin    Int?
+  descripcion     String?
+  notas           String?
+  isOfficial      Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  movimientos     BenchmarkMovement[]
+  gym             Gym?                @relation(fields: [gymId], references: [id])
+}
+
+model BenchmarkMovement {
+  id               String    @id @default(uuid())
+  benchmarkId      String
+  nombre           String
+  repsEsquema      String?
+  cargaRxKgHombre  Float?
+  cargaRxKgMujer   Float?
+  alturaRxCmHombre Int?
+  alturaRxCmMujer  Int?
+  cargaScaled      String?
+  orden            Int       @default(0)
+  benchmark        Benchmark @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+}
+
+enum BenchmarkCategory {
+  GIRL
+  HERO
+  OPEN
+  GAMES
+  CUSTOM
+}
+
+enum UserRole {
+  ADMIN
+  COACH
+  MEMBER
+  SUPER_ADMIN
+}
+
+enum MembershipStatus {
+  ACTIVE
+  TRIAL
+  INACTIVE
+  EXPIRED
+}
+
+enum BookingStatus {
+  CONFIRMED
+  PENDING_CONFIRM
+  CANCELLED
+  ATTENDED
+  WAITLIST
+}
+
+enum ClassFrequency {
+  ONCE
+  RECURRING
+}
+
+enum GymStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+}
+
+enum GymSubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum GymPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
 }

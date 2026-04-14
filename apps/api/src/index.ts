@@ -16,6 +16,16 @@ import { paymentRoutes } from './modules/payments/payments.routes'
 import { aiRoutes } from './modules/analytics/ai.routes'
 import { messageRoutes } from './modules/analytics/messages.routes'
 import { superAdminRoutes } from './modules/superadmin/superadmin.routes'
+import { platformConfigRoutes } from './modules/superadmin/config.routes'
+import { emailTemplateRoutes, ensureSystemTemplates } from './modules/superadmin/email-templates.routes'
+import { fitAppPlansRoutes, ensureFitAppPlans } from './modules/superadmin/fitapp-plans.routes'
+import { gymSubscriptionsRoutes } from './modules/superadmin/gym-subscriptions.routes'
+import { gymPaymentsRoutes } from './modules/superadmin/gym-payments.routes'
+import { platformAssetsRoutes } from './modules/superadmin/platform-assets.routes'
+import { skillRoutes } from './modules/gyms/skills.routes'
+import { benchmarkRoutes } from './modules/analytics/benchmark.routes'
+import { startCronJobs } from './lib/cron'
+import { requireActiveGym } from './middlewares/auth.middleware'
 
 dotenv.config()
 
@@ -29,6 +39,24 @@ app.register(cors, {
 app.register(jwt, { secret: process.env.JWT_SECRET || 'fallback_secret' })
 app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
 
+const serveDirFile = (dir: string) => async (request: any, reply: any) => {
+  const { filename } = request.params as any
+  const filepath = path.join(process.cwd(), 'uploads', dir, filename)
+  if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
+  const ext = path.extname(filename).toLowerCase()
+  const mimeTypes: Record<string, string> = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
+    '.html': 'text/html',
+  }
+  reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream')
+  reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  return reply.send(fs.createReadStream(filepath))
+}
+
+app.get('/uploads/avatars/:filename', serveDirFile('avatars'))
+app.get('/uploads/assets/:filename', serveDirFile('assets'))
+
 app.get('/uploads/:filename', async (request, reply) => {
   const { filename } = request.params as any
   const filepath = path.join(process.cwd(), 'uploads', filename)
@@ -39,6 +67,7 @@ app.get('/uploads/:filename', async (request, reply) => {
     '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
   }
   reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream')
+  reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
   return reply.send(fs.createReadStream(filepath))
 })
 
@@ -54,6 +83,18 @@ app.get('/movements/:filename', async (request, reply) => {
 
 app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 
+// Bloquear gimnasios con suscripción vencida en todas las rutas autenticadas
+app.addHook('preHandler', async (request, reply) => {
+  // Solo aplica a rutas /api/ con token JWT presente
+  if (!request.url.startsWith('/api/') || !request.headers.authorization) return
+  try {
+    await request.jwtVerify()
+    await requireActiveGym(request, reply)
+  } catch {
+    // Si el JWT falla, las rutas individuales lo manejan con authenticate()
+  }
+})
+
 app.register(authRoutes, { prefix: '/api' })
 app.register(gymRoutes, { prefix: '/api' })
 app.register(userRoutes, { prefix: '/api' })
@@ -65,12 +106,23 @@ app.register(paymentRoutes, { prefix: '/api' })
 app.register(aiRoutes, { prefix: '/api' })
 app.register(messageRoutes, { prefix: '/api' })
 app.register(superAdminRoutes, { prefix: '/api' })
+app.register(platformConfigRoutes, { prefix: '/api' })
+app.register(emailTemplateRoutes, { prefix: '/api' })
+app.register(fitAppPlansRoutes, { prefix: '/api' })
+app.register(gymSubscriptionsRoutes, { prefix: '/api' })
+app.register(gymPaymentsRoutes, { prefix: '/api' })
+app.register(platformAssetsRoutes, { prefix: '/api' })
+app.register(skillRoutes, { prefix: '/api' })
+app.register(benchmarkRoutes, { prefix: '/api' })
 
 const start = async () => {
   try {
     const port = Number(process.env.PORT) || 3001
     await app.listen({ port, host: '0.0.0.0' })
     console.log(`🚀 API corriendo en http://localhost:${port}`)
+    await ensureSystemTemplates()
+    await ensureFitAppPlans()
+    startCronJobs()
   } catch (err) {
     app.log.error(err)
     process.exit(1)

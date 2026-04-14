@@ -4,3 +4,6 @@ packages:
 allowBuilds:
   '@prisma/engines': true
   prisma: false
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

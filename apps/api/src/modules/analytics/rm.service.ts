@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import { CreateRmInput, CreateGymnasticProgressInput } from './rm.schema'
+import { handlePrismaError } from '../../lib/prismaError'
 
 export async function getRmsByUser(userId: string) {
   const records = await prisma.rmRecord.findMany({
@@ -32,15 +33,19 @@ export async function createRm(userId: string, gymId: string, data: CreateRmInpu
   const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
   if (!user) throw new Error('Usuario no encontrado')
 
-  return prisma.rmRecord.create({
-    data: {
-      userId,
-      movementName: data.movementName,
-      weightKg: data.weightKg,
-      notes: data.notes,
-      recordedAt: data.recordedAt ? new Date(data.recordedAt) : new Date(),
-    },
-  })
+  try {
+    return await prisma.rmRecord.create({
+      data: {
+        userId,
+        movementName: data.movementName,
+        weightKg: data.weightKg,
+        notes: data.notes,
+        recordedAt: data.recordedAt ? new Date(data.recordedAt) : new Date(),
+      },
+    })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }
 
 export async function getGymRmEvolution(gymId: string) {
@@ -99,13 +104,17 @@ export async function createGymnasticProgress(
   const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
   if (!user) throw new Error('Usuario no encontrado')
 
-  return prisma.gymnasticProgress.create({
-    data: {
-      userId,
-      skillName: data.skillName,
-      milestone: data.milestone,
-      notes: data.notes,
-      achievedAt: data.achievedAt ? new Date(data.achievedAt) : new Date(),
-    },
-  })
+  try {
+    return await prisma.gymnasticProgress.create({
+      data: {
+        userId,
+        skillName: data.skillName,
+        milestone: data.milestone,
+        notes: data.notes,
+        achievedAt: data.achievedAt ? new Date(data.achievedAt) : new Date(),
+      },
+    })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }

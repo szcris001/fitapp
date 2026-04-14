@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../lib/prisma'
 import { CreateUserInput, UpdateUserInput } from './users.schema'
+import { handlePrismaError } from '../../lib/prismaError'
 
 export async function listUsers(gymId: string, status?: string, role?: string) {
   const where: any = { gymId }
@@ -18,7 +19,7 @@ export async function listUsers(gymId: string, status?: string, role?: string) {
       memberships: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        include: { plan: { select: { name: true } } },
+        include: { plan: { select: { id: true, name: true } } },
       },
     },
     orderBy: { createdAt: 'desc' },
@@ -47,37 +48,78 @@ export async function getUserById(gymId: string, userId: string) {
   return user
 }
 
-export async function createUser(gymId: string, data: CreateUserInput) {
-  const existing = await prisma.user.findFirst({ where: { email: data.email } })
-  if (existing) throw new Error('El email ya está registrado')
+export async function createUser(gymId: string | null, data: CreateUserInput) {
+  if (!gymId) throw new Error('Operación no permitida: el usuario no tiene un gimnasio asignado')
+
+  const roleLabel: Record<string, string> = { MEMBER: 'alumno', COACH: 'coach', ADMIN: 'administrador' }
+
+  const existingEmail = await prisma.user.findFirst({ where: { gymId, email: data.email } })
+  if (existingEmail) {
+    const label = roleLabel[existingEmail.role] ?? existingEmail.role
+    throw new Error(`El email ya está registrado en este gimnasio como ${label}`)
+  }
+
+  if (data.rut) {
+    const existingRut = await prisma.user.findFirst({ where: { gymId, rut: data.rut } })
+    if (existingRut) {
+      const label = roleLabel[existingRut.role] ?? existingRut.role
+      throw new Error(`El RUT ya está registrado en este gimnasio como ${label} (${existingRut.name})`)
+    }
+  }
 
   const passwordHash = await bcrypt.hash(data.password, 10)
 
-  return prisma.user.create({
-    data: {
-      gymId,
-      name: data.name,
-      email: data.email,
-      passwordHash,
-      phone: data.phone,
-      gender: data.gender,
-      birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
-      role: data.role || 'MEMBER',
-    },
-  })
+  try {
+    return await prisma.user.create({
+      data: {
+        gymId,
+        name: data.name,
+        email: data.email,
+        passwordHash,
+        phone: data.phone,
+        gender: data.gender,
+        birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
+        source: data.source,
+        role: data.role || 'MEMBER',
+        rut: data.rut || null,
+      },
+    })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }
 
-export async function updateUser(gymId: string, userId: string, data: UpdateUserInput) {
+export async function updateUser(gymId: string | null, userId: string, data: UpdateUserInput) {
+  if (!gymId) throw new Error('Operación no permitida: el usuario no tiene un gimnasio asignado')
+
   const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
   if (!user) throw new Error('Usuario no encontrado')
 
-  return prisma.user.update({
-    where: { id: userId },
-    data: {
-      name: data.name,
-      phone: data.phone,
-      gender: data.gender,
-      birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
-    },
-  })
+  if (data.email) {
+    const existing = await prisma.user.findFirst({ where: { gymId, email: data.email, NOT: { id: userId } } })
+    if (existing) throw new Error('El email ya está en uso en este gimnasio')
+  }
+
+  if (data.rut) {
+    const existingRut = await prisma.user.findFirst({ where: { gymId, rut: data.rut, NOT: { id: userId } } })
+    if (existingRut) throw new Error(`El RUT ya está registrado en este gimnasio (${existingRut.name})`)
+  }
+
+  try {
+    return await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        gender: data.gender,
+        birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
+        source: data.source,
+        role: data.role,
+        ...(data.rut !== undefined && { rut: data.rut || null }),
+      },
+    })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }

@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma'
-import { CreatePlanInput, CreateMembershipInput } from './plans.schema'
+import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput } from './plans.schema'
+import { handlePrismaError } from '../../lib/prismaError'
 
 export async function listPlans(gymId: string) {
   return prisma.plan.findMany({
@@ -9,7 +10,31 @@ export async function listPlans(gymId: string) {
 }
 
 export async function createPlan(gymId: string, data: CreatePlanInput) {
-  return prisma.plan.create({ data: { ...data, gymId } })
+  try {
+    return await prisma.plan.create({ data: { ...data, gymId } })
+  } catch (err) {
+    handlePrismaError(err)
+  }
+}
+
+export async function updatePlan(gymId: string, planId: string, data: UpdatePlanInput) {
+  const plan = await prisma.plan.findFirst({ where: { id: planId, gymId } })
+  if (!plan) throw new Error('Plan no encontrado')
+  try {
+    return await prisma.plan.update({
+      where: { id: planId },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.priceCents !== undefined && { priceCents: data.priceCents }),
+        ...(data.currency !== undefined && { currency: data.currency }),
+        ...(data.durationDays !== undefined && { durationDays: data.durationDays }),
+        ...(data.maxClasses !== undefined && { maxClasses: data.maxClasses }),
+      },
+    })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }
 
 export async function deactivatePlan(gymId: string, planId: string) {
@@ -34,21 +59,25 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
     data: { status: 'INACTIVE' },
   })
 
-  return prisma.membership.create({
-    data: {
-      userId: data.userId,
-      planId: data.planId,
-      status: data.status,
-      startsAt,
-      endsAt,
-      pricePaid: plan.priceCents,
-      currency: plan.currency,
-    },
-    include: {
-      plan: { select: { name: true, durationDays: true } },
-      user: { select: { name: true, email: true } },
-    },
-  })
+  try {
+    return await prisma.membership.create({
+      data: {
+        userId: data.userId,
+        planId: data.planId,
+        status: data.status,
+        startsAt,
+        endsAt,
+        pricePaid: plan.priceCents,
+        currency: plan.currency,
+      },
+      include: {
+        plan: { select: { name: true, durationDays: true } },
+        user: { select: { name: true, email: true } },
+      },
+    })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }
 
 export async function renewMembership(gymId: string, userId: string) {
@@ -71,19 +100,23 @@ export async function renewMembership(gymId: string, userId: string) {
   const endsAt = new Date()
   endsAt.setDate(endsAt.getDate() + lastMembership.plan.durationDays)
 
-  return prisma.membership.create({
-    data: {
-      userId,
-      planId: lastMembership.planId,
-      status: 'ACTIVE',
-      startsAt,
-      endsAt,
-      pricePaid: lastMembership.plan.priceCents,
-      currency: lastMembership.plan.currency,
-    },
-    include: {
-      plan: { select: { name: true } },
-      user: { select: { name: true, email: true } },
-    },
-  })
+  try {
+    return await prisma.membership.create({
+      data: {
+        userId,
+        planId: lastMembership.planId,
+        status: 'ACTIVE',
+        startsAt,
+        endsAt,
+        pricePaid: lastMembership.plan.priceCents,
+        currency: lastMembership.plan.currency,
+      },
+      include: {
+        plan: { select: { name: true } },
+        user: { select: { name: true, email: true } },
+      },
+    })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }

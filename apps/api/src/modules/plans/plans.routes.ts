@@ -1,13 +1,15 @@
 import { FastifyInstance } from 'fastify'
-import { requireAdmin } from '../../middlewares/auth.middleware'
-import { createPlanSchema, createMembershipSchema } from './plans.schema'
-import { listPlans, createPlan, deactivatePlan, assignMembership, renewMembership } from './plans.service'
+import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
+import { createPlanSchema, updatePlanSchema, createMembershipSchema } from './plans.schema'
+import { listPlans, createPlan, updatePlan, deactivatePlan, assignMembership, renewMembership } from './plans.service'
 
 export async function planRoutes(app: FastifyInstance) {
-  app.get('/plans', { preHandler: requireAdmin }, async (request, reply) => {
+  app.get('/plans', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
+    const gymId = user.gymId
+    if (!gymId) return reply.status(400).send({ error: 'Sin gimnasio asignado' })
     try {
-      const plans = await listPlans(user.gymId)
+      const plans = await listPlans(gymId)
       return reply.send(plans)
     } catch (err: any) {
       return reply.status(500).send({ error: err.message })
@@ -25,6 +27,19 @@ export async function planRoutes(app: FastifyInstance) {
       return reply.status(201).send(plan)
     } catch (err: any) {
       return reply.status(500).send({ error: err.message })
+    }
+  })
+
+  app.put('/plans/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+    const parsed = updatePlanSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      const plan = await updatePlan(user.gymId, id, parsed.data)
+      return reply.send(plan)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
     }
   })
 

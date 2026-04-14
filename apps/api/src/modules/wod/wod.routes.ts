@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
+import { prismaErrorMessage } from '../../lib/prismaError'
 
 export async function wodRoutes(app: FastifyInstance) {
   app.post('/wods', { preHandler: authenticate }, async (request, reply) => {
@@ -13,16 +14,33 @@ export async function wodRoutes(app: FastifyInstance) {
       const cls = await prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } })
       if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
 
-      const wod = await prisma.wod.create({
-        data: {
-          classId,
-          title,
-          description,
-          date: new Date(date),
-          movements: { create: movements },
-        },
-        include: { movements: true },
+      // Check for duplicate WOD: same class + same calendar date
+      const dateStart = new Date(date)
+      dateStart.setHours(0, 0, 0, 0)
+      const dateEnd = new Date(dateStart.getTime() + 24 * 60 * 60 * 1000)
+      const existing = await prisma.wod.findFirst({
+        where: { classId, date: { gte: dateStart, lt: dateEnd } },
       })
+      if (existing) {
+        return reply.status(400).send({ error: 'Ya existe una planificación para esta clase en esa fecha' })
+      }
+
+      let wod
+      try {
+        wod = await prisma.wod.create({
+          data: {
+            classId,
+            title,
+            description,
+            date: new Date(date),
+            movements: { create: movements },
+          },
+          include: { movements: true },
+        })
+      } catch (err) {
+        const msg = prismaErrorMessage(err)
+        return reply.status(400).send({ error: msg ?? 'Error al crear el WOD' })
+      }
       return reply.status(201).send(wod)
     } catch (err: any) {
       return reply.status(500).send({ error: err.message })
@@ -67,7 +85,11 @@ export async function wodRoutes(app: FastifyInstance) {
     const { from, to } = request.query as any
     const where: any = { class: { gymId: user.gymId } }
     if (from) where.date = { ...where.date, gte: new Date(from) }
-    if (to) where.date = { ...where.date, lte: new Date(to) }
+    if (to) {
+      const toDate = new Date(to)
+      toDate.setUTCHours(23, 59, 59, 999)
+      where.date = { ...where.date, lte: toDate }
+    }
     const wods = await prisma.wod.findMany({
       where,
       include: {
@@ -77,6 +99,45 @@ export async function wodRoutes(app: FastifyInstance) {
       orderBy: { date: 'asc' },
     })
     return reply.send(wods)
+  })
+
+  app.put('/wods/:id', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    if (!['ADMIN', 'COACH'].includes(user.role)) return reply.status(403).send({ error: 'Sin permisos' })
+    const { id } = request.params as any
+    const { title, description, date, movements } = request.body as any
+
+    const wod = await prisma.wod.findFirst({ where: { id, class: { gymId: user.gymId } } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    try {
+      await prisma.wodMovement.deleteMany({ where: { wodId: id } })
+      const updated = await prisma.wod.update({
+        where: { id },
+        data: {
+          title,
+          description,
+          date: new Date(date),
+          movements: { create: movements },
+        },
+        include: { movements: true },
+      })
+      return reply.send(updated)
+    } catch (err) {
+      const msg = prismaErrorMessage(err)
+      return reply.status(400).send({ error: msg ?? 'Error al actualizar WOD' })
+    }
+  })
+
+  app.delete('/wods/:id', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    if (!['ADMIN', 'COACH'].includes(user.role)) return reply.status(403).send({ error: 'Sin permisos' })
+    const { id } = request.params as any
+    const wod = await prisma.wod.findFirst({ where: { id, class: { gymId: user.gymId } } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+    await prisma.wodMovement.deleteMany({ where: { wodId: id } })
+    await prisma.wod.delete({ where: { id } })
+    return reply.send({ ok: true })
   })
 
   app.post('/wods/import', { preHandler: authenticate }, async (request, reply) => {

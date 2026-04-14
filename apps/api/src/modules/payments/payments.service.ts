@@ -1,16 +1,88 @@
 import Stripe from 'stripe'
+import crypto from 'crypto'
 import { prisma } from '../../lib/prisma'
+import { emitirDTE, DteInput } from '../../lib/dte'
+import { sendPaymentConfirmation } from '../../lib/email'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-02-25.clover',
 })
 
-export async function createCheckoutSession(gymId: string, planId: string, userId: string) {
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+async function getGym(gymId: string) {
+  const gym = await prisma.gym.findUnique({ where: { id: gymId } })
+  if (!gym) throw new Error('Gimnasio no encontrado')
+  return gym
+}
+
+async function getPlan(planId: string, gymId: string) {
   const plan = await prisma.plan.findFirst({ where: { id: planId, gymId } })
   if (!plan) throw new Error('Plan no encontrado')
+  return plan
+}
 
+async function getUser(userId: string, gymId: string) {
   const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
   if (!user) throw new Error('Usuario no encontrado')
+  return user
+}
+
+async function activateMembership(userId: string, planId: string, paymentMethod: string, extraData?: Record<string, any>) {
+  const plan = await prisma.plan.findUnique({ where: { id: planId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  // Si tiene membresía vigente, extender desde su vencimiento (no desde hoy)
+  const existing = await prisma.membership.findFirst({
+    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gt: new Date() } },
+    orderBy: { endsAt: 'desc' },
+  })
+
+  const startsAt = existing ? existing.endsAt : new Date()
+  const endsAt = new Date(startsAt)
+  endsAt.setDate(endsAt.getDate() + plan.durationDays)
+
+  await prisma.membership.updateMany({
+    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
+    data: { status: 'INACTIVE' },
+  })
+
+  return prisma.membership.create({
+    data: {
+      userId, planId,
+      status: 'ACTIVE',
+      startsAt, endsAt,
+      pricePaid: plan.priceCents,
+      currency: plan.currency,
+      paidAt: new Date(),
+      paymentMethod,
+      ...extraData,
+    },
+  })
+}
+
+// ─── Gateway config helpers ──────────────────────────────────────────────────
+
+export async function getEnabledGateways(gymId: string): Promise<string[]> {
+  const gym = await getGym(gymId)
+  const gateways = (gym.paymentGateways as Record<string, any>) || {}
+  return Object.entries(gateways)
+    .filter(([, cfg]) => cfg?.enabled)
+    .map(([id]) => id)
+}
+
+function gatewayConfig(gym: any, gateway: string) {
+  const gateways = (gym.paymentGateways as Record<string, any>) || {}
+  const cfg = gateways[gateway]
+  if (!cfg?.enabled) throw new Error(`Pasarela ${gateway} no configurada o deshabilitada`)
+  return cfg
+}
+
+// ─── Stripe ──────────────────────────────────────────────────────────────────
+
+export async function createCheckoutSession(gymId: string, planId: string, userId: string) {
+  const plan = await getPlan(planId, gymId)
+  const user = await getUser(userId, gymId)
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
@@ -18,23 +90,57 @@ export async function createCheckoutSession(gymId: string, planId: string, userI
     line_items: [{
       price_data: {
         currency: plan.currency.toLowerCase(),
-        product_data: {
-          name: plan.name,
-          description: `Membresía ${plan.durationDays} días — ${plan.name}`,
-        },
+        product_data: { name: plan.name, description: `Membresía ${plan.durationDays} días — ${plan.name}` },
         unit_amount: plan.priceCents,
       },
       quantity: 1,
     }],
-    metadata: {
-      gymId,
-      planId,
-      userId,
-    },
+    metadata: { gymId, planId, userId },
     success_url: `${process.env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.FRONTEND_URL}/payment/cancelled`,
   })
 
+  return { url: session.url, sessionId: session.id }
+}
+
+export async function createSelfCheckout(userId: string, planId: string, autoRenew = false) {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user || !user.gymId) throw new Error('Usuario no encontrado')
+
+  const plan = await prisma.plan.findFirst({ where: { id: planId, gymId: user.gymId, isActive: true } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  // If auto-renewal requested, ensure we have a Stripe customer to attach methods to
+  let customerId = user.stripeCustomerId || undefined
+  if (autoRenew && !customerId) {
+    const customer = await stripe.customers.create({ email: user.email, name: user.name })
+    customerId = customer.id
+    await prisma.user.update({ where: { id: userId }, data: { stripeCustomerId: customerId } })
+  }
+
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    payment_method_types: ['card'],
+    mode: 'payment',
+    customer: customerId,
+    customer_email: customerId ? undefined : user.email,
+    line_items: [{
+      price_data: {
+        currency: plan.currency.toLowerCase(),
+        product_data: { name: plan.name, description: `Membresía ${plan.durationDays} días` },
+        unit_amount: plan.priceCents,
+      },
+      quantity: 1,
+    }],
+    metadata: { gymId: user.gymId, planId, userId, autoRenew: autoRenew ? '1' : '0' },
+    success_url: `${process.env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.FRONTEND_URL}/payment/cancelled`,
+  }
+
+  if (autoRenew && plan.autoRenewEnabled) {
+    sessionParams.payment_intent_data = { setup_future_usage: 'off_session' }
+  }
+
+  const session = await stripe.checkout.sessions.create(sessionParams)
   return { url: session.url, sessionId: session.id }
 }
 
@@ -50,37 +156,799 @@ export async function handleStripeWebhook(payload: Buffer, signature: string) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
-    const { gymId, planId, userId } = session.metadata || {}
+    const { type, gymId, planId, userId, subscriptionId } = session.metadata || {}
 
+    // Pago de suscripción de plataforma (gym paga a FitApp)
+    if (type === 'gym_subscription') {
+      if (!gymId || !planId || !subscriptionId) return { received: true }
+      await activateGymSubscriptionFromStripe(gymId, subscriptionId, planId, session.id)
+      return { received: true, type: 'gym_subscription', gymId }
+    }
+
+    // Pago de membresía de alumno (miembro paga al gym)
     if (!gymId || !planId || !userId) return { received: true }
 
     const plan = await prisma.plan.findUnique({ where: { id: planId } })
     if (!plan) return { received: true }
 
-    const startsAt = new Date()
-    const endsAt = new Date()
-    endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    const user = await prisma.user.findUnique({ where: { id: userId } })
 
-    await prisma.membership.updateMany({
-      where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
-      data: { status: 'INACTIVE' },
+    // Extract saved payment method if auto-renewal was requested
+    let stripePaymentMethodId: string | undefined
+    const wantsAutoRenew = session.metadata?.autoRenew === '1' && plan.autoRenewEnabled
+    if (wantsAutoRenew && session.payment_intent) {
+      try {
+        const pi = await stripe.paymentIntents.retrieve(session.payment_intent as string)
+        if (typeof pi.payment_method === 'string') {
+          stripePaymentMethodId = pi.payment_method
+        }
+      } catch { /* non-critical */ }
+    }
+
+    const nextAutoRenewAt = wantsAutoRenew && plan.autoRenewDaysBefore
+      ? (() => {
+          const d = new Date()
+          d.setDate(d.getDate() + plan.durationDays - plan.autoRenewDaysBefore)
+          return d
+        })()
+      : undefined
+
+    const membership = await activateMembership(userId, planId, 'stripe', {
+      autoRenew: wantsAutoRenew,
+      autoRenewConsent: wantsAutoRenew,
+      stripePaymentMethodId: stripePaymentMethodId ?? null,
+      nextAutoRenewAt: nextAutoRenewAt ?? null,
     })
 
-    await prisma.membership.create({
-      data: {
-        userId,
-        planId,
-        status: 'ACTIVE',
-        startsAt,
-        endsAt,
-        pricePaid: plan.priceCents,
-        currency: plan.currency,
-        paidAt: new Date(),
-      },
-    })
+    if (user) {
+      sendPaymentConfirmation(gymId, {
+        memberName: user.name, memberEmail: user.email, planName: plan.name,
+        amount: plan.priceCents, currency: plan.currency, paymentMethod: 'stripe', endsAt: membership.endsAt,
+      }).catch(err => console.error('[Email] Stripe:', err))
+    }
+
+    return { received: true, membershipId: membership.id }
   }
 
   return { received: true }
+}
+
+// ─── Auto-renewal ─────────────────────────────────────────────────────────────
+
+export async function chargeAutoRenewMembership(membership: any): Promise<void> {
+  const { id, userId, planId, stripePaymentMethodId } = membership
+  if (!stripePaymentMethodId) throw new Error('Sin método de pago guardado')
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user?.stripeCustomerId) throw new Error('Usuario sin customer Stripe')
+
+  const plan = await prisma.plan.findUnique({ where: { id: planId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  const pi = await stripe.paymentIntents.create({
+    amount: plan.priceCents,
+    currency: plan.currency.toLowerCase(),
+    customer: user.stripeCustomerId,
+    payment_method: stripePaymentMethodId,
+    off_session: true,
+    confirm: true,
+    description: `Auto-renovación: ${plan.name}`,
+    metadata: { membershipId: id, userId, planId, gymId: user.gymId ?? '' },
+  })
+
+  if (pi.status !== 'succeeded') {
+    throw new Error(`PaymentIntent status: ${pi.status}`)
+  }
+
+  // Activate new membership with auto-renewal carried forward
+  const autoRenewDaysBefore = plan.autoRenewDaysBefore
+  const newMembership = await activateMembership(userId, planId, 'stripe_auto', {
+    autoRenew: true,
+    autoRenewConsent: true,
+    stripePaymentMethodId,
+  })
+
+  const nextAutoRenewAt = new Date(newMembership.endsAt)
+  nextAutoRenewAt.setDate(nextAutoRenewAt.getDate() - autoRenewDaysBefore)
+  await prisma.membership.update({
+    where: { id: newMembership.id },
+    data: { nextAutoRenewAt },
+  })
+
+  if (user) {
+    sendPaymentConfirmation(user.gymId ?? '', {
+      memberName: user.name, memberEmail: user.email, planName: plan.name,
+      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'auto-renovación', endsAt: newMembership.endsAt,
+    }).catch(err => console.error('[Email] AutoRenew:', err))
+  }
+}
+
+// ─── Mercado Pago ─────────────────────────────────────────────────────────────
+
+export async function createMercadoPagoCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
+  const cfg = gatewayConfig(gym, 'mercadopago')
+
+  const body = {
+    items: [{
+      title: plan.name,
+      description: `Membresía ${plan.durationDays} días`,
+      quantity: 1,
+      unit_price: plan.priceCents / 100,
+      currency_id: plan.currency.toUpperCase(),
+    }],
+    payer: { email: user.email },
+    external_reference: `${gymId}|${planId}|${userId}`,
+    back_urls: {
+      success: `${process.env.FRONTEND_URL}/payment/success`,
+      failure: `${process.env.FRONTEND_URL}/payment/cancelled`,
+      pending: `${process.env.FRONTEND_URL}/payment/pending`,
+    },
+    auto_return: 'approved',
+    notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/webhook/mercadopago`,
+  }
+
+  const res = await fetch('https://api.mercadopago.com/checkout/preferences', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${cfg.accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Mercado Pago error: ${err}`)
+  }
+
+  const data = await res.json() as any
+  return { url: data.init_point, preferenceId: data.id }
+}
+
+export async function handleMercadoPagoWebhook(body: any) {
+  // MP sends: { action: "payment.updated", data: { id: "123" } }
+  if (body.action !== 'payment.created' && body.action !== 'payment.updated') return { received: true }
+
+  const paymentId = body.data?.id
+  if (!paymentId) return { received: true }
+
+  // Find which gym this belongs to by looking up the payment from MP
+  // We need the access token — we'll look it up from the external_reference
+  // For now, we'll handle this by checking all gyms (or storing gym in metadata)
+  // In production, use a signing secret per gym
+
+  try {
+    // We get the payment details from the notification URL gymId param
+    // The external_reference format is "gymId|planId|userId"
+    const gyms = await prisma.gym.findMany({
+      where: { paymentGateways: { not: {} } },
+      select: { id: true, paymentGateways: true },
+    })
+
+    for (const gym of gyms) {
+      const cfg = (gym.paymentGateways as any)?.mercadopago
+      if (!cfg?.enabled || !cfg?.accessToken) continue
+
+      const res = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+        headers: { 'Authorization': `Bearer ${cfg.accessToken}` },
+      })
+
+      if (!res.ok) continue
+      const payment = await res.json() as any
+
+      if (payment.status !== 'approved') continue
+
+      const ref: string = payment.external_reference || ''
+      const [gymId, planId, userId] = ref.split('|')
+      if (!gymId || !planId || !userId || gymId !== gym.id) continue
+
+      const plan = await prisma.plan.findUnique({ where: { id: planId } })
+      if (!plan) continue
+
+      // Check if membership already created
+      const existing = await prisma.membership.findFirst({
+        where: { userId, paymentNotes: `mp:${paymentId}` },
+      })
+      if (existing) return { received: true }
+
+      const membership = await activateMembership(userId, planId, 'mercadopago', {
+        paymentNotes: `mp:${paymentId}`,
+      })
+
+      const user = await prisma.user.findUnique({ where: { id: userId } })
+      if (user) {
+        const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+        sendPaymentConfirmation(gymId, {
+          memberName: user.name, memberEmail: user.email, planName: plan.name,
+          amount: plan.priceCents, currency: plan.currency, paymentMethod: 'mercadopago', endsAt,
+        }).catch(() => {})
+      }
+
+      return { received: true, membershipId: membership.id }
+    }
+  } catch (err) {
+    console.error('[MP Webhook]', err)
+  }
+
+  return { received: true }
+}
+
+// ─── Flow (Chile) ─────────────────────────────────────────────────────────────
+
+function flowSign(params: Record<string, string>, secretKey: string): string {
+  const keys = Object.keys(params).sort()
+  const str = keys.map(k => k + params[k]).join('')
+  return crypto.createHmac('sha256', secretKey).update(str).digest('hex')
+}
+
+export async function createFlowCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
+  const cfg = gatewayConfig(gym, 'flow')
+
+  const commerceOrder = `${gymId.slice(0, 8)}-${Date.now()}`
+  const baseUrl = cfg.sandbox
+    ? 'https://sandbox.flow.cl/api'
+    : 'https://www.flow.cl/api'
+
+  const params: Record<string, string> = {
+    apiKey: cfg.apiKey,
+    commerceOrder,
+    subject: plan.name,
+    currency: plan.currency.toUpperCase(),
+    amount: String(Math.round(plan.priceCents / 100)),
+    email: user.email,
+    paymentMethod: '9', // all methods
+    urlConfirmation: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/flow?gymId=${gymId}&planId=${planId}&userId=${userId}`,
+    urlReturn: `${process.env.FRONTEND_URL}/payment/success`,
+  }
+  params.s = flowSign(params, cfg.secretKey)
+
+  const form = new URLSearchParams(params)
+  const res = await fetch(`${baseUrl}/payment/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+  })
+
+  if (!res.ok) throw new Error(`Flow error: ${await res.text()}`)
+
+  const data = await res.json() as any
+  if (data.code && data.code !== 0) throw new Error(`Flow: ${data.message}`)
+
+  const redirectUrl = cfg.sandbox
+    ? `https://sandbox.flow.cl/app/web/pay.php?token=${data.token}`
+    : `https://www.flow.cl/app/web/pay.php?token=${data.token}`
+
+  return { url: redirectUrl, token: data.token, commerceOrder }
+}
+
+export async function handleFlowCallback(token: string, gymId: string, planId: string, userId: string) {
+  const gym = await getGym(gymId)
+  const cfg = gatewayConfig(gym, 'flow')
+
+  const baseUrl = cfg.sandbox ? 'https://sandbox.flow.cl/api' : 'https://www.flow.cl/api'
+  const params: Record<string, string> = { apiKey: cfg.apiKey, token }
+  params.s = flowSign(params, cfg.secretKey)
+
+  const res = await fetch(`${baseUrl}/payment/getStatus?${new URLSearchParams(params)}`)
+  if (!res.ok) throw new Error(`Flow getStatus error`)
+
+  const payment = await res.json() as any
+  if (payment.status !== 2) throw new Error(`Pago Flow no aprobado (status: ${payment.status})`)
+
+  const existing = await prisma.membership.findFirst({
+    where: { userId, paymentNotes: `flow:${token}` },
+  })
+  if (existing) return { received: true, membershipId: existing.id }
+
+  const plan = await prisma.plan.findUnique({ where: { id: planId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  const membership = await activateMembership(userId, planId, 'flow', { paymentNotes: `flow:${token}` })
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (user) {
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    sendPaymentConfirmation(gymId, {
+      memberName: user.name, memberEmail: user.email, planName: plan.name,
+      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'flow', endsAt,
+    }).catch(() => {})
+  }
+
+  return { received: true, membershipId: membership.id }
+}
+
+// ─── Khipu (Chile) ───────────────────────────────────────────────────────────
+
+function khipuSign(method: string, url: string, body: string, secret: string): string {
+  const bodyHash = crypto.createHash('sha256').update(body).digest('hex')
+  const msg = `${method}\n${url}\n${bodyHash}`
+  return crypto.createHmac('sha256', secret).update(msg).digest('hex')
+}
+
+export async function createKhipuCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
+  const cfg = gatewayConfig(gym, 'khipu')
+
+  const url = 'https://khipu.com/api/2.0/payments'
+  const params = new URLSearchParams({
+    subject: plan.name,
+    currency: plan.currency.toUpperCase(),
+    amount: String(plan.priceCents / 100),
+    payer_email: user.email,
+    return_url: `${process.env.FRONTEND_URL}/payment/success`,
+    cancel_url: `${process.env.FRONTEND_URL}/payment/cancelled`,
+    notify_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/khipu?gymId=${gymId}&planId=${planId}&userId=${userId}`,
+    custom: `${gymId}|${planId}|${userId}`,
+  })
+
+  const body = params.toString()
+  const sig = khipuSign('POST', url, body, cfg.secret)
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `${cfg.receiverId}:${sig}`,
+    },
+    body,
+  })
+
+  if (!res.ok) throw new Error(`Khipu error: ${await res.text()}`)
+  const data = await res.json() as any
+  return { url: data.payment_url, paymentId: data.payment_id }
+}
+
+export async function handleKhipuCallback(body: any, gymId: string, planId: string, userId: string) {
+  const gym = await getGym(gymId)
+  const cfg = gatewayConfig(gym, 'khipu')
+
+  const paymentId: string = body.payment_id
+  if (!paymentId) throw new Error('Sin payment_id de Khipu')
+
+  const url = `https://khipu.com/api/2.0/payments/${paymentId}`
+  const sig = khipuSign('GET', url, '', cfg.secret)
+
+  const res = await fetch(url, {
+    headers: { 'Authorization': `${cfg.receiverId}:${sig}` },
+  })
+
+  if (!res.ok) throw new Error('Error verificando pago Khipu')
+  const payment = await res.json() as any
+
+  if (payment.status !== 'done') throw new Error(`Pago Khipu no completado (${payment.status})`)
+
+  const existing = await prisma.membership.findFirst({
+    where: { userId, paymentNotes: `khipu:${paymentId}` },
+  })
+  if (existing) return { received: true, membershipId: existing.id }
+
+  const plan = await prisma.plan.findUnique({ where: { id: planId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  const membership = await activateMembership(userId, planId, 'khipu', { paymentNotes: `khipu:${paymentId}` })
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (user) {
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    sendPaymentConfirmation(gymId, {
+      memberName: user.name, memberEmail: user.email, planName: plan.name,
+      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'khipu', endsAt,
+    }).catch(() => {})
+  }
+
+  return { received: true, membershipId: membership.id }
+}
+
+// ─── PayU LATAM ───────────────────────────────────────────────────────────────
+
+function payuSignature(apiKey: string, merchantId: string, referenceCode: string, amount: string, currency: string): string {
+  return crypto.createHash('md5').update(`${apiKey}~${merchantId}~${referenceCode}~${amount}~${currency}`).digest('hex')
+}
+
+export async function createPayUCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
+  const cfg = gatewayConfig(gym, 'payu')
+
+  const referenceCode = `${gymId.slice(0, 8)}-${Date.now()}`
+  const amount = (plan.priceCents / 100).toFixed(2)
+  const currency = plan.currency.toUpperCase()
+  const signature = payuSignature(cfg.apiKey, cfg.merchantId, referenceCode, amount, currency)
+
+  const baseUrl = cfg.sandbox
+    ? 'https://sandbox.checkout.payulatam.com/ppp-web-gateway-payu/'
+    : 'https://checkout.payulatam.com/ppp-web-gateway-payu/'
+
+  const params = new URLSearchParams({
+    merchantId: cfg.merchantId,
+    accountId: cfg.accountId,
+    description: plan.name,
+    referenceCode,
+    amount,
+    currency,
+    signature,
+    test: cfg.sandbox ? '1' : '0',
+    buyerEmail: user.email,
+    buyerFullName: user.name,
+    confirmationUrl: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/payu?gymId=${gymId}&planId=${planId}&userId=${userId}`,
+    responseUrl: `${process.env.FRONTEND_URL}/payment/success`,
+  })
+
+  // PayU requires a form POST — return URL + params for frontend to build the form
+  return { url: baseUrl, params: Object.fromEntries(params), referenceCode }
+}
+
+export async function handlePayUCallback(body: any, gymId: string, planId: string, userId: string) {
+  const gym = await getGym(gymId)
+  const cfg = gatewayConfig(gym, 'payu')
+
+  // PayU sends: transactionState (4=Approved), referenceCode, TX_VALUE, currency, signature
+  const { transactionState, referenceCode, TX_VALUE, currency, sign } = body
+
+  if (transactionState !== '4') throw new Error(`Pago PayU no aprobado (estado: ${transactionState})`)
+
+  // Verify signature: MD5(apiKey~merchantId~referenceCode~TX_VALUE~currency~transactionState)
+  const expected = crypto
+    .createHash('md5')
+    .update(`${cfg.apiKey}~${cfg.merchantId}~${referenceCode}~${TX_VALUE}~${currency}~${transactionState}`)
+    .digest('hex')
+
+  if (sign && sign.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error('Firma PayU inválida')
+  }
+
+  const existing = await prisma.membership.findFirst({
+    where: { userId, paymentNotes: `payu:${referenceCode}` },
+  })
+  if (existing) return { received: true, membershipId: existing.id }
+
+  const plan = await prisma.plan.findUnique({ where: { id: planId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  const membership = await activateMembership(userId, planId, 'payu', { paymentNotes: `payu:${referenceCode}` })
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (user) {
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    sendPaymentConfirmation(gymId, {
+      memberName: user.name, memberEmail: user.email, planName: plan.name,
+      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'payu', endsAt,
+    }).catch(() => {})
+  }
+
+  return { received: true, membershipId: membership.id }
+}
+
+// ─── Kushki ───────────────────────────────────────────────────────────────────
+
+export async function createKushkiCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
+  const cfg = gatewayConfig(gym, 'kushki')
+
+  const baseUrl = cfg.sandbox
+    ? 'https://api-uat.kushkipagos.com'
+    : 'https://api.kushkipagos.com'
+
+  const body = {
+    amount: {
+      subtotalIva: 0,
+      iva: 0,
+      subtotalIva0: plan.priceCents / 100,
+    },
+    currency: plan.currency.toUpperCase(),
+    description: plan.name,
+    redirectURL: `${process.env.FRONTEND_URL}/payment/success`,
+    cancelURL: `${process.env.FRONTEND_URL}/payment/cancelled`,
+    callbackURL: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/kushki?gymId=${gymId}&planId=${planId}&userId=${userId}`,
+    userType: '0',
+    paymentDescription: `Membresía ${plan.durationDays} días — ${plan.name}`,
+  }
+
+  const res = await fetch(`${baseUrl}/card/v1/charges`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Private-Merchant-Id': cfg.privateMerchantId,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) throw new Error(`Kushki error: ${await res.text()}`)
+  const data = await res.json() as any
+
+  if (!data.redirectURL && !data.payment_url) {
+    throw new Error('Kushki no devolvió URL de pago')
+  }
+
+  return { url: data.redirectURL || data.payment_url, chargeToken: data.ticketNumber }
+}
+
+export async function handleKushkiCallback(body: any, gymId: string, planId: string, userId: string) {
+  const { ticketNumber, transactionStatus } = body
+
+  if (transactionStatus && transactionStatus !== 'APPROVAL') {
+    throw new Error(`Pago Kushki no aprobado (${transactionStatus})`)
+  }
+
+  const existing = await prisma.membership.findFirst({
+    where: { userId, paymentNotes: `kushki:${ticketNumber}` },
+  })
+  if (existing) return { received: true, membershipId: existing.id }
+
+  const plan = await prisma.plan.findUnique({ where: { id: planId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  const membership = await activateMembership(userId, planId, 'kushki', { paymentNotes: `kushki:${ticketNumber}` })
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (user) {
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    sendPaymentConfirmation(gymId, {
+      memberName: user.name, memberEmail: user.email, planName: plan.name,
+      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'kushki', endsAt,
+    }).catch(() => {})
+  }
+
+  return { received: true, membershipId: membership.id }
+}
+
+// ─── OpenPay (México / Colombia) ──────────────────────────────────────────────
+
+export async function createOpenPayCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
+  const cfg = gatewayConfig(gym, 'openpay')
+
+  const baseUrl = cfg.sandbox
+    ? `https://sandbox-api.openpay.mx/v1/${cfg.merchantId}`
+    : `https://api.openpay.mx/v1/${cfg.merchantId}`
+
+  const orderId = `${gymId.slice(0, 8)}-${Date.now()}`
+  const credentials = Buffer.from(`${cfg.privateKey}:`).toString('base64')
+
+  const body = {
+    method: 'card',
+    amount: plan.priceCents / 100,
+    currency: plan.currency.toUpperCase(),
+    description: plan.name,
+    order_id: orderId,
+    redirect_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/openpay?gymId=${gymId}&planId=${planId}&userId=${userId}&orderId=${orderId}`,
+    customer: {
+      name: user.name,
+      email: user.email,
+    },
+  }
+
+  const res = await fetch(`${baseUrl}/charges`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Basic ${credentials}`,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) throw new Error(`OpenPay error: ${await res.text()}`)
+  const data = await res.json() as any
+
+  const paymentUrl = data.payment_method?.url || data.redirect_url
+  if (!paymentUrl) throw new Error('OpenPay no devolvió URL de pago')
+
+  return { url: paymentUrl, transactionId: data.id, orderId }
+}
+
+export async function handleOpenPayCallback(query: any) {
+  const { gymId, planId, userId, orderId } = query
+  if (!gymId || !planId || !userId || !orderId) throw new Error('Parámetros incompletos')
+
+  const gym = await getGym(gymId)
+  const cfg = gatewayConfig(gym, 'openpay')
+
+  const baseUrl = cfg.sandbox
+    ? `https://sandbox-api.openpay.mx/v1/${cfg.merchantId}`
+    : `https://api.openpay.mx/v1/${cfg.merchantId}`
+
+  const credentials = Buffer.from(`${cfg.privateKey}:`).toString('base64')
+
+  // Verify charge by orderId
+  const res = await fetch(`${baseUrl}/charges?order_id=${orderId}`, {
+    headers: { 'Authorization': `Basic ${credentials}` },
+  })
+  if (!res.ok) throw new Error('Error verificando pago OpenPay')
+
+  const charges = await res.json() as any
+  const charge = Array.isArray(charges) ? charges[0] : charges
+
+  if (!charge || charge.status !== 'completed') {
+    throw new Error(`Pago OpenPay no completado (${charge?.status})`)
+  }
+
+  const existing = await prisma.membership.findFirst({
+    where: { userId, paymentNotes: `openpay:${charge.id}` },
+  })
+  if (existing) return { received: true, membershipId: existing.id }
+
+  const plan = await prisma.plan.findUnique({ where: { id: planId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  const membership = await activateMembership(userId, planId, 'openpay', { paymentNotes: `openpay:${charge.id}` })
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (user) {
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    sendPaymentConfirmation(gymId, {
+      memberName: user.name, memberEmail: user.email, planName: plan.name,
+      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'openpay', endsAt,
+    }).catch(() => {})
+  }
+
+  return { received: true, membershipId: membership.id }
+}
+
+// ─── Manual / existing ───────────────────────────────────────────────────────
+
+// ─── MACH Business (Chile) ────────────────────────────────────────────────────
+
+const MACH_API = 'https://biz.soymach.com/api/v1'
+
+export async function createMachCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
+  const cfg = gatewayConfig(gym, 'mach')
+
+  const externalId = `${gymId.slice(0, 8)}-${planId.slice(0, 8)}-${userId.slice(0, 8)}-${Date.now()}`
+  const amountCLP = Math.round(plan.priceCents / 100)
+
+  const body = {
+    amount: amountCLP,
+    currency: 'CLP',
+    description: `${plan.name} — ${plan.durationDays} días`,
+    external_id: externalId,
+    payer_email: user.email,
+    callback_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/webhook/mach`,
+    redirect_url: `${process.env.FRONTEND_URL}/payment/success`,
+  }
+
+  const res = await fetch(`${MACH_API}/payment-links`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${cfg.apiKey}`,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`MACH Business error: ${err}`)
+  }
+
+  const data = await res.json() as any
+
+  // Store pending reference for webhook matching
+  // external_id format: gymId8-planId8-userId8-timestamp
+  return { url: data.payment_url || data.url, externalId, linkId: data.id }
+}
+
+export async function handleMachWebhook(body: any) {
+  // MACH notifies with { status, external_id, payment_id, amount }
+  const { status, external_id, payment_id, amount } = body
+
+  if (status !== 'PAID' && status !== 'COMPLETED') return { received: true }
+  if (!external_id) return { received: true }
+
+  // Parse external_id: gymId8-planId8-userId8-timestamp
+  // We need to look up full IDs by prefix
+  const parts = external_id.split('-')
+  if (parts.length < 3) return { received: true }
+
+  const gymPrefix = parts[0]
+  const planPrefix = parts[1]
+  const userPrefix = parts[2]
+
+  // Find gym by prefix
+  const gym = await prisma.gym.findFirst({
+    where: { id: { startsWith: gymPrefix } },
+  })
+  if (!gym) return { received: true }
+
+  // Verify with MACH API using gym's apiKey
+  const cfg = (gym.paymentGateways as any)?.mach
+  if (!cfg?.enabled || !cfg?.apiKey) return { received: true }
+
+  // Idempotency check
+  const existing = await prisma.membership.findFirst({
+    where: { paymentNotes: `mach:${payment_id}` },
+  })
+  if (existing) return { received: true, membershipId: existing.id }
+
+  // Find plan and user by prefix
+  const plan = await prisma.plan.findFirst({
+    where: { gymId: gym.id, id: { startsWith: planPrefix } },
+  })
+  const user = await prisma.user.findFirst({
+    where: { gymId: gym.id, id: { startsWith: userPrefix } },
+  })
+  if (!plan || !user) return { received: true }
+
+  const membership = await activateMembership(user.id, plan.id, 'mach', {
+    paymentNotes: `mach:${payment_id}`,
+  })
+
+  sendPaymentConfirmation(gym.id, {
+    memberName: user.name, memberEmail: user.email, planName: plan.name,
+    amount: plan.priceCents, currency: plan.currency, paymentMethod: 'mach', endsAt: membership.endsAt,
+  }).catch(err => console.error('[Email] MACH:', err))
+
+  return { received: true, membershipId: membership.id }
+}
+
+export async function registerManualPayment(
+  gymId: string, userId: string, planId: string,
+  paymentMethod: string, paymentNotes?: string,
+  invoiceType?: string, receiverRut?: string, receiverName?: string,
+) {
+  const user = await getUser(userId, gymId)
+  const plan = await getPlan(planId, gymId)
+  const gym = await getGym(gymId)
+
+  const existingManual = await prisma.membership.findFirst({
+    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gt: new Date() } },
+    orderBy: { endsAt: 'desc' },
+  })
+  const startsAt = existingManual ? existingManual.endsAt : new Date()
+  const endsAt = new Date(startsAt)
+  endsAt.setDate(endsAt.getDate() + plan.durationDays)
+
+  await prisma.membership.updateMany({
+    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
+    data: { status: 'INACTIVE' },
+  })
+
+  let invoicePdfUrl: string | null = null
+  let invoiceNumber: number | null = null
+  let finalInvoiceType: string | null = invoiceType || null
+
+  if (invoiceType === 'boleta' || invoiceType === 'factura') {
+    const dteInput: DteInput = {
+      invoiceType: invoiceType as 'boleta' | 'factura',
+      priceCents: plan.priceCents,
+      currency: plan.currency,
+      planName: plan.name,
+      planDays: plan.durationDays,
+      receiverRut,
+      receiverName,
+      receiverEmail: user.email,
+    }
+    const dteResult = await emitirDTE(gym, dteInput)
+    if (dteResult) {
+      invoicePdfUrl = dteResult.invoicePdfUrl
+      invoiceNumber = dteResult.invoiceNumber
+    }
+  }
+
+  const membership = await prisma.membership.create({
+    data: {
+      userId, planId,
+      status: 'ACTIVE', startsAt, endsAt,
+      pricePaid: plan.priceCents, currency: plan.currency,
+      paidAt: new Date(), paymentMethod,
+      paymentNotes: paymentNotes || null,
+      invoiceType: finalInvoiceType, invoicePdfUrl, invoiceNumber,
+      invoiceReceiverRut: receiverRut || null, invoiceReceiverName: receiverName || null,
+    },
+    include: {
+      plan: { select: { name: true, durationDays: true } },
+      user: { select: { name: true, email: true } },
+    },
+  })
+
+  sendPaymentConfirmation(gymId, {
+    memberName: user.name, memberEmail: user.email, planName: plan.name,
+    amount: plan.priceCents, currency: plan.currency, paymentMethod, endsAt,
+    invoicePdfUrl, invoiceType: finalInvoiceType, invoiceNumber,
+  }).catch(err => console.error('[Email] Manual:', err))
+
+  return membership
 }
 
 export async function getPaymentHistory(gymId: string) {
@@ -95,32 +963,281 @@ export async function getPaymentHistory(gymId: string) {
   })
 }
 
+export async function getMemberMemberships(userId: string) {
+  return prisma.membership.findMany({
+    where: { userId },
+    include: { plan: { select: { name: true, durationDays: true, priceCents: true, currency: true } } },
+    orderBy: { createdAt: 'desc' },
+  })
+}
+
 export async function getRevenueStats(gymId: string) {
   const now = new Date()
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-  const startOfDay = new Date(now.setHours(0, 0, 0, 0))
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
   const [todayPayments, monthPayments, allPayments] = await Promise.all([
-    prisma.membership.findMany({
-      where: { user: { gymId }, paidAt: { gte: startOfDay } },
-      select: { pricePaid: true, currency: true },
-    }),
-    prisma.membership.findMany({
-      where: { user: { gymId }, paidAt: { gte: startOfMonth } },
-      select: { pricePaid: true, currency: true },
-    }),
-    prisma.membership.findMany({
-      where: { user: { gymId }, paidAt: { not: null } },
-      select: { pricePaid: true, currency: true },
-    }),
+    prisma.membership.findMany({ where: { user: { gymId }, paidAt: { gte: startOfDay } }, select: { pricePaid: true } }),
+    prisma.membership.findMany({ where: { user: { gymId }, paidAt: { gte: startOfMonth } }, select: { pricePaid: true } }),
+    prisma.membership.findMany({ where: { user: { gymId }, paidAt: { not: null } }, select: { pricePaid: true } }),
   ])
 
-  const sum = (payments: { pricePaid: number }[]) =>
-    payments.reduce((acc, p) => acc + p.pricePaid, 0)
+  const sum = (p: { pricePaid: number }[]) => p.reduce((a, x) => a + x.pricePaid, 0)
 
   return {
     today: { total: sum(todayPayments), count: todayPayments.length },
     month: { total: sum(monthPayments), count: monthPayments.length },
     allTime: { total: sum(allPayments), count: allPayments.length },
   }
+}
+
+// ─── Transferencia bancaria — flujo alumno/admin ───────────────────────────
+
+export async function submitTransferReceipt(gymId: string, userId: string, planId: string, receiptUrl: string) {
+  const plan = await prisma.plan.findFirst({ where: { id: planId, gymId } })
+  if (!plan) throw new Error('Plan no encontrado')
+
+  const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
+  if (!user) throw new Error('Usuario no encontrado')
+
+  // Desactivar membresías activas anteriores
+  await prisma.membership.updateMany({
+    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
+    data: { status: 'INACTIVE' },
+  })
+
+  const startsAt = new Date()
+  const endsAt = new Date()
+  endsAt.setDate(endsAt.getDate() + plan.durationDays)
+
+  return prisma.membership.create({
+    data: {
+      userId, planId,
+      status: 'INACTIVE',           // queda inactivo hasta que admin confirme
+      startsAt, endsAt,
+      pricePaid: plan.priceCents,
+      currency: plan.currency,
+      paymentMethod: 'transfer',
+      transferReceiptUrl: receiptUrl,
+      transferStatus: 'PENDING_REVIEW',
+    },
+    include: { plan: { select: { name: true, durationDays: true } } },
+  })
+}
+
+export async function getPendingTransfers(gymId: string) {
+  return prisma.membership.findMany({
+    where: {
+      transferStatus: 'PENDING_REVIEW',
+      user: { gymId },
+    },
+    include: {
+      user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      plan: { select: { name: true, durationDays: true, priceCents: true, currency: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
+export async function confirmTransfer(gymId: string, membershipId: string, notes?: string) {
+  const membership = await prisma.membership.findFirst({
+    where: { id: membershipId, user: { gymId } },
+    include: { user: true, plan: true },
+  })
+  if (!membership) throw new Error('Membresía no encontrada')
+  if (membership.transferStatus !== 'PENDING_REVIEW') throw new Error('Esta transferencia ya fue procesada')
+
+  // Extender desde membresía vigente si la hay (o desde la fecha original del comprobante)
+  const existingTransfer = await prisma.membership.findFirst({
+    where: { userId: membership.userId, id: { not: membershipId }, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gt: new Date() } },
+    orderBy: { endsAt: 'desc' },
+  })
+  const baseDate = existingTransfer ? existingTransfer.endsAt : new Date()
+  const endsAt = new Date(baseDate)
+  endsAt.setDate(endsAt.getDate() + membership.plan.durationDays)
+
+  const updated = await prisma.membership.update({
+    where: { id: membershipId },
+    data: {
+      status: 'ACTIVE',
+      transferStatus: 'CONFIRMED',
+      paidAt: new Date(),
+      endsAt,
+      ...(notes && { paymentNotes: notes }),
+    },
+  })
+
+  // Notificación email al alumno
+  const { user, plan } = membership
+  sendPaymentConfirmation(gymId, {
+    memberName: user.name,
+    memberEmail: user.email,
+    planName: plan.name,
+    amount: plan.priceCents,
+    currency: plan.currency,
+    paymentMethod: 'transfer',
+    endsAt,
+  }).catch(() => {})
+
+  return updated
+}
+
+export async function rejectTransfer(gymId: string, membershipId: string, reason?: string) {
+  const membership = await prisma.membership.findFirst({
+    where: { id: membershipId, user: { gymId } },
+  })
+  if (!membership) throw new Error('Membresía no encontrada')
+  if (membership.transferStatus !== 'PENDING_REVIEW') throw new Error('Esta transferencia ya fue procesada')
+
+  return prisma.membership.update({
+    where: { id: membershipId },
+    data: {
+      status: 'INACTIVE',
+      transferStatus: 'REJECTED',
+      ...(reason && { paymentNotes: reason }),
+    },
+  })
+}
+
+// ─── Gym Platform Subscription Checkout ──────────────────────────────────────
+
+export async function createGymSubscriptionCheckout(gymId: string, planId: string) {
+  const [gym, fitPlan] = await Promise.all([
+    prisma.gym.findUnique({ where: { id: gymId } }),
+    prisma.fitAppPlan.findUnique({ where: { id: planId } }),
+  ])
+  if (!gym) throw new Error('Gimnasio no encontrado')
+  if (!fitPlan) throw new Error('Plan no encontrado')
+
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+
+  // Crear o recuperar Stripe Customer para el gym
+  let stripeCustomerId = gym.stripeCustomerId
+  if (!stripeCustomerId) {
+    const customer = await stripe.customers.create({
+      name: gym.name,
+      email: gym.ownerEmail || undefined,
+      metadata: { gymId: gym.id },
+    })
+    stripeCustomerId = customer.id
+    await prisma.gym.update({ where: { id: gymId }, data: { stripeCustomerId } })
+  }
+
+  // Crear GymSubscription pendiente si no existe una activa/trial
+  let subscription = await prisma.gymSubscription.findFirst({
+    where: { gymId, status: { in: ['TRIAL', 'ACTIVE', 'EXPIRED'] } },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!subscription) {
+    const now = new Date()
+    subscription = await prisma.gymSubscription.create({
+      data: { gymId, planId, status: 'EXPIRED', startsAt: now, endsAt: now },
+    })
+  }
+
+  // Precio: CLP es zero-decimal en Stripe (no multiplicar x100), USD sí
+  const isZeroDecimal = ['CLP', 'JPY', 'KRW'].includes('CLP')
+  const unitAmount = isZeroDecimal ? fitPlan.priceCLP : fitPlan.priceUSD * 100
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    customer: stripeCustomerId,
+    line_items: [{
+      price_data: {
+        currency: 'clp',
+        product_data: {
+          name: `FitApp ${fitPlan.name}`,
+          description: `Suscripción plataforma — ${fitPlan.durationDays} días`,
+        },
+        unit_amount: unitAmount,
+      },
+      quantity: 1,
+    }],
+    metadata: {
+      type: 'gym_subscription',
+      gymId,
+      subscriptionId: subscription.id,
+      planId,
+    },
+    success_url: `${frontendUrl}/dashboard?subscription=success`,
+    cancel_url: `${frontendUrl}/dashboard?subscription=cancelled`,
+  })
+
+  // Guardar el checkout session id
+  await prisma.gymSubscription.update({
+    where: { id: subscription.id },
+    data: { stripeCheckoutSessionId: session.id },
+  })
+
+  return { checkoutUrl: session.url, sessionId: session.id }
+}
+
+export async function getGymSubscriptionStatus(gymId: string) {
+  const [gym, subscription] = await Promise.all([
+    prisma.gym.findUnique({ where: { id: gymId }, select: { id: true, name: true, status: true } }),
+    prisma.gymSubscription.findFirst({
+      where: { gymId, status: { in: ['TRIAL', 'ACTIVE', 'EXPIRED'] } },
+      include: { plan: { select: { id: true, name: true, slug: true, priceCLP: true, durationDays: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+  if (!gym) throw new Error('Gimnasio no encontrado')
+
+  const now = new Date()
+  const daysLeft = subscription
+    ? Math.max(0, Math.ceil((subscription.endsAt.getTime() - now.getTime()) / 86400000))
+    : 0
+
+  return { gym, subscription, daysLeft, isExpired: !subscription || subscription.endsAt < now }
+}
+
+export async function activateGymSubscriptionFromStripe(
+  gymId: string,
+  subscriptionId: string,
+  planId: string,
+  stripeSessionId: string,
+) {
+  const fitPlan = await prisma.fitAppPlan.findUnique({ where: { id: planId } })
+  if (!fitPlan) return
+
+  const now = new Date()
+
+  // Si hay suscripción vigente, extender desde su vencimiento
+  const currentSub = await prisma.gymSubscription.findFirst({
+    where: { gymId, status: { in: ['TRIAL', 'ACTIVE'] }, endsAt: { gt: now }, id: { not: subscriptionId } },
+    orderBy: { endsAt: 'desc' },
+  })
+  const baseDate = currentSub ? currentSub.endsAt : now
+  const endsAt = new Date(baseDate)
+  endsAt.setDate(endsAt.getDate() + fitPlan.durationDays)
+
+  // Cancelar suscripciones anteriores activas
+  await prisma.gymSubscription.updateMany({
+    where: { gymId, status: { in: ['TRIAL', 'ACTIVE'] }, id: { not: subscriptionId } },
+    data: { status: 'CANCELLED' },
+  })
+
+  // Activar la suscripción pagada
+  await prisma.gymSubscription.update({
+    where: { id: subscriptionId },
+    data: { status: 'ACTIVE', startsAt: baseDate, endsAt, stripeCheckoutSessionId: stripeSessionId },
+  })
+
+  // Activar el gym
+  await prisma.gym.update({ where: { id: gymId }, data: { status: 'ACTIVE' } })
+
+  // Registrar el pago
+  await prisma.gymSubscriptionPayment.create({
+    data: {
+      gymId,
+      subscriptionId,
+      planId,
+      amount: fitPlan.priceCLP,
+      currency: 'CLP',
+      gateway: 'stripe',
+      gatewayOrderId: stripeSessionId,
+      status: 'PAID',
+      paidAt: now,
+    },
+  })
 }

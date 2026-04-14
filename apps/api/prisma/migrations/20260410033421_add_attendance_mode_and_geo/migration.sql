@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Gym" ADD COLUMN     "attendanceMode" TEXT NOT NULL DEFAULT 'manual',
+ADD COLUMN     "gymLat" DOUBLE PRECISION,
+ADD COLUMN     "gymLng" DOUBLE PRECISION,
+ADD COLUMN     "gymRadiusMeters" INTEGER NOT NULL DEFAULT 200;

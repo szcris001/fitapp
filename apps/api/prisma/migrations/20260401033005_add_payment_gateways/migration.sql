@@ -1,0 +1,1 @@
+ALTER TABLE "Gym" ADD COLUMN "paymentGateways" JSONB NOT NULL DEFAULT '{}';

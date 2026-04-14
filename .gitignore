@@ -1,3 +1,35 @@
-node_modules\n.next\n.expo\ndist\nbuild\n*.env\nuploads\npublic/movements
-node_modules
-node_modules
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.next/
+.expo/
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Uploads / generated files
+uploads/
+public/movements/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prisma generated client
+apps/api/src/generated/
+
+# Turbo cache
+.turbo/
+
+# Vim swap files
+*.swo
+*.swp
+
+# Logs
+*.log
+npm-debug.log*

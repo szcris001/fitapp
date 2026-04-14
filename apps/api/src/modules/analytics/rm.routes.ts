@@ -6,6 +6,7 @@ import {
   getRmsByUser, createRm, getGymRmEvolution,
   getGymnasticProgressByUser, createGymnasticProgress,
 } from './rm.service'
+import { prismaErrorMessage } from '../../lib/prismaError'
 
 export async function rmRoutes(app: FastifyInstance) {
   app.get('/rms/me', { preHandler: authenticate }, async (request, reply) => {
@@ -33,6 +34,66 @@ export async function rmRoutes(app: FastifyInstance) {
   app.get('/rms/gym-evolution', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     return reply.send(await getGymRmEvolution(user.gymId))
+  })
+
+  // ── Estadísticas mensuales del gym (últimos 6 meses) ─────────────────────
+  app.get('/analytics/gym-stats', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const gymId = user.gymId
+
+    // Últimos 6 meses
+    const months: { label: string; start: Date; end: Date }[] = []
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(1)
+      d.setMonth(d.getMonth() - i)
+      d.setHours(0, 0, 0, 0)
+      const end = new Date(d)
+      end.setMonth(end.getMonth() + 1)
+      end.setMilliseconds(-1)
+      months.push({
+        label: d.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' }),
+        start: new Date(d),
+        end,
+      })
+    }
+
+    const [memberRows, attendanceRows, revenueRows] = await Promise.all([
+      // Nuevos miembros (usuarios creados en el gym)
+      Promise.all(months.map(m =>
+        prisma.user.count({ where: { gymId, role: 'MEMBER', createdAt: { gte: m.start, lte: m.end } } })
+      )),
+      // Asistencias (bookings ATTENDED)
+      Promise.all(months.map(m =>
+        prisma.booking.count({
+          where: { status: 'ATTENDED', class: { gymId, startsAt: { gte: m.start, lte: m.end } } },
+        })
+      )),
+      // Ingresos (membresías pagadas)
+      Promise.all(months.map(m =>
+        prisma.membership.aggregate({
+          where: { user: { gymId }, paidAt: { gte: m.start, lte: m.end } },
+          _sum: { pricePaid: true },
+        }).then(r => Math.round((r._sum.pricePaid ?? 0) / 100))
+      )),
+    ])
+
+    const [totalMembers, activeMembers, totalClasses, attendedBookings] = await Promise.all([
+      prisma.user.count({ where: { gymId, role: 'MEMBER' } }),
+      prisma.membership.count({ where: { user: { gymId }, status: 'ACTIVE', endsAt: { gte: new Date() } } }),
+      prisma.class.count({ where: { gymId } }),
+      prisma.booking.count({ where: { status: 'ATTENDED', class: { gymId } } }),
+    ])
+
+    return reply.send({
+      kpis: { totalMembers, activeMembers, totalClasses, attendedBookings },
+      months: months.map((m, i) => ({
+        label: m.label,
+        newMembers: memberRows[i],
+        attendances: attendanceRows[i],
+        revenueCLP: revenueRows[i],
+      })),
+    })
   })
 
   app.get('/gymnastic-progress/me', { preHandler: authenticate }, async (request, reply) => {
@@ -82,10 +143,16 @@ export async function rmRoutes(app: FastifyInstance) {
       })
       const evidenceType = data.mimetype.startsWith('video') ? 'video' : 'image'
       const evidenceUrl = `/uploads/evidence/${filename}`
-      const updated = await prisma.gymnasticProgress.update({
-        where: { id },
-        data: { evidenceUrl, evidenceType }
-      })
+      let updated
+      try {
+        updated = await prisma.gymnasticProgress.update({
+          where: { id },
+          data: { evidenceUrl, evidenceType }
+        })
+      } catch (err) {
+        const msg = prismaErrorMessage(err)
+        return reply.status(400).send({ error: msg ?? 'Error al guardar la evidencia' })
+      }
       return reply.send(updated)
     } catch (err: any) {
       return reply.status(500).send({ error: err.message })

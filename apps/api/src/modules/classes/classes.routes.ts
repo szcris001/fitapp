@@ -1,8 +1,9 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { createClassTypeSchema, createClassSchema, bookingSchema } from './classes.schema'
-import { listClassTypes, createClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, getAttendanceBySchedule } from './classes.service'
+import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass } from './classes.service'
 import { prisma } from '../../lib/prisma'
+import { prismaErrorMessage } from '../../lib/prismaError'
 
 export async function classRoutes(app: FastifyInstance) {
   app.get('/class-types', { preHandler: authenticate }, async (request, reply) => {
@@ -17,12 +18,35 @@ export async function classRoutes(app: FastifyInstance) {
     return reply.status(201).send(await createClassType(user.gymId, parsed.data))
   })
 
+  app.put('/class-types/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+    const parsed = createClassTypeSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      return reply.send(await updateClassType(user.gymId, id, parsed.data))
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  app.delete('/class-types/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+    try {
+      await deleteClassType(user.gymId, id)
+      return reply.status(204).send()
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
   app.get('/classes', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { from, to } = request.query as any
     const classes = await listClasses(user.gymId, from, to)
     const myBookings = await prisma.booking.findMany({
-      where: { userId: user.userId, class: { gymId: user.gymId }, status: { in: ['CONFIRMED', 'ATTENDED'] } },
+      where: { userId: user.userId, class: { gymId: user.gymId }, status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] } },
       select: { classId: true, status: true },
     })
     const bookedClassIds = new Set(myBookings.map(b => b.classId))
@@ -58,6 +82,30 @@ export async function classRoutes(app: FastifyInstance) {
     }
   })
 
+  // Mis reservas (alumno autenticado)
+  app.get('/bookings/me', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const bookings = await prisma.booking.findMany({
+      where: { userId: user.userId, class: { gymId: user.gymId } },
+      include: {
+        class: {
+          include: { classType: true, coach: { select: { id: true, name: true } } },
+        },
+      },
+      orderBy: { class: { startsAt: 'asc' } },
+    })
+    return reply.send(bookings.map((b: any) => ({
+      id: b.id,
+      classId: b.classId,
+      status: b.status,
+      confirmDeadline: b.confirmDeadline,
+      startsAt: b.class.startsAt,
+      endsAt: b.class.endsAt,
+      classType: b.class.classType,
+      coach: b.class.coach,
+    })))
+  })
+
   app.post('/bookings', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const parsed = bookingSchema.safeParse(request.body)
@@ -69,14 +117,79 @@ export async function classRoutes(app: FastifyInstance) {
     }
   })
 
+  app.post('/bookings/assign', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    const { classId, userId } = request.body as any
+    if (!classId || !userId) return reply.status(400).send({ error: 'classId y userId son requeridos' })
+    try {
+      return reply.status(201).send(await assignUserToClass(admin.gymId, userId, classId))
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
   app.delete('/bookings/:classId', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { classId } = request.params as any
     try {
       return reply.send(await cancelBooking(user.gymId, user.userId, classId))
     } catch (err: any) {
-      return reply.status(404).send({ error: err.message })
+      return reply.status(400).send({ error: err.message })
     }
+  })
+
+  // Alumno confirma su lugar (desde PENDING_CONFIRM → CONFIRMED)
+  app.post('/bookings/:bookingId/confirm', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const { bookingId } = request.params as any
+    try {
+      return reply.send(await confirmWaitlistBooking(user.gymId, user.userId, bookingId))
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  app.patch('/classes/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+    const body = request.body as any
+    const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+    try {
+      const updated = await prisma.class.update({
+        where: { id },
+        data: {
+          ...(body.startsAt && { startsAt: new Date(body.startsAt) }),
+          ...(body.endsAt && { endsAt: new Date(body.endsAt) }),
+          ...(body.capacity && { capacity: Number(body.capacity) }),
+          ...(body.coachId && { coachId: body.coachId }),
+          ...(body.classTypeId && { classTypeId: body.classTypeId }),
+        },
+      })
+      return reply.send(updated)
+    } catch (err) {
+      const msg = prismaErrorMessage(err)
+      return reply.status(400).send({ error: msg ?? 'Error al actualizar clase' })
+    }
+  })
+
+  app.delete('/classes/bulk', { preHandler: requireAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { ids } = request.body as any
+    if (!Array.isArray(ids) || ids.length === 0) return reply.status(400).send({ error: 'Debe proporcionar ids' })
+    await prisma.booking.deleteMany({ where: { classId: { in: ids }, class: { gymId: user.gymId } } })
+    const result = await prisma.class.deleteMany({ where: { id: { in: ids }, gymId: user.gymId } })
+    return reply.send({ deleted: result.count })
+  })
+
+  app.delete('/classes/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+    const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+    await prisma.booking.deleteMany({ where: { classId: id } })
+    await prisma.class.delete({ where: { id } })
+    return reply.send({ message: 'Clase eliminada' })
   })
 
   app.patch('/bookings/:bookingId/attend', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
@@ -87,14 +200,110 @@ export async function classRoutes(app: FastifyInstance) {
         where: { id: bookingId, class: { gymId: user.gymId } },
       })
       if (!booking) return reply.status(404).send({ error: 'Reserva no encontrada' })
-      const updated = await prisma.booking.update({
-        where: { id: bookingId },
-        data: { status: 'ATTENDED' },
-      })
-      return reply.send(updated)
+      try {
+        const updated = await prisma.booking.update({
+          where: { id: bookingId },
+          data: { status: 'ATTENDED' },
+        })
+        return reply.send(updated)
+      } catch (err) {
+        const msg = prismaErrorMessage(err)
+        return reply.status(400).send({ error: msg ?? 'Error al registrar asistencia' })
+      }
     } catch (err: any) {
       return reply.status(500).send({ error: err.message })
     }
+  })
+
+  // ─── Asistencia: manual bulk (coach marca lista) ──────────────────────────
+  app.patch('/classes/:classId/attendance', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { classId } = request.params as any
+    const { userIds } = request.body as any  // array de userIds presentes
+    if (!Array.isArray(userIds)) return reply.status(400).send({ error: 'userIds debe ser un array' })
+
+    const cls = await prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+
+    // Marcar ATTENDED a los que están en la lista
+    await prisma.booking.updateMany({
+      where: { classId, userId: { in: userIds }, status: { in: ['CONFIRMED', 'WAITLIST'] } },
+      data: { status: 'ATTENDED' },
+    })
+    // Los confirmados que NO están: quedan como estaban (no se descuentan)
+    return reply.send({ ok: true, marked: userIds.length })
+  })
+
+  // ─── Asistencia: QR — coach escanea QR del alumno ─────────────────────────
+  app.post('/classes/:classId/attendance/qr', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { classId } = request.params as any
+    const { userId } = request.body as any
+    if (!userId) return reply.status(400).send({ error: 'userId requerido' })
+
+    const cls = await prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+
+    // Verificar que el gym usa modo qr
+    const gym = await prisma.gym.findUnique({ where: { id: user.gymId }, select: { attendanceMode: true } })
+    if (gym?.attendanceMode !== 'qr') return reply.status(400).send({ error: 'Este gym no usa modo QR' })
+
+    const booking = await prisma.booking.findUnique({
+      where: { userId_classId: { userId, classId } },
+      include: { user: { select: { name: true } } },
+    })
+    if (!booking) return reply.status(404).send({ error: 'El alumno no tiene reserva en esta clase' })
+    if (booking.status === 'ATTENDED') return reply.send({ ok: true, alreadyAttended: true, name: (booking as any).user.name })
+    if (booking.status === 'CANCELLED') return reply.status(400).send({ error: 'La reserva fue cancelada' })
+
+    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'ATTENDED' } })
+    return reply.send({ ok: true, name: (booking as any).user.name })
+  })
+
+  // ─── Asistencia: geo — alumno hace self check-in con coordenadas ──────────
+  app.post('/classes/:classId/attendance/geo', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const { classId } = request.params as any
+    const { lat, lng } = request.body as any
+    if (lat == null || lng == null) return reply.status(400).send({ error: 'lat y lng requeridos' })
+
+    const [cls, gym] = await Promise.all([
+      prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } }),
+      prisma.gym.findUnique({ where: { id: user.gymId }, select: { attendanceMode: true, gymLat: true, gymLng: true, gymRadiusMeters: true } }),
+    ])
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+    if (gym?.attendanceMode !== 'geo') return reply.status(400).send({ error: 'Este gym no usa modo geolocalización' })
+    if (!gym.gymLat || !gym.gymLng) return reply.status(400).send({ error: 'El gym no tiene ubicación configurada' })
+
+    // Haversine distance en metros
+    const R = 6371000
+    const dLat = (lat - gym.gymLat) * Math.PI / 180
+    const dLng = (lng - gym.gymLng) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(gym.gymLat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+    const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    const radius = gym.gymRadiusMeters ?? 200
+
+    if (distance > radius) {
+      return reply.status(403).send({ error: `Estás a ${Math.round(distance)}m del gym. Debes estar a menos de ${radius}m para registrar asistencia.`, distance: Math.round(distance) })
+    }
+
+    // Verificar que la clase esté en curso (±30 min)
+    const now = new Date()
+    const windowStart = new Date(cls.startsAt.getTime() - 30 * 60000)
+    const windowEnd = new Date(cls.endsAt.getTime() + 15 * 60000)
+    if (now < windowStart || now > windowEnd) {
+      return reply.status(400).send({ error: 'El check-in geo solo está disponible 30 min antes y hasta 15 min después del fin de la clase' })
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { userId_classId: { userId: user.userId, classId } },
+    })
+    if (!booking) return reply.status(404).send({ error: 'No tienes reserva en esta clase' })
+    if (booking.status === 'ATTENDED') return reply.send({ ok: true, alreadyAttended: true })
+    if (booking.status === 'CANCELLED') return reply.status(400).send({ error: 'Tu reserva fue cancelada' })
+
+    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'ATTENDED' } })
+    return reply.send({ ok: true, distance: Math.round(distance) })
   })
 
   app.get('/my-bookings', { preHandler: authenticate }, async (request, reply) => {
@@ -102,7 +311,7 @@ export async function classRoutes(app: FastifyInstance) {
     const bookings = await prisma.booking.findMany({
       where: {
         userId: user.userId,
-        status: { in: ['CONFIRMED', 'WAITLIST', 'ATTENDED'] },
+        status: { in: ['CONFIRMED', 'WAITLIST', 'ATTENDED', 'PENDING_CONFIRM'] },
         class: { gymId: user.gymId },
       },
       include: {
@@ -110,7 +319,7 @@ export async function classRoutes(app: FastifyInstance) {
           include: {
             classType: { select: { id: true, name: true, color: true } },
             bookings: {
-              where: { status: { in: ['CONFIRMED', 'ATTENDED', 'WAITLIST'] } },
+              where: { status: { in: ['CONFIRMED', 'ATTENDED', 'WAITLIST', 'PENDING_CONFIRM'] } },
               include: { user: { select: { id: true, name: true, avatarUrl: true } } },
               orderBy: { createdAt: 'asc' },
             },

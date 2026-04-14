@@ -1,9 +1,18 @@
 import { z } from 'zod'
 
+const blockSchema = z.object({
+  name: z.string().min(1),
+  durationMins: z.number().int().min(1),
+  notes: z.string().optional(),
+  isOptional: z.boolean().default(false),
+})
+
 export const createClassTypeSchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  discipline: z.enum(['crossfit', 'weightlifting', 'endurance', 'hyrox', 'manual']).optional(),
+  blocks: z.array(blockSchema).optional(),
 })
 
 export const createClassSchema = z.object({

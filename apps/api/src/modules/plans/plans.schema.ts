@@ -9,6 +9,17 @@ export const createPlanSchema = z.object({
   maxClasses: z.number().int().optional(),
 })
 
+export const updatePlanSchema = z.object({
+  name: z.string().min(2).optional(),
+  description: z.string().optional(),
+  priceCents: z.number().int().min(0).optional(),
+  currency: z.string().optional(),
+  durationDays: z.number().int().min(1).optional(),
+  maxClasses: z.number().int().nullable().optional(),
+})
+
+export type UpdatePlanInput = z.infer<typeof updatePlanSchema>
+
 export const createMembershipSchema = z.object({
   userId: z.string().uuid(),
   planId: z.string().uuid(),
