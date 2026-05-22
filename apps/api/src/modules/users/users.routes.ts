@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { MultipartFile } from '@fastify/multipart'
-import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
+import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { createUserSchema, updateUserSchema } from './users.schema'
 import { listUsers, getUserById, createUser, updateUser } from './users.service'
 import { prisma } from '../../lib/prisma'
@@ -9,13 +9,13 @@ import path from 'path'
 import fs from 'fs'
 
 export async function userRoutes(app: FastifyInstance) {
-  app.get('/users', { preHandler: authenticate }, async (request, reply) => {
+  app.get('/users', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     const { status, role } = request.query as any
     return reply.send(await listUsers(user.gymId, status, role))
   })
 
-  app.get('/users/:id', { preHandler: authenticate }, async (request, reply) => {
+  app.get('/users/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as any
     try {

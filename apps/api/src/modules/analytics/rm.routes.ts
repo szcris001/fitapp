@@ -11,12 +11,15 @@ import { prismaErrorMessage } from '../../lib/prismaError'
 export async function rmRoutes(app: FastifyInstance) {
   app.get('/rms/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
-    return reply.send(await getRmsByUser(user.userId))
+    return reply.send(await getRmsByUser(user.userId, user.gymId))
   })
 
   app.get('/rms/user/:userId', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
     const { userId } = request.params as any
-    return reply.send(await getRmsByUser(userId))
+    const result = await getRmsByUser(userId, user.gymId)
+    if (result === null) return reply.status(404).send({ error: 'Usuario no encontrado' })
+    return reply.send(result)
   })
 
   app.post('/rms/me', { preHandler: authenticate }, async (request, reply) => {
@@ -98,12 +101,15 @@ export async function rmRoutes(app: FastifyInstance) {
 
   app.get('/gymnastic-progress/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
-    return reply.send(await getGymnasticProgressByUser(user.userId))
+    return reply.send(await getGymnasticProgressByUser(user.userId, user.gymId))
   })
 
   app.get('/gymnastic-progress/user/:userId', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
     const { userId } = request.params as any
-    return reply.send(await getGymnasticProgressByUser(userId))
+    const result = await getGymnasticProgressByUser(userId, user.gymId)
+    if (result === null) return reply.status(404).send({ error: 'Usuario no encontrado' })
+    return reply.send(result)
   })
 
   app.post('/gymnastic-progress/me', { preHandler: authenticate }, async (request, reply) => {

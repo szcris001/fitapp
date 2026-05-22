@@ -1,5 +1,6 @@
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
 import { createCheckoutSchema } from './payments.schema'
@@ -15,9 +16,31 @@ import {
   createOpenPayCheckout, handleOpenPayCallback,
   createMachCheckout, handleMachWebhook,
   submitTransferReceipt, getPendingTransfers, confirmTransfer, rejectTransfer,
+  saveFintocLink, getFintocStatus, importFintocMovements, listBankMovements,
+  confirmBankMovement, rejectBankMovement, handleFintocWebhook,
+  createFintocPayCheckout, getFintocPayStatus, handleFintocPayWebhook,
 } from './payments.service'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
+
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function validateCallbackParams(
+  gymId: unknown,
+  planId: unknown,
+  userId: unknown,
+): Promise<string | null> {
+  if (
+    typeof gymId !== 'string' || !uuidRegex.test(gymId) ||
+    typeof planId !== 'string' || !uuidRegex.test(planId) ||
+    typeof userId !== 'string' || !uuidRegex.test(userId)
+  ) {
+    return 'Parámetros de callback inválidos'
+  }
+  const user = await prisma.user.findFirst({ where: { id: userId, gymId }, select: { id: true } })
+  if (!user) return 'Usuario no válido para este gimnasio'
+  return null
+}
 
 const manualPaymentSchema = z.object({
   userId: z.string().uuid(),
@@ -115,7 +138,9 @@ export async function paymentRoutes(app: FastifyInstance) {
     const signature = request.headers['stripe-signature'] as string
     if (!signature) return reply.status(400).send({ error: 'Sin firma Stripe' })
     try {
-      const result = await handleStripeWebhook(Buffer.from(JSON.stringify(request.body)), signature)
+      const rawBody = (request as any).rawBody as Buffer
+      if (!rawBody) return reply.status(400).send({ error: 'Sin raw body' })
+      const result = await handleStripeWebhook(rawBody, signature)
       return reply.send(result)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
@@ -139,14 +164,15 @@ export async function paymentRoutes(app: FastifyInstance) {
   })
 
   // ─── Mercado Pago ─────────────────────────────────────────────────────────
-  const mpCheckoutSchema = z.object({ planId: z.string().uuid() })
+  const mpCheckoutSchema = z.object({ planId: z.string().uuid(), userId: z.string().uuid().optional() })
 
   app.post('/payments/checkout/mercadopago', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const parsed = mpCheckoutSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
-      const result = await createMercadoPagoCheckout(user.gymId, parsed.data.planId, user.userId)
+      const targetUserId = parsed.data.userId ?? user.userId
+      const result = await createMercadoPagoCheckout(user.gymId, parsed.data.planId, targetUserId)
       return reply.send(result)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
@@ -155,11 +181,21 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // Webhook IPN de Mercado Pago (sin auth)
   app.post('/payments/webhook/mercadopago', async (request, reply) => {
+    const xSignature = request.headers['x-signature'] as string | undefined
+    const xRequestId = request.headers['x-request-id'] as string | undefined
+    const body = request.body as any
+    // Solo rechazar por firma ausente si hay un paymentId real en el body
+    const hasPaymentId = body?.data?.id || (request.query as any)?.id
+    const globalMpSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET
+    if (globalMpSecret && hasPaymentId && !xSignature) {
+      return reply.status(401).send({ error: 'Falta header x-signature de Mercado Pago' })
+    }
     try {
-      await handleMercadoPagoWebhook(request.body)
+      await handleMercadoPagoWebhook(body, xSignature, xRequestId, request.query)
       return reply.send({ ok: true })
     } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
+      const status = err.message?.includes('inválida') || err.message?.includes('Falta header') ? 401 : 400
+      return reply.status(status).send({ error: err.message })
     }
   })
 
@@ -181,6 +217,8 @@ export async function paymentRoutes(app: FastifyInstance) {
   // Callback de Flow (redirect después de pago, sin auth)
   app.post('/payments/callback/flow', async (request, reply) => {
     const { token, gymId, planId, userId } = request.body as any
+    const validationError = await validateCallbackParams(gymId, planId, userId)
+    if (validationError) return reply.status(400).send({ error: validationError })
     try {
       await handleFlowCallback(token, gymId, planId, userId)
       return reply.send({ ok: true })
@@ -207,11 +245,16 @@ export async function paymentRoutes(app: FastifyInstance) {
   // IPN de Khipu (sin auth)
   app.post('/payments/callback/khipu', async (request, reply) => {
     const { gymId, planId, userId, ...rest } = request.body as any
+    const validationError = await validateCallbackParams(gymId, planId, userId)
+    if (validationError) return reply.status(400).send({ error: validationError })
+    const xKhipuSignature = request.headers['x-khipu-signature'] as string | undefined
+    const rawBody = (request as any).rawBody as Buffer | undefined
     try {
-      await handleKhipuCallback(rest, gymId, planId, userId)
+      await handleKhipuCallback(rest, gymId, planId, userId, xKhipuSignature, rawBody)
       return reply.send({ ok: true })
     } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
+      const status = err.message?.includes('inválida') || err.message?.includes('Falta header') ? 401 : 400
+      return reply.status(status).send({ error: err.message })
     }
   })
 
@@ -233,6 +276,8 @@ export async function paymentRoutes(app: FastifyInstance) {
   // Confirmación de PayU (POST desde PayU a nuestro servidor)
   app.post('/payments/callback/payu', async (request, reply) => {
     const { gymId, planId, userId } = request.query as any
+    const validationError = await validateCallbackParams(gymId, planId, userId)
+    if (validationError) return reply.status(400).send({ error: validationError })
     try {
       await handlePayUCallback(request.body, gymId, planId, userId)
       return reply.send({ ok: true })
@@ -258,11 +303,15 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   app.post('/payments/callback/kushki', async (request, reply) => {
     const { gymId, planId, userId } = request.query as any
+    const validationError = await validateCallbackParams(gymId, planId, userId)
+    if (validationError) return reply.status(400).send({ error: validationError })
+    const xKushkiToken = request.headers['x-kushki-token'] as string | undefined
     try {
-      await handleKushkiCallback(request.body, gymId, planId, userId)
+      await handleKushkiCallback(request.body, gymId, planId, userId, xKushkiToken)
       return reply.send({ ok: true })
     } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
+      const status = err.message?.includes('inválido') || err.message?.includes('Falta header') || err.message?.includes('no coincide') || err.message?.includes('no tiene formato') ? 401 : 400
+      return reply.status(status).send({ error: err.message })
     }
   })
 
@@ -283,6 +332,11 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // Callback de OpenPay (redirect GET desde el navegador del usuario)
   app.get('/payments/callback/openpay', async (request, reply) => {
+    const { gymId, planId, userId } = request.query as any
+    const validationError = await validateCallbackParams(gymId, planId, userId)
+    if (validationError) {
+      return reply.redirect(`${process.env.FRONTEND_URL}/payment/cancelled?error=${encodeURIComponent(validationError)}`)
+    }
     try {
       await handleOpenPayCallback(request.query)
       return reply.redirect(`${process.env.FRONTEND_URL}/payment/success`)
@@ -308,11 +362,13 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // MACH webhook (POST — MACH confirms payment)
   app.post('/payments/webhook/mach', async (request, reply) => {
+    const authorizationHeader = request.headers['authorization'] as string | undefined
     try {
-      const result = await handleMachWebhook(request.body)
+      const result = await handleMachWebhook(request.body, authorizationHeader)
       return reply.send(result)
     } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
+      const status = err.message?.includes('inválido') || err.message?.includes('Falta header') ? 401 : 400
+      return reply.status(status).send({ error: err.message })
     }
   })
 
@@ -378,6 +434,204 @@ export async function paymentRoutes(app: FastifyInstance) {
       const rawBody = (request as any).rawBody as Buffer
       if (!rawBody) return reply.status(400).send({ error: 'Sin raw body' })
       const result = await handleStripeWebhook(rawBody, signature)
+      return reply.send(result)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // ─── Fintoc — Conciliación bancaria ──────────────────────────────────────────
+
+  const fintocLinkSchema = z.object({
+    linkToken: z.string().min(1),
+    accountId: z.string().min(1),
+    accountNumber: z.string().optional(),
+    bankName: z.string().optional(),
+    holderName: z.string().optional(),
+    holderRut: z.string().optional(),
+  })
+
+  // POST /payments/fintoc/link — guarda o actualiza el link Fintoc del gym
+  app.post('/payments/fintoc/link', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    const parsed = fintocLinkSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      const link = await saveFintocLink(admin.gymId, parsed.data.linkToken, parsed.data.accountId, {
+        accountNumber: parsed.data.accountNumber,
+        bankName: parsed.data.bankName,
+        holderName: parsed.data.holderName,
+        holderRut: parsed.data.holderRut,
+      })
+      return reply.status(201).send(link)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // GET /payments/fintoc/status — estado de conexión + pendingCount
+  app.get('/payments/fintoc/status', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    try {
+      return reply.send(await getFintocStatus(admin.gymId))
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  const fintocSyncSchema = z.object({
+    movements: z.array(
+      z.object({
+        id: z.string().min(1),
+        amount: z.number().int(),
+        currency: z.string().optional(),
+        post_date: z.string().min(1),
+        description: z.string().optional(),
+        sender_rut: z.string().optional(),
+        sender_name: z.string().optional(),
+        reference_code: z.string().optional(),
+      }),
+    ).min(1),
+  })
+
+  // POST /payments/fintoc/sync — importa movimientos enviados por el frontend
+  app.post('/payments/fintoc/sync', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    const parsed = fintocSyncSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      const result = await importFintocMovements(admin.gymId, parsed.data.movements)
+      return reply.send(result)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // GET /payments/fintoc/movements — lista movimientos con filtros opcionales
+  app.get('/payments/fintoc/movements', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    const query = request.query as any
+    try {
+      const result = await listBankMovements(admin.gymId, {
+        status: query.status,
+        limit: query.limit ? parseInt(query.limit, 10) : undefined,
+        offset: query.offset ? parseInt(query.offset, 10) : undefined,
+      })
+      return reply.send(result)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // PATCH /payments/fintoc/movements/:movementId/confirm — confirmar movimiento
+  app.patch('/payments/fintoc/movements/:movementId/confirm', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    const { movementId } = request.params as any
+    const { membershipId } = (request.body as any) || {}
+    if (!membershipId) return reply.status(400).send({ error: 'membershipId requerido' })
+    try {
+      const result = await confirmBankMovement(admin.gymId, movementId, membershipId, admin.userId)
+      return reply.send(result)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // PATCH /payments/fintoc/movements/:movementId/reject — rechazar movimiento
+  app.patch('/payments/fintoc/movements/:movementId/reject', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    const { movementId } = request.params as any
+    const { reason } = (request.body as any) || {}
+    try {
+      const result = await rejectBankMovement(admin.gymId, movementId, admin.userId, reason)
+      return reply.send(result)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // ─── Fintoc Payments (Pay by Bank) ──────────────────────────────────────────
+
+  const fintocPayCheckoutSchema = z.object({ planId: z.string().uuid() })
+  const fintocPayStatusParamsSchema = z.object({ paymentIntentId: z.string() })
+
+  // POST /payments/checkout/fintoc-pay — inicia un payment intent Pay by Bank
+  app.post('/payments/checkout/fintoc-pay', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const parsed = fintocPayCheckoutSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      const result = await createFintocPayCheckout(user.gymId, parsed.data.planId, user.userId)
+      return reply.send(result)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // GET /payments/fintoc-pay/status/:paymentIntentId — consulta estado del intent
+  app.get('/payments/fintoc-pay/status/:paymentIntentId', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const parsed = fintocPayStatusParamsSchema.safeParse(request.params)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      const result = await getFintocPayStatus(parsed.data.paymentIntentId, user.userId)
+      if (!result) return reply.status(404).send({ error: 'Payment intent no encontrado' })
+      return reply.send(result)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // POST /payments/webhook/fintoc-pay — webhook de Fintoc Pay by Bank (sin auth)
+  app.post('/payments/webhook/fintoc-pay', async (request, reply) => {
+    const fintocSignature = request.headers['fintoc-signature'] as string | undefined
+    const rawBody = (request as any).rawBody as Buffer | undefined
+    try {
+      const result = await handleFintocPayWebhook(request.body, rawBody ?? Buffer.from(JSON.stringify(request.body)), fintocSignature)
+      return reply.send(result)
+    } catch (err: any) {
+      const status = err.message?.includes('Firma inválida') || err.message?.includes('firma') ? 401 : 400
+      return reply.status(status).send({ error: err.message })
+    }
+  })
+
+  // POST /payments/webhook/fintoc — webhook sin auth JWT, valida HMAC-SHA256
+  app.post('/payments/webhook/fintoc', async (request, reply) => {
+    const signature = request.headers['fintoc-signature'] as string | undefined
+    const body = request.body as any
+
+    // La gymId viene en el payload del webhook (Fintoc la incluye en metadata)
+    const gymId: string | undefined = body?.gymId ?? body?.metadata?.gymId
+    if (!gymId) return reply.status(400).send({ error: 'gymId requerido en payload' })
+
+    // Validar firma HMAC-SHA256 con FINTOC_WEBHOOK_SECRET del gym
+    if (signature) {
+      try {
+        const gym = await prisma.gym.findUnique({ where: { id: gymId } })
+        const gateways = (gym?.paymentGateways as Record<string, any>) || {}
+        const webhookSecret: string | undefined = gateways?.fintoc?.webhookSecret
+          ?? process.env.FINTOC_SECRET_KEY
+
+        if (webhookSecret) {
+          const rawBody = (request as any).rawBody as Buffer | undefined
+          const bodyStr = rawBody ? rawBody.toString() : JSON.stringify(body)
+          const expected = crypto
+            .createHmac('sha256', webhookSecret)
+            .update(bodyStr)
+            .digest('hex')
+
+          if (signature !== expected) {
+            return reply.status(401).send({ error: 'Firma Fintoc inválida' })
+          }
+        }
+      } catch {
+        return reply.status(401).send({ error: 'Error validando firma Fintoc' })
+      }
+    }
+
+    try {
+      const movements = body?.movements ?? []
+      const result = await handleFintocWebhook(gymId, movements)
       return reply.send(result)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })

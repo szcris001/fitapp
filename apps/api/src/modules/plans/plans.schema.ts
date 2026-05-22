@@ -7,6 +7,7 @@ export const createPlanSchema = z.object({
   currency: z.string().default('CLP'),
   durationDays: z.number().int().min(1),
   maxClasses: z.number().int().optional(),
+  isTrial: z.boolean().default(false),
 })
 
 export const updatePlanSchema = z.object({
@@ -16,6 +17,7 @@ export const updatePlanSchema = z.object({
   currency: z.string().optional(),
   durationDays: z.number().int().min(1).optional(),
   maxClasses: z.number().int().nullable().optional(),
+  isTrial: z.boolean().optional(),
 })
 
 export type UpdatePlanInput = z.infer<typeof updatePlanSchema>

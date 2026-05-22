@@ -39,6 +39,31 @@ app.register(cors, {
 app.register(jwt, { secret: process.env.JWT_SECRET || 'fallback_secret' })
 app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
 
+// ─── rawBody support para webhooks de Stripe ─────────────────────────────────
+// stripe.webhooks.constructEvent() requiere el payload original como Buffer.
+// Fastify lo parsea a JSON antes de que llegue al handler, perdiendo los bytes
+// originales. Sobrescribimos el parser de application/json para preservar
+// el rawBody en request.rawBody antes de parsear.
+// IMPORTANTE: si @fastify/rawbody existiera en npm, se usaría ese plugin.
+// Como no existe, usamos addContentTypeParser directamente.
+app.addContentTypeParser(
+  'application/json',
+  { parseAs: 'buffer' },
+  function (req: any, body: Buffer, done: (err: Error | null, body?: unknown) => void) {
+    req.rawBody = body
+    if (!body || body.length === 0) {
+      done(null, null)
+      return
+    }
+    try {
+      done(null, JSON.parse(body.toString()))
+    } catch (err: any) {
+      // JSON inválido — dejar pasar como null (la ruta/handler lo manejará)
+      done(null, null)
+    }
+  },
+)
+
 const serveDirFile = (dir: string) => async (request: any, reply: any) => {
   const { filename } = request.params as any
   const filepath = path.join(process.cwd(), 'uploads', dir, filename)
@@ -82,6 +107,19 @@ app.get('/movements/:filename', async (request, reply) => {
 })
 
 app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
+
+// /healthz — health check para reverse proxy y monitoreo de plataforma.
+// Valida que Postgres responda antes de reportar healthy.
+app.get('/healthz', async (_request, reply) => {
+  try {
+    const { prisma } = await import('./lib/prisma')
+    await prisma.$queryRaw`SELECT 1`
+    return reply.status(200).send({ status: 'ok', db: 'ok', timestamp: new Date().toISOString() })
+  } catch (err) {
+    app.log.error({ err }, 'healthz: db check failed')
+    return reply.status(503).send({ status: 'error', db: 'unreachable', timestamp: new Date().toISOString() })
+  }
+})
 
 // Bloquear gimnasios con suscripción vencida en todas las rutas autenticadas
 app.addHook('preHandler', async (request, reply) => {

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { createClassTypeSchema, createClassSchema, bookingSchema } from './classes.schema'
-import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass } from './classes.service'
+import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin } from './classes.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 
@@ -56,7 +56,7 @@ export async function classRoutes(app: FastifyInstance) {
     })))
   })
 
-  app.get('/classes/attendance', { preHandler: requireAdmin }, async (request, reply) => {
+  app.get('/classes/attendance', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     return reply.send(await getAttendanceBySchedule(user.gymId))
   })
@@ -138,6 +138,18 @@ export async function classRoutes(app: FastifyInstance) {
     }
   })
 
+  // Admin/Coach elimina a un alumno de una clase (libera el cupo y promueve lista de espera)
+  app.delete('/bookings/:bookingId/admin', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { bookingId } = request.params as any
+    try {
+      await removeStudentByAdmin(user.gymId, bookingId)
+      return reply.send({ ok: true })
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
   // Alumno confirma su lugar (desde PENDING_CONFIRM → CONFIRMED)
   app.post('/bookings/:bookingId/confirm', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
@@ -177,6 +189,7 @@ export async function classRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { ids } = request.body as any
     if (!Array.isArray(ids) || ids.length === 0) return reply.status(400).send({ error: 'Debe proporcionar ids' })
+    // WODs are shared by classType+day — don't auto-delete them when removing class slots
     await prisma.booking.deleteMany({ where: { classId: { in: ids }, class: { gymId: user.gymId } } })
     const result = await prisma.class.deleteMany({ where: { id: { in: ids }, gymId: user.gymId } })
     return reply.send({ deleted: result.count })
@@ -187,6 +200,7 @@ export async function classRoutes(app: FastifyInstance) {
     const { id } = request.params as any
     const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
     if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+    // Note: WODs are shared by classType+day, not deleted when a single class slot is removed
     await prisma.booking.deleteMany({ where: { classId: id } })
     await prisma.class.delete({ where: { id } })
     return reply.send({ message: 'Clase eliminada' })

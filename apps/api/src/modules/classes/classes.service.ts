@@ -73,7 +73,8 @@ export async function listClasses(gymId: string, from?: string, to?: string) {
     where: { gymId, ...(Object.keys(startsAt).length && { startsAt }) },
     include: {
       classType: { select: { id: true, name: true, color: true } },
-      _count: { select: { bookings: { where: { status: { in: ['CONFIRMED', 'ATTENDED'] } } }, wods: true } },
+      _count: { select: { bookings: { where: { status: { in: ['CONFIRMED', 'ATTENDED'] } } } } },
+      bookings: { where: { status: 'ATTENDED' }, select: { id: true } },
     },
     orderBy: { startsAt: 'asc' },
   })
@@ -89,11 +90,25 @@ export async function getClassById(gymId: string, classId: string) {
         include: { user: { select: { id: true, name: true, avatarUrl: true, email: true } } },
         orderBy: { createdAt: 'asc' },
       },
-      wods: { include: { movements: true }, orderBy: { createdAt: 'desc' }, take: 1 },
     },
   })
   if (!cls) throw new Error('Clase no encontrada')
-  return cls
+
+  // Look up shared WOD for this classType on the same day
+  const dayStart = new Date(cls.startsAt)
+  dayStart.setHours(0, 0, 0, 0)
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000)
+  const wod = await prisma.wod.findFirst({
+    where: { gymId, classTypeId: cls.classTypeId, date: { gte: dayStart, lt: dayEnd } },
+    include: {
+      blocks: {
+        orderBy: { order: 'asc' },
+        include: { movements: { orderBy: { order: 'asc' } } },
+      },
+    },
+  })
+
+  return { ...cls, wods: wod ? [wod] : [] }
 }
 
 export async function createClass(gymId: string, data: CreateClassInput) {
@@ -206,8 +221,18 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
 
   const activeMembership = await prisma.membership.findFirst({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
+    include: { plan: { select: { maxClasses: true, isTrial: true } } },
   })
   if (!activeMembership) throw new Error('No tienes una membresía activa')
+
+  if (activeMembership.status === 'TRIAL' && activeMembership.plan.maxClasses) {
+    const usedClasses = await prisma.booking.count({
+      where: { userId, status: { in: ['CONFIRMED', 'ATTENDED'] } },
+    })
+    if (usedClasses >= activeMembership.plan.maxClasses) {
+      throw new Error('Has alcanzado el límite de clases de tu plan de prueba')
+    }
+  }
 
   const existing = await prisma.booking.findUnique({
     where: { userId_classId: { userId, classId: data.classId } },
@@ -256,6 +281,19 @@ export async function cancelBooking(gymId: string, userId: string, classId: stri
   }
 
   return { message: 'Reserva cancelada' }
+}
+
+export async function removeStudentByAdmin(gymId: string, bookingId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, class: { gymId } },
+    include: { class: { include: { gym: true } } },
+  })
+  if (!booking) throw new Error('Reserva no encontrada')
+  const wasActive = ['CONFIRMED', 'PENDING_CONFIRM', 'ATTENDED'].includes(booking.status)
+  await prisma.booking.delete({ where: { id: bookingId } })
+  if (wasActive && booking.class.gym) {
+    await promoteFromWaitlist(booking.classId, booking.class.gym)
+  }
 }
 
 async function promoteFromWaitlist(classId: string, gym: { waitlistConfirmEnabled: boolean; waitlistConfirmMins: number }) {

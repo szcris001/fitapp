@@ -1,89 +1,140 @@
 import { FastifyInstance } from 'fastify'
-import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
+import { authenticate, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 
+function toFloat(v: any) { return v != null && v !== '' ? Number(v) : null }
+
+function sanitizeMovement(m: any, order: number) {
+  return {
+    order,
+    movementName:   m.movementName   ?? '',
+    repScheme:      m.repScheme      ?? null,
+    weightRookieM:  toFloat(m.weightRookieM),
+    weightRookieF:  toFloat(m.weightRookieF),
+    weightScaleM:   toFloat(m.weightScaleM),
+    weightScaleF:   toFloat(m.weightScaleF),
+    weightRxM:      toFloat(m.weightRxM),
+    weightRxF:      toFloat(m.weightRxF),
+    scaledMovement: m.scaledMovement ?? null,
+    notes:          m.notes          ?? null,
+    roundWeights:   m.roundWeights   ?? null,
+    sets:           m.sets  != null ? Number(m.sets)  : null,
+    reps:           m.reps  != null ? Number(m.reps)  : null,
+  }
+}
+
+function sanitizeBlocks(blocks: any[]) {
+  return blocks.map((b: any, bi: number) => ({
+    title:    b.title   ?? null,
+    timecap:  b.timecap ?? null,
+    order:    bi,
+    movements: {
+      create: (b.movements as any[]).map((m: any, mi: number) => sanitizeMovement(m, mi)),
+    },
+  }))
+}
+
+const includeBlocks = {
+  blocks: {
+    orderBy: { order: 'asc' as const },
+    include: { movements: { orderBy: { order: 'asc' as const } } },
+  },
+}
+
+/** Normaliza una fecha a medianoche local (sin hora) para comparar por día */
+function dayRange(dateStr: string) {
+  const d = new Date(dateStr)
+  d.setHours(0, 0, 0, 0)
+  return { gte: d, lt: new Date(d.getTime() + 86_400_000) }
+}
+
 export async function wodRoutes(app: FastifyInstance) {
-  app.post('/wods', { preHandler: authenticate }, async (request, reply) => {
+
+  // ─── CREATE ─────────────────────────────────────────────────────────────────
+  app.post('/wods', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
-    if (!['ADMIN', 'COACH'].includes(user.role)) {
-      return reply.status(403).send({ error: 'Sin permisos' })
+    const { classTypeId, title, date, blocks } = request.body as any
+
+    // Verify classType belongs to this gym
+    const classType = await prisma.classType.findFirst({
+      where: { id: classTypeId, gymId: user.gymId },
+    })
+    if (!classType) return reply.status(404).send({ error: 'Tipo de clase no encontrado' })
+
+    // One WOD per classType per day
+    const existing = await prisma.wod.findFirst({
+      where: { gymId: user.gymId, classTypeId, date: dayRange(date) },
+    })
+    if (existing) {
+      return reply.status(400).send({ error: 'Ya existe una planificación para este tipo de clase en esa fecha' })
     }
-    const { classId, title, description, date, movements } = request.body as any
+
     try {
-      const cls = await prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } })
-      if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
-
-      // Check for duplicate WOD: same class + same calendar date
-      const dateStart = new Date(date)
-      dateStart.setHours(0, 0, 0, 0)
-      const dateEnd = new Date(dateStart.getTime() + 24 * 60 * 60 * 1000)
-      const existing = await prisma.wod.findFirst({
-        where: { classId, date: { gte: dateStart, lt: dateEnd } },
+      const wod = await prisma.wod.create({
+        data: {
+          gymId: user.gymId,
+          classTypeId,
+          title,
+          date: new Date(date),
+          blocks: { create: sanitizeBlocks(blocks ?? []) },
+        },
+        include: includeBlocks,
       })
-      if (existing) {
-        return reply.status(400).send({ error: 'Ya existe una planificación para esta clase en esa fecha' })
-      }
-
-      let wod
-      try {
-        wod = await prisma.wod.create({
-          data: {
-            classId,
-            title,
-            description,
-            date: new Date(date),
-            movements: { create: movements },
-          },
-          include: { movements: true },
-        })
-      } catch (err) {
-        const msg = prismaErrorMessage(err)
-        return reply.status(400).send({ error: msg ?? 'Error al crear el WOD' })
-      }
       return reply.status(201).send(wod)
-    } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+    } catch (err) {
+      const msg = prismaErrorMessage(err)
+      return reply.status(400).send({ error: msg ?? 'Error al crear el WOD' })
     }
   })
 
+  // ─── GET BY CLASS (resuelve por classTypeId + fecha de la clase) ─────────────
   app.get('/wods/class/:classId', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { classId } = request.params as any
+    const cls = await prisma.class.findFirst({
+      where: { id: classId, gymId: user.gymId },
+      select: { classTypeId: true, startsAt: true },
+    })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
     const wods = await prisma.wod.findMany({
-      where: { classId, class: { gymId: user.gymId } },
-      include: { movements: true },
+      where: { gymId: user.gymId, classTypeId: cls.classTypeId, date: dayRange(cls.startsAt.toISOString()) },
+      include: includeBlocks,
       orderBy: { date: 'desc' },
     })
     return reply.send(wods)
   })
 
+  // ─── MY LOADS (mobile compat) ─────────────────────────────────────────────
   app.get('/wods/class/:classId/my-loads', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { classId } = request.params as any
+    const cls = await prisma.class.findFirst({
+      where: { id: classId, gymId: user.gymId },
+      select: { classTypeId: true, startsAt: true },
+    })
+    if (!cls) return reply.send([])
     const wod = await prisma.wod.findFirst({
-      where: { classId, class: { gymId: user.gymId } },
-      include: { movements: true },
-      orderBy: { date: 'desc' },
+      where: { gymId: user.gymId, classTypeId: cls.classTypeId, date: dayRange(cls.startsAt.toISOString()) },
+      include: includeBlocks,
     })
     if (!wod) return reply.send([])
-
-    const loads = await Promise.all(wod.movements.map(async (m) => {
-      if (!m.percentage) return { ...m, calculatedKg: null }
+    const allMovements = wod.blocks.flatMap(b => b.movements)
+    const loads = await Promise.all(allMovements.map(async (m) => {
       const rm = await prisma.rmRecord.findFirst({
         where: { userId: user.userId, movementName: { contains: m.movementName, mode: 'insensitive' } },
         orderBy: { recordedAt: 'desc' },
       })
-      const calculatedKg = rm ? Math.round((rm.weightKg * m.percentage) / 100) : null
-      return { ...m, calculatedKg, rmKg: rm?.weightKg || null }
+      return { ...m, calculatedKg: null, rmKg: rm?.weightKg || null }
     }))
     return reply.send(loads)
   })
 
+  // ─── LIST ALL (calendar) ─────────────────────────────────────────────────────
   app.get('/wods', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { from, to } = request.query as any
-    const where: any = { class: { gymId: user.gymId } }
+    const where: any = { gymId: user.gymId }
     if (from) where.date = { ...where.date, gte: new Date(from) }
     if (to) {
       const toDate = new Date(to)
@@ -93,34 +144,33 @@ export async function wodRoutes(app: FastifyInstance) {
     const wods = await prisma.wod.findMany({
       where,
       include: {
-        movements: true,
-        class: { include: { classType: { select: { name: true, color: true } } } },
+        ...includeBlocks,
+        classType: { select: { id: true, name: true, color: true } },
       },
       orderBy: { date: 'asc' },
     })
     return reply.send(wods)
   })
 
-  app.put('/wods/:id', { preHandler: authenticate }, async (request, reply) => {
+  // ─── UPDATE ──────────────────────────────────────────────────────────────────
+  app.put('/wods/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
-    if (!['ADMIN', 'COACH'].includes(user.role)) return reply.status(403).send({ error: 'Sin permisos' })
     const { id } = request.params as any
-    const { title, description, date, movements } = request.body as any
+    const { title, date, blocks } = request.body as any
 
-    const wod = await prisma.wod.findFirst({ where: { id, class: { gymId: user.gymId } } })
+    const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
 
     try {
-      await prisma.wodMovement.deleteMany({ where: { wodId: id } })
+      await prisma.wodBlock.deleteMany({ where: { wodId: id } })
       const updated = await prisma.wod.update({
         where: { id },
         data: {
           title,
-          description,
           date: new Date(date),
-          movements: { create: movements },
+          blocks: { create: sanitizeBlocks(blocks ?? []) },
         },
-        include: { movements: true },
+        include: includeBlocks,
       })
       return reply.send(updated)
     } catch (err) {
@@ -129,40 +179,37 @@ export async function wodRoutes(app: FastifyInstance) {
     }
   })
 
-  app.delete('/wods/:id', { preHandler: authenticate }, async (request, reply) => {
+  // ─── DELETE ──────────────────────────────────────────────────────────────────
+  app.delete('/wods/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
-    if (!['ADMIN', 'COACH'].includes(user.role)) return reply.status(403).send({ error: 'Sin permisos' })
     const { id } = request.params as any
-    const wod = await prisma.wod.findFirst({ where: { id, class: { gymId: user.gymId } } })
+    const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
-    await prisma.wodMovement.deleteMany({ where: { wodId: id } })
     await prisma.wod.delete({ where: { id } })
     return reply.send({ ok: true })
   })
 
-  app.post('/wods/import', { preHandler: authenticate }, async (request, reply) => {
+  // ─── IMPORT ──────────────────────────────────────────────────────────────────
+  app.post('/wods/import', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
-    if (!['ADMIN', 'COACH'].includes(user.role)) {
-      return reply.status(403).send({ error: 'Sin permisos' })
-    }
     const wods = request.body as any[]
     const created = []
     const errors = []
 
     for (const wodData of wods) {
       try {
-        const cls = await prisma.class.findFirst({
-          where: { id: wodData.classId, gymId: user.gymId },
+        const classType = await prisma.classType.findFirst({
+          where: { id: wodData.classTypeId, gymId: user.gymId },
         })
-        if (!cls) { errors.push(`Clase no encontrada: ${wodData.classId}`); continue }
+        if (!classType) { errors.push(`Tipo de clase no encontrado: ${wodData.classTypeId}`); continue }
 
         const wod = await prisma.wod.create({
           data: {
-            classId: wodData.classId,
+            gymId: user.gymId,
+            classTypeId: wodData.classTypeId,
             title: wodData.title,
-            description: wodData.description,
             date: new Date(wodData.date),
-            movements: { create: wodData.movements },
+            blocks: { create: sanitizeBlocks(wodData.blocks ?? []) },
           },
         })
         created.push(wod)

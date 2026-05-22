@@ -30,6 +30,7 @@ export async function updatePlan(gymId: string, planId: string, data: UpdatePlan
         ...(data.currency !== undefined && { currency: data.currency }),
         ...(data.durationDays !== undefined && { durationDays: data.durationDays }),
         ...(data.maxClasses !== undefined && { maxClasses: data.maxClasses }),
+        ...(data.isTrial !== undefined && { isTrial: data.isTrial }),
       },
     })
   } catch (err) {
@@ -59,15 +60,18 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
     data: { status: 'INACTIVE' },
   })
 
+  const status = plan.isTrial ? 'TRIAL' : data.status
+  const pricePaid = plan.isTrial ? 0 : plan.priceCents
+
   try {
     return await prisma.membership.create({
       data: {
         userId: data.userId,
         planId: data.planId,
-        status: data.status,
+        status,
         startsAt,
         endsAt,
-        pricePaid: plan.priceCents,
+        pricePaid,
         currency: plan.currency,
       },
       include: {

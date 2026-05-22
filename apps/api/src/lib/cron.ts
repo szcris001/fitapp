@@ -259,6 +259,7 @@ async function runAutoRenewJob() {
       plan: { select: { autoRenewMaxRetries: true } },
       user: { select: { pushToken: true } },
     },
+    orderBy: { createdAt: 'asc' },
   })
 
   for (const m of memberships) {

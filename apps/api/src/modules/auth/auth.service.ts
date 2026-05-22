@@ -4,6 +4,61 @@ import nodemailer from 'nodemailer'
 import { prisma } from '../../lib/prisma'
 import { RegisterInput, LoginInput } from './auth.schema'
 
+const REFRESH_TOKEN_EXPIRES_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? '7', 10)
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex')
+}
+
+export async function createRefreshToken(userId: string): Promise<string> {
+  const raw = crypto.randomUUID()
+  const tokenHash = hashToken(raw)
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRES_DAYS * 24 * 60 * 60 * 1000)
+
+  await prisma.refreshToken.create({ data: { tokenHash, userId, expiresAt } })
+  return raw
+}
+
+export async function rotateRefreshToken(rawToken: string): Promise<{ userId: string; newRaw: string }> {
+  const tokenHash = hashToken(rawToken)
+
+  const existing = await prisma.refreshToken.findUnique({ where: { tokenHash } })
+  if (!existing) throw new Error('Refresh token inválido')
+  if (existing.revokedAt) throw new Error('Refresh token revocado')
+  if (existing.expiresAt < new Date()) throw new Error('Refresh token expirado')
+
+  const newRaw = crypto.randomUUID()
+  const newHash = hashToken(newRaw)
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRES_DAYS * 24 * 60 * 60 * 1000)
+
+  await prisma.$transaction([
+    prisma.refreshToken.update({
+      where: { id: existing.id },
+      data: { revokedAt: new Date() },
+    }),
+    prisma.refreshToken.create({
+      data: { tokenHash: newHash, userId: existing.userId, expiresAt },
+    }),
+  ])
+
+  return { userId: existing.userId, newRaw }
+}
+
+export async function revokeRefreshToken(userId: string, rawToken: string): Promise<void> {
+  const tokenHash = hashToken(rawToken)
+
+  const existing = await prisma.refreshToken.findUnique({ where: { tokenHash } })
+  // Si no existe o ya está revocado, idempotente — no es error
+  if (!existing || existing.revokedAt) return
+  // Verificar que el token pertenece al usuario que hace logout
+  if (existing.userId !== userId) return
+
+  await prisma.refreshToken.update({
+    where: { id: existing.id },
+    data: { revokedAt: new Date() },
+  })
+}
+
 export async function registerGym(data: RegisterInput) {
   const existingGym = await prisma.gym.findUnique({
     where: { slug: data.gymSlug },
@@ -70,6 +125,7 @@ export async function loginUser(data: LoginInput) {
     email: user.email,
     name: user.name,
     role: user.role,
+    avatarUrl: user.avatarUrl ?? null,
     mustChangePassword: user.mustChangePassword,
   }
 }

@@ -61,14 +61,19 @@ model Gym {
   waitlistConfirmMins    Int                      @default(30)
   country             String                   @default("CL")
   movementLibrary     Json                     @default("[]")
+  weightRounding      Float                    @default(2.5)
   benchmarks          Benchmark[]
   classes             Class[]
   classTypes          ClassType[]
+  wods                Wod[]
   skills              GymSkill[]
   subscriptions       GymSubscription[]
   subPayments         GymSubscriptionPayment[]
   plans               Plan[]
   users               User[]
+  fintocLink          FintocLink?
+  bankMovements       BankMovement[]
+  fintocPaymentIntents FintocPaymentIntent[]
 }
 
 model User {
@@ -94,6 +99,7 @@ model User {
   gymnasticProgress  GymnasticProgress[]
   memberships        Membership[]
   passwordResets     PasswordResetToken[]
+  refreshTokens      RefreshToken[]
   rmRecords          RmRecord[]
   gym                Gym?                 @relation(fields: [gymId], references: [id])
 
@@ -111,6 +117,7 @@ model Plan {
   durationDays         Int
   maxClasses           Int?
   isActive             Boolean      @default(true)
+  isTrial              Boolean      @default(false)
   autoRenewEnabled     Boolean      @default(false)
   autoRenewDaysBefore  Int          @default(3)
   autoRenewMaxRetries  Int          @default(2)
@@ -149,6 +156,7 @@ model Membership {
   stripePaymentMethodId String?
   plan                  Plan             @relation(fields: [planId], references: [id])
   user                  User             @relation(fields: [userId], references: [id])
+  bankMovements         BankMovement[]
 
   @@index([userId, status, endsAt])
 }
@@ -163,6 +171,7 @@ model ClassType {
   createdAt   DateTime         @default(now())
   blocks      ClassTypeBlock[]
   classes     Class[]
+  wods        Wod[]
   gym         Gym              @relation(fields: [gymId], references: [id])
   plans       Plan[]           @relation("PlanClassTypes")
 }
@@ -193,7 +202,6 @@ model Class {
   classType   ClassType      @relation(fields: [classTypeId], references: [id])
   coach       User           @relation("CoachClasses", fields: [coachId], references: [id])
   gym         Gym            @relation(fields: [gymId], references: [id])
-  wods        Wod[]
 
   @@index([gymId, startsAt])
   @@index([gymId, classTypeId, startsAt])
@@ -215,29 +223,49 @@ model Booking {
 }
 
 model Wod {
-  id          String        @id @default(uuid())
-  classId     String
+  id          String     @id @default(uuid())
+  gymId       String
+  classTypeId String
   title       String?
-  description String?
   date        DateTime
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  class       Class         @relation(fields: [classId], references: [id])
-  movements   WodMovement[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  gym         Gym        @relation(fields: [gymId], references: [id])
+  classType   ClassType  @relation(fields: [classTypeId], references: [id])
+  blocks      WodBlock[]
 
-  @@index([classId])
+  @@index([gymId, classTypeId])
   @@index([date])
 }
 
+model WodBlock {
+  id        String        @id @default(uuid())
+  wodId     String
+  title     String?       // "Calentamiento", "Tabata", "EMOM", etc.
+  timecap   String?       // "20min", "AMRAP 12", etc.
+  order     Int           @default(0)
+  wod       Wod           @relation(fields: [wodId], references: [id], onDelete: Cascade)
+  movements WodMovement[]
+}
+
 model WodMovement {
-  id           String  @id @default(uuid())
-  wodId        String
-  movementName String
-  sets         Int?
-  reps         Int?
-  percentage   Int?
-  notes        String?
-  wod          Wod     @relation(fields: [wodId], references: [id])
+  id             String   @id @default(uuid())
+  blockId        String
+  order          Int      @default(0)
+  movementName   String
+  repScheme      String?
+  weightRookieM  Float?
+  weightRookieF  Float?
+  weightScaleM   Float?
+  weightScaleF   Float?
+  weightRxM      Float?
+  weightRxF      Float?
+  scaledMovement String?
+  notes          String?
+  roundWeights   Json?    // [{reps, rookieM, rookieF, scaleM, scaleF, rxM, rxF}]
+  sets           Int?     // legacy
+  reps           Int?     // legacy
+  block          WodBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
 }
 
 model RmRecord {
@@ -383,6 +411,16 @@ model PasswordResetToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
 model Benchmark {
   id              String              @id @default(uuid())
   externalId      String?             @unique
@@ -468,4 +506,88 @@ enum GymPaymentStatus {
   PAID
   FAILED
   REFUNDED
+}
+
+enum FintocLinkStatus {
+  ACTIVE
+  REVOKED
+  ERROR
+}
+
+enum FintocPayStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+}
+
+enum ReconciliationStatus {
+  PENDING
+  MATCHED
+  CONFIRMED
+  REJECTED
+  MANUAL
+}
+
+model FintocLink {
+  id            String           @id @default(uuid())
+  gymId         String           @unique
+  linkToken     String
+  accountId     String
+  accountNumber String?
+  bankName      String?
+  holderName    String?
+  holderRut     String?
+  currency      String           @default("CLP")
+  status        FintocLinkStatus @default(ACTIVE)
+  lastSyncAt    DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  gym           Gym              @relation(fields: [gymId], references: [id])
+  movements     BankMovement[]
+}
+
+model BankMovement {
+  id                   String               @id @default(uuid())
+  gymId                String
+  fintocLinkId         String
+  fintocMovementId     String               @unique
+  amount               Int
+  currency             String               @default("CLP")
+  postedAt             DateTime
+  description          String?
+  senderRut            String?
+  senderName           String?
+  referenceCode        String?
+  reconciliationStatus ReconciliationStatus @default(PENDING)
+  membershipId         String?
+  matchConfidence      String?
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  gym                  Gym                  @relation(fields: [gymId], references: [id])
+  link                 FintocLink           @relation(fields: [fintocLinkId], references: [id])
+  membership           Membership?          @relation(fields: [membershipId], references: [id])
+
+  @@index([gymId, reconciliationStatus])
+  @@index([gymId, postedAt])
+}
+
+model FintocPaymentIntent {
+  id             String          @id @default(uuid())
+  gymId          String
+  userId         String
+  planId         String
+  fintocIntentId String          @unique
+  widgetUrl      String
+  status         FintocPayStatus @default(PENDING)
+  amountCents    Int
+  membershipId   String?
+  metadata       Json?
+  expiresAt      DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  gym            Gym             @relation(fields: [gymId], references: [id])
 }

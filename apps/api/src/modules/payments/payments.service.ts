@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import crypto from 'crypto'
 import { prisma } from '../../lib/prisma'
+import * as mpClient from '../../lib/mp-client'
 import { emitirDTE, DteInput } from '../../lib/dte'
 import { sendPaymentConfirmation } from '../../lib/email'
 
@@ -269,54 +270,130 @@ export async function createMercadoPagoCheckout(gymId: string, planId: string, u
   const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
   const cfg = gatewayConfig(gym, 'mercadopago')
 
-  const body = {
+  const notificationUrl = `${process.env.BACKEND_URL || process.env.PUBLIC_API_URL || 'http://localhost:3001'}/api/payments/webhook/mercadopago`
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+  const isLocalhost = frontendUrl.includes('localhost')
+
+  const preference = await mpClient.createMPPreference(cfg.accessToken, {
     items: [{
+      id: planId,
       title: plan.name,
       description: `Membresía ${plan.durationDays} días`,
       quantity: 1,
-      unit_price: plan.priceCents / 100,
+      // CLP has no subunits — store value is already in the base currency unit
+      unit_price: plan.currency.toUpperCase() === 'CLP' ? plan.priceCents : plan.priceCents / 100,
       currency_id: plan.currency.toUpperCase(),
     }],
-    payer: { email: user.email },
+    payer: {
+      email: cfg.sandbox ? (process.env.MP_TEST_BUYER_EMAIL || user.email) : user.email,
+      ...(cfg.sandbox ? {
+        identification: { type: 'RUT', number: '12345678' },
+      } : {}),
+    },
     external_reference: `${gymId}|${planId}|${userId}`,
     back_urls: {
-      success: `${process.env.FRONTEND_URL}/payment/success`,
-      failure: `${process.env.FRONTEND_URL}/payment/cancelled`,
-      pending: `${process.env.FRONTEND_URL}/payment/pending`,
+      success: `${frontendUrl}/payment/success`,
+      failure: `${frontendUrl}/payment/cancelled`,
+      pending: `${frontendUrl}/payment/pending`,
     },
-    auto_return: 'approved',
-    notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/webhook/mercadopago`,
-  }
-
-  const res = await fetch('https://api.mercadopago.com/checkout/preferences', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${cfg.accessToken}`,
-    },
-    body: JSON.stringify(body),
+    ...(!isLocalhost ? { auto_return: 'approved' as const } : {}),
+    notification_url: notificationUrl,
   })
 
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Mercado Pago error: ${err}`)
-  }
-
-  const data = await res.json() as any
-  return { url: data.init_point, preferenceId: data.id }
+  const url = cfg.sandbox ? preference.sandbox_init_point : preference.init_point
+  return { url, preferenceId: preference.id }
 }
 
-export async function handleMercadoPagoWebhook(body: any) {
-  // MP sends: { action: "payment.updated", data: { id: "123" } }
-  if (body.action !== 'payment.created' && body.action !== 'payment.updated') return { received: true }
+/**
+ * Valida la firma entrante de Mercado Pago.
+ * Header x-signature: "ts=<timestamp>,v1=<hash>"
+ * La cadena firmada es: "id:<notification_id>;request-id:<x-request-id>;ts:<timestamp>"
+ * usando HMAC-SHA256 con el webhookSecret del gym (o MERCADOPAGO_WEBHOOK_SECRET global).
+ *
+ * Lanza error si la firma es inválida. Si no hay firma ni secret configurado,
+ * no rechaza (flujo sin secret configurado por el gym).
+ */
+export function validateMercadoPagoSignature(
+  xSignature: string | undefined,
+  xRequestId: string | undefined,
+  notificationId: string | undefined,
+  webhookSecret: string | undefined,
+): void {
+  // Sin secret configurado → no podemos verificar, pasamos
+  if (!webhookSecret) return
 
-  const paymentId = body.data?.id
+  // Si hay secret pero no hay firma → rechazar
+  if (!xSignature) throw new Error('Falta header x-signature de Mercado Pago')
+
+  // Parsear: "ts=1234,v1=abcd"
+  const tsMatch = xSignature.match(/ts=([^,]+)/)
+  const v1Match = xSignature.match(/v1=([^,]+)/)
+  if (!tsMatch || !v1Match) throw new Error('Formato de x-signature de Mercado Pago inválido')
+
+  const ts = tsMatch[1]
+  const receivedHash = v1Match[1]
+
+  // Construir el string a firmar según documentación oficial de MP
+  const parts: string[] = []
+  if (notificationId) parts.push(`id:${notificationId}`)
+  if (xRequestId) parts.push(`request-id:${xRequestId}`)
+  parts.push(`ts:${ts}`)
+  const template = parts.join(';')
+
+  const expected = crypto.createHmac('sha256', webhookSecret).update(template).digest('hex')
+  if (receivedHash !== expected) throw new Error('Firma Mercado Pago inválida')
+}
+
+export async function handleMercadoPagoWebhook(
+  body: any,
+  xSignature?: string,
+  xRequestId?: string,
+  query?: any,
+) {
+  // MP sends two formats:
+  // New (Notifications API): { action: "payment.updated", data: { id: "123" } }
+  // Old (IPN): query params topic=payment&id=<paymentId> or topic=merchant_order&id=<orderId>
+  let paymentId: string | undefined
+
+  if (body.action === 'payment.created' || body.action === 'payment.updated') {
+    paymentId = body.data?.id
+  } else if (query?.topic === 'payment' && query?.id) {
+    paymentId = query.id
+  } else if (query?.topic === 'merchant_order' && query?.id) {
+    // Fetch the merchant order to get the payment IDs
+    try {
+      const gyms = await prisma.gym.findMany({
+        where: { paymentGateways: { not: {} } },
+        select: { id: true, paymentGateways: true },
+      })
+      for (const gym of gyms) {
+        const cfg = (gym.paymentGateways as any)?.mercadopago
+        if (!cfg?.enabled || !cfg?.accessToken) continue
+        const res = await fetch(`https://api.mercadopago.com/merchant_orders/${query.id}`, {
+          headers: { 'Authorization': `Bearer ${cfg.accessToken}` },
+        })
+        if (!res.ok) continue
+        const order = await res.json() as any
+        const approved = order.payments?.find((p: any) => p.status === 'approved')
+        if (approved) { paymentId = String(approved.id); break }
+      }
+    } catch (err) {
+      console.error('[MP Webhook] merchant_order lookup error', err)
+    }
+  }
+
   if (!paymentId) return { received: true }
 
   // Find which gym this belongs to by looking up the payment from MP
   // We need the access token — we'll look it up from the external_reference
   // For now, we'll handle this by checking all gyms (or storing gym in metadata)
   // In production, use a signing secret per gym
+
+  // Validate MP signature with global secret if configured (per-gym check happens below)
+  const globalMpSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET
+  if (globalMpSecret && xSignature) {
+    validateMercadoPagoSignature(xSignature, xRequestId, String(paymentId), globalMpSecret)
+  }
 
   try {
     // We get the payment details from the notification URL gymId param
@@ -330,14 +407,23 @@ export async function handleMercadoPagoWebhook(body: any) {
       const cfg = (gym.paymentGateways as any)?.mercadopago
       if (!cfg?.enabled || !cfg?.accessToken) continue
 
-      const res = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-        headers: { 'Authorization': `Bearer ${cfg.accessToken}` },
-      })
+      // Validar firma con el webhookSecret por gym si está configurado
+      if (!globalMpSecret && cfg.webhookSecret && xSignature) {
+        try {
+          validateMercadoPagoSignature(xSignature, xRequestId, String(paymentId), cfg.webhookSecret)
+        } catch {
+          continue // la firma no coincide con este gym, probar el siguiente
+        }
+      }
 
-      if (!res.ok) continue
-      const payment = await res.json() as any
+      let payment: any
+      try {
+        payment = await mpClient.getMPPayment(cfg.accessToken, paymentId)
+      } catch {
+        continue
+      }
 
-      if (payment.status !== 'approved') continue
+      if (!payment || payment.status !== 'approved') continue
 
       const ref: string = payment.external_reference || ''
       const [gymId, planId, userId] = ref.split('|')
@@ -424,7 +510,7 @@ export async function createFlowCheckout(gymId: string, planId: string, userId: 
 }
 
 export async function handleFlowCallback(token: string, gymId: string, planId: string, userId: string) {
-  const gym = await getGym(gymId)
+  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
   const cfg = gatewayConfig(gym, 'flow')
 
   const baseUrl = cfg.sandbox ? 'https://sandbox.flow.cl/api' : 'https://www.flow.cl/api'
@@ -500,15 +586,44 @@ export async function createKhipuCheckout(gymId: string, planId: string, userId:
   return { url: data.payment_url, paymentId: data.payment_id }
 }
 
-export async function handleKhipuCallback(body: any, gymId: string, planId: string, userId: string) {
-  const gym = await getGym(gymId)
+/**
+ * Valida la firma entrante de Khipu.
+ * Header x-khipu-signature: HMAC-SHA256 del raw body en hex.
+ * La clave es el `secret` del receiver configurado en el gym.
+ */
+export function validateKhipuSignature(
+  xKhipuSignature: string | undefined,
+  rawBody: Buffer | string,
+  secret: string,
+): void {
+  if (!xKhipuSignature) throw new Error('Falta header x-khipu-signature')
+  const bodyStr = Buffer.isBuffer(rawBody) ? rawBody.toString() : rawBody
+  const expected = crypto.createHmac('sha256', secret).update(bodyStr).digest('hex')
+  if (xKhipuSignature !== expected) throw new Error('Firma Khipu inválida')
+}
+
+export async function handleKhipuCallback(
+  body: any,
+  gymId: string,
+  planId: string,
+  userId: string,
+  xKhipuSignature?: string,
+  rawBody?: Buffer,
+) {
+  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
   const cfg = gatewayConfig(gym, 'khipu')
+
+  // Validar firma si el gym tiene el secret configurado
+  if (cfg.secret) {
+    const bodyForSig = rawBody ?? Buffer.from(JSON.stringify(body))
+    validateKhipuSignature(xKhipuSignature, bodyForSig, cfg.secret)
+  }
 
   const paymentId: string = body.payment_id
   if (!paymentId) throw new Error('Sin payment_id de Khipu')
 
   const url = `https://khipu.com/api/2.0/payments/${paymentId}`
-  const sig = khipuSign('GET', url, '', cfg.secret)
+  const sig = khipuSign('GET', url, '', cfg.secret ?? '')
 
   const res = await fetch(url, {
     headers: { 'Authorization': `${cfg.receiverId}:${sig}` },
@@ -580,7 +695,7 @@ export async function createPayUCheckout(gymId: string, planId: string, userId: 
 }
 
 export async function handlePayUCallback(body: any, gymId: string, planId: string, userId: string) {
-  const gym = await getGym(gymId)
+  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
   const cfg = gatewayConfig(gym, 'payu')
 
   // PayU sends: transactionState (4=Approved), referenceCode, TX_VALUE, currency, signature
@@ -594,7 +709,8 @@ export async function handlePayUCallback(body: any, gymId: string, planId: strin
     .update(`${cfg.apiKey}~${cfg.merchantId}~${referenceCode}~${TX_VALUE}~${currency}~${transactionState}`)
     .digest('hex')
 
-  if (sign && sign.toLowerCase() !== expected.toLowerCase()) {
+  if (!sign) throw new Error('Falta firma PayU')
+  if (sign.toLowerCase() !== expected.toLowerCase()) {
     throw new Error('Firma PayU inválida')
   }
 
@@ -664,8 +780,56 @@ export async function createKushkiCheckout(gymId: string, planId: string, userId
   return { url: data.redirectURL || data.payment_url, chargeToken: data.ticketNumber }
 }
 
-export async function handleKushkiCallback(body: any, gymId: string, planId: string, userId: string) {
+/**
+ * Valida el header x-kushki-token enviado por Kushki en callbacks.
+ * Es un JWT firmado por Kushki. En MVP:
+ * 1. Verificamos que el header existe.
+ * 2. Verificamos que tiene formato JWT (tres segmentos base64url).
+ * 3. Decodificamos el payload y verificamos que el merchantId coincide.
+ * La verificación criptográfica completa requiere la clave pública de Kushki
+ * (no expuesta en docs públicos para sandbox) — queda como TODO para producción.
+ */
+export function validateKushkiToken(
+  xKushkiToken: string | undefined,
+  expectedMerchantId: string,
+): void {
+  if (!xKushkiToken) throw new Error('Falta header x-kushki-token')
+
+  const parts = xKushkiToken.split('.')
+  if (parts.length !== 3) throw new Error('Header x-kushki-token no tiene formato JWT')
+
+  // Decodificar payload (segunda parte) sin verificar firma
+  let payload: any
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'))
+  } catch {
+    throw new Error('Header x-kushki-token: payload JWT inválido')
+  }
+
+  // Verificar merchantId en el payload del JWT
+  const tokenMerchantId: string | undefined = payload?.merchantId ?? payload?.merchant_id
+  if (!tokenMerchantId) throw new Error('x-kushki-token no contiene merchantId')
+  if (tokenMerchantId !== expectedMerchantId) {
+    throw new Error('x-kushki-token: merchantId no coincide con la configuración')
+  }
+}
+
+export async function handleKushkiCallback(
+  body: any,
+  gymId: string,
+  planId: string,
+  userId: string,
+  xKushkiToken?: string,
+) {
   const { ticketNumber, transactionStatus } = body
+
+  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
+  const cfg = (gym.paymentGateways as any)?.kushki
+  if (!cfg?.enabled) throw new Error('Pasarela Kushki no habilitada para este gimnasio')
+  if (cfg?.privateMerchantId) {
+    validateKushkiToken(xKushkiToken, cfg.privateMerchantId)
+  }
 
   if (transactionStatus && transactionStatus !== 'APPROVAL') {
     throw new Error(`Pago Kushki no aprobado (${transactionStatus})`)
@@ -829,7 +993,36 @@ export async function createMachCheckout(gymId: string, planId: string, userId: 
   return { url: data.payment_url || data.url, externalId, linkId: data.id }
 }
 
-export async function handleMachWebhook(body: any) {
+/**
+ * Valida el webhook entrante de MACH Business.
+ * MACH Business no expone un mecanismo de firma HMAC en su documentación pública.
+ * Según comportamiento observado en sandbox: el webhook llega con un header
+ * Authorization: Bearer <webhookSecret> configurado al crear el payment link.
+ * MVP: verificar que el Bearer token del header coincide con el webhookSecret del gym.
+ * Comparación de tiempo constante para evitar timing attacks.
+ */
+export function validateMachWebhookToken(
+  authorizationHeader: string | undefined,
+  webhookSecret: string,
+): void {
+  if (!authorizationHeader) throw new Error('Falta header Authorization en webhook MACH')
+
+  const token = authorizationHeader.startsWith('Bearer ')
+    ? authorizationHeader.slice(7)
+    : authorizationHeader
+
+  // Comparación de tiempo constante
+  const secretBuf = Buffer.from(webhookSecret)
+  const tokenBuf = Buffer.from(token)
+  if (
+    secretBuf.length !== tokenBuf.length ||
+    !crypto.timingSafeEqual(secretBuf, tokenBuf)
+  ) {
+    throw new Error('Token de webhook MACH inválido')
+  }
+}
+
+export async function handleMachWebhook(body: any, authorizationHeader?: string) {
   // MACH notifies with { status, external_id, payment_id, amount }
   const { status, external_id, payment_id, amount } = body
 
@@ -854,6 +1047,11 @@ export async function handleMachWebhook(body: any) {
   // Verify with MACH API using gym's apiKey
   const cfg = (gym.paymentGateways as any)?.mach
   if (!cfg?.enabled || !cfg?.apiKey) return { received: true }
+
+  // Validar token si el gym tiene webhookSecret configurado
+  if (cfg.webhookSecret) {
+    validateMachWebhookToken(authorizationHeader, cfg.webhookSecret)
+  }
 
   // Idempotency check
   const existing = await prisma.membership.findFirst({
@@ -1189,6 +1387,419 @@ export async function getGymSubscriptionStatus(gymId: string) {
     : 0
 
   return { gym, subscription, daysLeft, isExpired: !subscription || subscription.endsAt < now }
+}
+
+// ─── Fintoc — Conciliación bancaria ──────────────────────────────────────────
+
+export async function saveFintocLink(
+  gymId: string,
+  linkToken: string,
+  accountId: string,
+  optional: {
+    accountNumber?: string
+    bankName?: string
+    holderName?: string
+    holderRut?: string
+  } = {},
+) {
+  return prisma.fintocLink.upsert({
+    where: { gymId },
+    create: {
+      gymId,
+      linkToken,
+      accountId,
+      accountNumber: optional.accountNumber ?? null,
+      bankName: optional.bankName ?? null,
+      holderName: optional.holderName ?? null,
+      holderRut: optional.holderRut ?? null,
+      status: 'ACTIVE',
+    },
+    update: {
+      linkToken,
+      accountId,
+      accountNumber: optional.accountNumber ?? null,
+      bankName: optional.bankName ?? null,
+      holderName: optional.holderName ?? null,
+      holderRut: optional.holderRut ?? null,
+      status: 'ACTIVE',
+      updatedAt: new Date(),
+    },
+  })
+}
+
+export async function getFintocStatus(gymId: string) {
+  const link = await prisma.fintocLink.findUnique({ where: { gymId } })
+  const pendingCount = link
+    ? await prisma.bankMovement.count({
+        where: { gymId, reconciliationStatus: 'PENDING' },
+      })
+    : 0
+  const matchedCount = link
+    ? await prisma.bankMovement.count({
+        where: { gymId, reconciliationStatus: 'MATCHED' },
+      })
+    : 0
+  return { connected: !!link, link: link ?? null, pendingCount, matchedCount }
+}
+
+export async function importFintocMovements(
+  gymId: string,
+  rawMovements: Array<{
+    id: string
+    amount: number
+    currency?: string
+    post_date: string
+    description?: string
+    sender_rut?: string
+    sender_name?: string
+    reference_code?: string
+  }>,
+) {
+  const link = await prisma.fintocLink.findUnique({ where: { gymId } })
+  if (!link) throw new Error('No hay link Fintoc configurado para este gimnasio')
+
+  const imported: string[] = []
+  const skipped: string[] = []
+
+  for (const raw of rawMovements) {
+    const existing = await prisma.bankMovement.findUnique({
+      where: { fintocMovementId: raw.id },
+    })
+    if (existing) {
+      skipped.push(raw.id)
+      continue
+    }
+
+    await prisma.bankMovement.create({
+      data: {
+        gymId,
+        fintocLinkId: link.id,
+        fintocMovementId: raw.id,
+        amount: raw.amount,
+        currency: raw.currency ?? 'CLP',
+        postedAt: new Date(raw.post_date),
+        description: raw.description ?? null,
+        senderRut: raw.sender_rut ?? null,
+        senderName: raw.sender_name ?? null,
+        referenceCode: raw.reference_code ?? null,
+        reconciliationStatus: 'PENDING',
+      },
+    })
+    imported.push(raw.id)
+  }
+
+  // Update lastSyncAt
+  await prisma.fintocLink.update({
+    where: { gymId },
+    data: { lastSyncAt: new Date() },
+  })
+
+  // Run matcher on newly imported movements
+  const matchResult = await runMatcher(gymId, imported)
+
+  return {
+    imported: imported.length,
+    skipped: skipped.length,
+    matched: matchResult.matched,
+    confirmed: matchResult.confirmed,
+  }
+}
+
+/**
+ * Matcher de conciliación bancaria.
+ * Fase 1 (exact_rut): si el movimiento tiene senderRut y hay una membresía PENDING_REVIEW
+ *   cuyo usuario.rut coincide y el monto coincide → confirmar automáticamente.
+ * Fase 2 (amount_only): si hay una membresía PENDING_REVIEW con el mismo monto dentro
+ *   de ±72h de su createdAt → marcar como MATCHED (requiere revisión manual).
+ */
+export async function runMatcher(
+  gymId: string,
+  movementIds: string[],
+): Promise<{ matched: number; confirmed: number }> {
+  if (movementIds.length === 0) return { matched: 0, confirmed: 0 }
+
+  const movements = await prisma.bankMovement.findMany({
+    where: {
+      gymId,
+      fintocMovementId: { in: movementIds },
+      reconciliationStatus: 'PENDING',
+    },
+  })
+
+  let matched = 0
+  let confirmed = 0
+
+  for (const movement of movements) {
+    // Candidatos: membresías PENDING_REVIEW con mismo monto, del mismo gym
+    const candidates = await prisma.membership.findMany({
+      where: {
+        transferStatus: 'PENDING_REVIEW',
+        pricePaid: movement.amount,
+        user: { gymId },
+      },
+      include: { user: { select: { id: true, rut: true } } },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    if (candidates.length === 0) continue
+
+    // Fase 1: match exacto por RUT
+    if (movement.senderRut) {
+      const rutMatch = candidates.find(
+        c => c.user.rut && c.user.rut === movement.senderRut,
+      )
+      if (rutMatch) {
+        // Confirmar automáticamente
+        await confirmTransfer(gymId, rutMatch.id)
+        await prisma.bankMovement.update({
+          where: { id: movement.id },
+          data: {
+            reconciliationStatus: 'CONFIRMED',
+            membershipId: rutMatch.id,
+            matchConfidence: 'exact_rut',
+          },
+        })
+        confirmed++
+        continue
+      }
+    }
+
+    // Fase 2: match por monto dentro de ±72h
+    const windowMs = 72 * 60 * 60 * 1000
+    const windowMatch = candidates.find(c => {
+      const diff = Math.abs(movement.postedAt.getTime() - c.createdAt.getTime())
+      return diff <= windowMs
+    })
+    if (windowMatch) {
+      await prisma.bankMovement.update({
+        where: { id: movement.id },
+        data: {
+          reconciliationStatus: 'MATCHED',
+          membershipId: windowMatch.id,
+          matchConfidence: 'amount_only',
+        },
+      })
+      matched++
+    }
+  }
+
+  return { matched, confirmed }
+}
+
+export async function listBankMovements(
+  gymId: string,
+  filters: {
+    status?: string
+    limit?: number
+    offset?: number
+  } = {},
+) {
+  const { status, limit = 50, offset = 0 } = filters
+
+  const where: any = { gymId }
+  if (status) where.reconciliationStatus = status
+
+  const [movements, total] = await Promise.all([
+    prisma.bankMovement.findMany({
+      where,
+      include: {
+        membership: {
+          select: {
+            id: true,
+            transferStatus: true,
+            user: { select: { id: true, name: true, email: true } },
+            plan: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { postedAt: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.bankMovement.count({ where }),
+  ])
+
+  return { movements, total, limit, offset }
+}
+
+export async function confirmBankMovement(
+  gymId: string,
+  movementId: string,
+  membershipId: string,
+  reviewedBy: string,
+) {
+  const movement = await prisma.bankMovement.findFirst({
+    where: { id: movementId, gymId },
+  })
+  if (!movement) throw new Error('Movimiento bancario no encontrado')
+  if (
+    movement.reconciliationStatus === 'CONFIRMED' ||
+    movement.reconciliationStatus === 'REJECTED'
+  ) {
+    throw new Error('Este movimiento ya fue procesado')
+  }
+
+  // Confirm the associated transfer membership
+  await confirmTransfer(gymId, membershipId)
+
+  return prisma.bankMovement.update({
+    where: { id: movementId },
+    data: {
+      reconciliationStatus: 'CONFIRMED',
+      membershipId,
+      matchConfidence: movement.matchConfidence ?? 'manual',
+      reviewedBy,
+      reviewedAt: new Date(),
+    },
+  })
+}
+
+export async function rejectBankMovement(
+  gymId: string,
+  movementId: string,
+  reviewedBy: string,
+  reason?: string,
+) {
+  const movement = await prisma.bankMovement.findFirst({
+    where: { id: movementId, gymId },
+  })
+  if (!movement) throw new Error('Movimiento bancario no encontrado')
+  if (
+    movement.reconciliationStatus === 'CONFIRMED' ||
+    movement.reconciliationStatus === 'REJECTED'
+  ) {
+    throw new Error('Este movimiento ya fue procesado')
+  }
+
+  return prisma.bankMovement.update({
+    where: { id: movementId },
+    data: {
+      reconciliationStatus: 'REJECTED',
+      reviewedBy,
+      reviewedAt: new Date(),
+      ...(reason ? { description: `[RECHAZADO] ${reason}` } : {}),
+    },
+  })
+}
+
+// ─── Fintoc Payments (Pay by Bank) ───────────────────────────────────────────
+
+export async function createFintocPayCheckout(gymId: string, planId: string, userId: string) {
+  const [gym, plan] = await Promise.all([getGym(gymId), getPlan(planId, gymId)])
+  const cfg = gatewayConfig(gym, 'fintocPayments')
+
+  const res = await fetch('https://api.fintoc.com/v1/payment_intents', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${cfg.secretKey}`,
+    },
+    body: JSON.stringify({
+      amount: plan.priceCents,
+      currency: cfg.currency ?? 'CLP',
+      metadata: { gymId, planId, userId },
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Fintoc Pay error: ${err}`)
+  }
+
+  const data = await res.json() as any
+
+  await (prisma as any).fintocPaymentIntent.create({
+    data: {
+      gymId,
+      userId,
+      planId,
+      fintocIntentId: data.id,
+      widgetUrl: data.widget_url,
+      status: 'PENDING',
+      amountCents: plan.priceCents,
+      metadata: data,
+    },
+  })
+
+  return { widgetUrl: data.widget_url, paymentIntentId: data.id }
+}
+
+export async function getFintocPayStatus(paymentIntentId: string, userId: string) {
+  const record = await (prisma as any).fintocPaymentIntent.findUnique({
+    where: { fintocIntentId: paymentIntentId },
+  })
+  if (!record || record.userId !== userId) return null
+  return { status: record.status, membershipId: record.membershipId }
+}
+
+export async function handleFintocPayWebhook(body: any, rawBody: Buffer | string, fintocSignatureHeader: string | undefined) {
+  const gymId: string | undefined = body?.data?.metadata?.gymId
+  if (!gymId) throw new Error('gymId no encontrado en metadata del webhook')
+
+  const gym = await getGym(gymId)
+  const cfg = (gym.paymentGateways as any)?.fintocPayments
+  if (!cfg?.webhookSecret) throw new Error('webhookSecret de Fintoc Payments no configurado')
+
+  // Validar firma HMAC-SHA256 igual que validateKhipuSignature
+  if (!fintocSignatureHeader) throw new Error('Firma inválida')
+  const bodyStr = Buffer.isBuffer(rawBody) ? rawBody.toString() : rawBody
+  const expected = crypto.createHmac('sha256', cfg.webhookSecret).update(bodyStr).digest('hex')
+  if (fintocSignatureHeader !== expected) throw new Error('Firma inválida')
+
+  if (body.type === 'payment_intent.succeeded') {
+    const fintocIntentId: string = body.data.id
+    const intent = await (prisma as any).fintocPaymentIntent.findUnique({
+      where: { fintocIntentId },
+    })
+    if (!intent) return { received: true }
+
+    // Idempotencia
+    if (intent.status === 'SUCCEEDED') return { received: true }
+
+    const membership = await activateMembership(intent.userId, intent.planId, 'fintoc_pay', {
+      paymentNotes: `fintoc_pay:${fintocIntentId}`,
+    })
+
+    await (prisma as any).fintocPaymentIntent.update({
+      where: { fintocIntentId },
+      data: { status: 'SUCCEEDED', membershipId: membership.id },
+    })
+
+    const user = await prisma.user.findUnique({ where: { id: intent.userId } })
+    const plan = await prisma.plan.findUnique({ where: { id: intent.planId } })
+    if (user && plan) {
+      sendPaymentConfirmation(gymId, {
+        memberName: user.name, memberEmail: user.email, planName: plan.name,
+        amount: plan.priceCents, currency: plan.currency, paymentMethod: 'fintoc_pay', endsAt: membership.endsAt,
+      }).catch(err => console.error('[Email] Fintoc Pay:', err))
+    }
+  }
+
+  if (body.type === 'payment_intent.failed') {
+    const fintocIntentId: string = body.data.id
+    await (prisma as any).fintocPaymentIntent.updateMany({
+      where: { fintocIntentId },
+      data: { status: 'FAILED' },
+    })
+  }
+
+  return { received: true }
+}
+
+export async function handleFintocWebhook(
+  gymId: string,
+  rawMovements: Array<{
+    id: string
+    amount: number
+    currency?: string
+    post_date: string
+    description?: string
+    sender_rut?: string
+    sender_name?: string
+    reference_code?: string
+  }>,
+) {
+  return importFintocMovements(gymId, rawMovements)
 }
 
 export async function activateGymSubscriptionFromStripe(

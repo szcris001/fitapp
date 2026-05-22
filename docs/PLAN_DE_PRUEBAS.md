@@ -124,6 +124,7 @@ export async function createUser(gymId: string, overrides = {}) {
 **Riesgo**: un atleta carga mal la barra. Lesión.
 **Tipo de tests**: capa 1 (unit puros, sin DB).
 **Estimación**: 1 día.
+**Estado**: COMPLETADO 2026-04-30. 26 tests, 26/26 pasando. Ver `apps/api/src/modules/wod/__tests__/calculateLoad.test.ts`.
 
 ### Función bajo prueba
 

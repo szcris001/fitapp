@@ -1,11 +1,22 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { loginSchema } from './auth.schema'
-import { loginUser, forgotPassword, resetPassword } from './auth.service'
+import {
+  loginUser,
+  forgotPassword,
+  resetPassword,
+  createRefreshToken,
+  rotateRefreshToken,
+  revokeRefreshToken,
+} from './auth.service'
 import { authenticate } from '../../middlewares/auth.middleware'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
+
+const refreshBodySchema = z.object({
+  refreshToken: z.string().min(1),
+})
 
 const forgotSchema = z.object({
   email: z.string().email(),
@@ -23,11 +34,46 @@ export async function authRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
       const user = await loginUser(parsed.data)
-      const token = app.jwt.sign(user)
-      return reply.status(200).send({ token, user })
+      const token = app.jwt.sign(user, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
+      const refreshToken = await createRefreshToken(user.userId)
+      return reply.status(200).send({ token, refreshToken, user })
     } catch (err: any) {
       return reply.status(401).send({ error: err.message })
     }
+  })
+
+  app.post('/auth/refresh', async (request, reply) => {
+    const parsed = refreshBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      const { userId, newRaw } = await rotateRefreshToken(parsed.data.refreshToken)
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, gymId: true, email: true, name: true, role: true, avatarUrl: true, mustChangePassword: true },
+      })
+      if (!user) return reply.status(401).send({ error: 'Usuario no encontrado' })
+      const payload = {
+        userId: user.id,
+        gymId: user.gymId,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        avatarUrl: user.avatarUrl ?? null,
+        mustChangePassword: user.mustChangePassword,
+      }
+      const token = app.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
+      return reply.status(200).send({ token, refreshToken: newRaw })
+    } catch (err: any) {
+      return reply.status(401).send({ error: err.message })
+    }
+  })
+
+  app.post('/auth/logout', { preHandler: authenticate }, async (request, reply) => {
+    const parsed = refreshBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    const { userId } = request.user as any
+    await revokeRefreshToken(userId, parsed.data.refreshToken)
+    return reply.status(200).send({ message: 'Sesión cerrada correctamente' })
   })
 
   app.post('/auth/forgot-password', async (request, reply) => {
