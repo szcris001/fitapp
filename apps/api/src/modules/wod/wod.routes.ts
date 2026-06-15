@@ -1,7 +1,26 @@
-import { FastifyInstance } from 'fastify'
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { z } from 'zod'
 import { authenticate, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
+
+interface AuthUser {
+  id: string
+  gymId: string
+  role: string
+}
+
+function formatScore(score: number, scoreText: string | null, scoreType: string): string {
+  if (scoreType === 'TIME') {
+    const mins = Math.floor(score / 60)
+    const secs = String(Math.round(score % 60)).padStart(2, '0')
+    return `${mins}:${secs}`
+  }
+  if (scoreType === 'CUSTOM') {
+    return scoreText ?? ''
+  }
+  return String(score)
+}
 
 function toFloat(v: any) { return v != null && v !== '' ? Number(v) : null }
 
@@ -156,7 +175,7 @@ export async function wodRoutes(app: FastifyInstance) {
   app.put('/wods/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as any
-    const { title, date, blocks } = request.body as any
+    const { title, date, blocks, scoreType } = request.body as any
 
     const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
@@ -169,6 +188,7 @@ export async function wodRoutes(app: FastifyInstance) {
           title,
           date: new Date(date),
           blocks: { create: sanitizeBlocks(blocks ?? []) },
+          ...(scoreType !== undefined ? { scoreType } : {}),
         },
         include: includeBlocks,
       })
@@ -186,6 +206,242 @@ export async function wodRoutes(app: FastifyInstance) {
     const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
     await prisma.wod.delete({ where: { id } })
+    return reply.send({ ok: true })
+  })
+
+  // ─── RESULTS: POST (crear/actualizar resultado) ──────────────────────────────
+  app.post('/wods/:id/results', { preHandler: requireCoachOrAdmin }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+    const { id } = request.params as { id: string }
+    const body = request.body as {
+      userId: string
+      score: number
+      scoreText?: string
+      rx: boolean
+      notes?: string
+    }
+
+    const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    // Verificar que el atleta pertenece al mismo gym
+    const athlete = await prisma.user.findFirst({
+      where: { id: body.userId, gymId: user.gymId },
+      select: { id: true },
+    })
+    if (!athlete) return reply.status(404).send({ error: 'Usuario no encontrado en este gym' })
+
+    try {
+      const result = await prisma.wodResult.upsert({
+        where: { wodId_userId: { wodId: id, userId: body.userId } },
+        create: {
+          gymId: user.gymId,
+          wodId: id,
+          userId: body.userId,
+          score: body.score,
+          scoreText: body.scoreText ?? null,
+          rx: body.rx,
+          notes: body.notes ?? null,
+          recordedBy: user.id,
+        },
+        update: {
+          score: body.score,
+          scoreText: body.scoreText ?? null,
+          rx: body.rx,
+          notes: body.notes ?? null,
+          recordedBy: user.id,
+        },
+        include: {
+          user: { select: { id: true, name: true, avatarUrl: true } },
+        },
+      })
+      return reply.status(201).send(result)
+    } catch (err) {
+      const msg = prismaErrorMessage(err)
+      return reply.status(400).send({ error: msg ?? 'Error al registrar resultado' })
+    }
+  })
+
+  // ─── RESULTS: GET leaderboard ────────────────────────────────────────────────
+  app.get('/wods/:id/leaderboard', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+    const { id } = request.params as { id: string }
+    const { rx: rxFilter = 'all' } = request.query as { rx?: string }
+
+    const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    const where: { wodId: string; rx?: boolean } = { wodId: id }
+    if (rxFilter === 'true') where.rx = true
+    if (rxFilter === 'false') where.rx = false
+
+    // Determinar orden según scoreType
+    const isAscending = wod.scoreType === 'TIME'
+    const orderBy: { score: 'asc' | 'desc' } | { createdAt: 'asc' } =
+      wod.scoreType === 'CUSTOM'
+        ? { createdAt: 'asc' }
+        : { score: isAscending ? 'asc' : 'desc' }
+
+    const rawResults = await prisma.wodResult.findMany({
+      where,
+      orderBy,
+      include: {
+        user: { select: { id: true, name: true, avatarUrl: true } },
+      },
+    })
+
+    // Separar RX y Scaled, calcular rank independiente
+    const rxEntries = rawResults.filter(r => r.rx)
+    const scaledEntries = rawResults.filter(r => !r.rx)
+
+    const mapWithRank = (entries: typeof rawResults, category: 'rx' | 'scaled') =>
+      entries.map((entry, index) => ({
+        rank: index + 1,
+        category,
+        id: entry.id,
+        userId: entry.userId,
+        user: entry.user,
+        score: entry.score,
+        scoreText: entry.scoreText,
+        scoreFormatted: formatScore(entry.score, entry.scoreText, wod.scoreType),
+        rx: entry.rx,
+        notes: entry.notes,
+        recordedBy: entry.recordedBy,
+        createdAt: entry.createdAt,
+      }))
+
+    const entries = [...mapWithRank(rxEntries, 'rx'), ...mapWithRank(scaledEntries, 'scaled')]
+
+    return reply.send({
+      wodId: id,
+      scoreType: wod.scoreType,
+      total: entries.length,
+      entries,
+    })
+  })
+
+  // ─── RESULTS: GET /me (miembro ve su propio resultado) ──────────────────────
+  app.get('/wods/:id/results/me', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+    const { id: wodId } = request.params as { id: string }
+
+    const wod = await prisma.wod.findFirst({ where: { id: wodId, gymId: user.gymId } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    const result = await prisma.wodResult.findUnique({
+      where: { wodId_userId: { wodId, userId: user.id } },
+    })
+
+    if (!result) return reply.status(200).send(null)
+
+    const scoreFormatted = formatScore(result.score, result.scoreText, wod.scoreType)
+    return reply.send({ ...result, scoreFormatted })
+  })
+
+  // ─── RESULTS: POST /me (miembro registra su propio resultado) ────────────────
+  app.post('/wods/:id/results/me', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+    const { id: wodId } = request.params as { id: string }
+
+    const memberResultSchema = z.object({
+      score: z.number().min(0),
+      scoreText: z.string().optional(),
+      rx: z.boolean().default(false),
+      notes: z.string().max(500).optional(),
+    })
+
+    const parseResult = memberResultSchema.safeParse(request.body)
+    if (!parseResult.success) {
+      return reply.status(400).send({ error: 'Datos inválidos', details: parseResult.error.flatten() })
+    }
+    const body = parseResult.data
+
+    const wod = await prisma.wod.findFirst({ where: { id: wodId, gymId: user.gymId } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    const result = await prisma.wodResult.upsert({
+      where: { wodId_userId: { wodId, userId: user.id } },
+      create: {
+        gymId: user.gymId,
+        wodId,
+        userId: user.id,
+        score: body.score,
+        scoreText: body.scoreText ?? null,
+        rx: body.rx,
+        notes: body.notes ?? null,
+        recordedBy: user.id,
+      },
+      update: {
+        score: body.score,
+        scoreText: body.scoreText ?? null,
+        rx: body.rx,
+        notes: body.notes ?? null,
+      },
+      include: {
+        user: { select: { id: true, name: true } },
+      },
+    })
+
+    const scoreFormatted = formatScore(result.score, result.scoreText, wod.scoreType)
+    return reply.status(201).send({ ...result, scoreFormatted })
+  })
+
+  // ─── RESULTS: PUT (actualizar resultado) ─────────────────────────────────────
+  app.put('/wods/:id/results/:userId', { preHandler: requireCoachOrAdmin }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+    const { id, userId } = request.params as { id: string; userId: string }
+    const body = request.body as {
+      score?: number
+      scoreText?: string
+      rx?: boolean
+      notes?: string
+    }
+
+    const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    const existing = await prisma.wodResult.findUnique({
+      where: { wodId_userId: { wodId: id, userId } },
+    })
+    if (!existing) return reply.status(404).send({ error: 'Resultado no encontrado' })
+
+    try {
+      const updated = await prisma.wodResult.update({
+        where: { wodId_userId: { wodId: id, userId } },
+        data: {
+          ...(body.score !== undefined ? { score: body.score } : {}),
+          ...(body.scoreText !== undefined ? { scoreText: body.scoreText } : {}),
+          ...(body.rx !== undefined ? { rx: body.rx } : {}),
+          ...(body.notes !== undefined ? { notes: body.notes } : {}),
+          recordedBy: user.id,
+        },
+        include: {
+          user: { select: { id: true, name: true, avatarUrl: true } },
+        },
+      })
+      return reply.send(updated)
+    } catch (err) {
+      const msg = prismaErrorMessage(err)
+      return reply.status(400).send({ error: msg ?? 'Error al actualizar resultado' })
+    }
+  })
+
+  // ─── RESULTS: DELETE ─────────────────────────────────────────────────────────
+  app.delete('/wods/:id/results/:userId', { preHandler: requireCoachOrAdmin }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+    const { id, userId } = request.params as { id: string; userId: string }
+
+    const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    const existing = await prisma.wodResult.findUnique({
+      where: { wodId_userId: { wodId: id, userId } },
+    })
+    if (!existing) return reply.status(404).send({ error: 'Resultado no encontrado' })
+
+    await prisma.wodResult.delete({
+      where: { wodId_userId: { wodId: id, userId } },
+    })
     return reply.send({ ok: true })
   })
 

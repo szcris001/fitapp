@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
-import { createClassTypeSchema, createClassSchema, bookingSchema } from './classes.schema'
+import { createClassTypeSchema, createClassSchema, bookingSchema, updateClassAllowedPlansSchema } from './classes.schema'
 import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin } from './classes.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
@@ -77,6 +77,26 @@ export async function classRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
       return reply.status(201).send(await createClass(user.gymId, parsed.data))
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  // Update allowed plans for a class (set replaces current list; empty array removes all restrictions)
+  app.put('/classes/:id/allowed-plans', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as { id: string }
+    const parsed = updateClassAllowedPlansSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+    try {
+      const updated = await prisma.class.update({
+        where: { id },
+        data: { allowedPlans: { set: parsed.data.allowedPlanIds.map(planId => ({ id: planId })) } },
+        include: { allowedPlans: { select: { id: true, name: true } } },
+      })
+      return reply.send(updated)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }
@@ -176,7 +196,11 @@ export async function classRoutes(app: FastifyInstance) {
           ...(body.capacity && { capacity: Number(body.capacity) }),
           ...(body.coachId && { coachId: body.coachId }),
           ...(body.classTypeId && { classTypeId: body.classTypeId }),
+          ...(body.allowedPlanIds !== undefined && {
+            allowedPlans: { set: (body.allowedPlanIds as string[]).map(planId => ({ id: planId })) },
+          }),
         },
+        include: { allowedPlans: { select: { id: true, name: true } } },
       })
       return reply.send(updated)
     } catch (err) {
@@ -318,6 +342,72 @@ export async function classRoutes(app: FastifyInstance) {
 
     await prisma.booking.update({ where: { id: booking.id }, data: { status: 'ATTENDED' } })
     return reply.send({ ok: true, distance: Math.round(distance) })
+  })
+
+  // ─── Asistencia: marcar/desmarcar por bookingId del alumno ──────────────────
+  app.patch('/classes/:id/bookings/:userId/attend', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id: classId, userId } = request.params as { id: string; userId: string }
+    const body = request.body as any
+    if (typeof body?.attended !== 'boolean') return reply.status(400).send({ error: 'El campo attended (boolean) es requerido' })
+    const { attended } = body
+
+    const cls = await prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+
+    const existing = await prisma.booking.findUnique({
+      where: { userId_classId: { userId, classId } },
+    })
+    if (!existing) return reply.status(404).send({ error: 'Reserva no encontrada para ese alumno en esta clase' })
+
+    const updated = await prisma.booking.update({
+      where: { userId_classId: { userId, classId } },
+      data: {
+        attended,
+        attendedAt: attended ? new Date() : null,
+        status: attended ? 'ATTENDED' : 'CONFIRMED',
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+    })
+
+    return reply.send(updated)
+  })
+
+  // ─── Asistencia: lista completa de reservas/asistencia de una clase ──────────
+  app.get('/classes/:id/attendees', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id: classId } = request.params as { id: string }
+
+    const cls = await prisma.class.findFirst({
+      where: { id: classId, gymId: user.gymId },
+      include: {
+        bookings: {
+          include: {
+            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+          },
+          orderBy: { user: { name: 'asc' } },
+        },
+      },
+    })
+    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+
+    return reply.send({
+      classId,
+      total: cls.bookings.length,
+      attended: cls.bookings.filter((b: any) => b.attended).length,
+      bookings: cls.bookings.map((b: any) => ({
+        userId: b.userId,
+        userName: b.user.name,
+        userEmail: b.user.email,
+        userAvatar: b.user.avatarUrl,
+        status: b.status,
+        attended: b.attended,
+        attendedAt: b.attendedAt,
+        bookedAt: b.createdAt,
+      })),
+    })
   })
 
   app.get('/my-bookings', { preHandler: authenticate }, async (request, reply) => {

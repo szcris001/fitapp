@@ -41,7 +41,7 @@ async function activateMembership(userId: string, planId: string, paymentMethod:
 
   const startsAt = existing ? existing.endsAt : new Date()
   const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + plan.durationDays)
+  endsAt.setDate(endsAt.getDate() + 30)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -189,7 +189,7 @@ export async function handleStripeWebhook(payload: Buffer, signature: string) {
     const nextAutoRenewAt = wantsAutoRenew && plan.autoRenewDaysBefore
       ? (() => {
           const d = new Date()
-          d.setDate(d.getDate() + plan.durationDays - plan.autoRenewDaysBefore)
+          d.setDate(d.getDate() + 30 - plan.autoRenewDaysBefore)
           return d
         })()
       : undefined
@@ -444,7 +444,7 @@ export async function handleMercadoPagoWebhook(
 
       const user = await prisma.user.findUnique({ where: { id: userId } })
       if (user) {
-        const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+        const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
         sendPaymentConfirmation(gymId, {
           memberName: user.name, memberEmail: user.email, planName: plan.name,
           amount: plan.priceCents, currency: plan.currency, paymentMethod: 'mercadopago', endsAt,
@@ -535,7 +535,7 @@ export async function handleFlowCallback(token: string, gymId: string, planId: s
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'flow', endsAt,
@@ -646,7 +646,7 @@ export async function handleKhipuCallback(
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'khipu', endsAt,
@@ -726,7 +726,7 @@ export async function handlePayUCallback(body: any, gymId: string, planId: strin
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'payu', endsAt,
@@ -847,7 +847,7 @@ export async function handleKushkiCallback(
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'kushki', endsAt,
@@ -939,7 +939,7 @@ export async function handleOpenPayCallback(query: any) {
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + plan.durationDays)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'openpay', endsAt,
@@ -1095,7 +1095,7 @@ export async function registerManualPayment(
   })
   const startsAt = existingManual ? existingManual.endsAt : new Date()
   const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + plan.durationDays)
+  endsAt.setDate(endsAt.getDate() + 30)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -1206,7 +1206,7 @@ export async function submitTransferReceipt(gymId: string, userId: string, planI
 
   const startsAt = new Date()
   const endsAt = new Date()
-  endsAt.setDate(endsAt.getDate() + plan.durationDays)
+  endsAt.setDate(endsAt.getDate() + 30)
 
   return prisma.membership.create({
     data: {
@@ -1252,7 +1252,7 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
   })
   const baseDate = existingTransfer ? existingTransfer.endsAt : new Date()
   const endsAt = new Date(baseDate)
-  endsAt.setDate(endsAt.getDate() + membership.plan.durationDays)
+  endsAt.setDate(endsAt.getDate() + 30)
 
   const updated = await prisma.membership.update({
     where: { id: membershipId },

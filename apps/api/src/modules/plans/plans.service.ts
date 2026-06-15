@@ -53,7 +53,7 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
 
   const startsAt = new Date(data.startsAt)
   const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + plan.durationDays)
+  endsAt.setDate(endsAt.getDate() + 30)
 
   await prisma.membership.updateMany({
     where: { userId: data.userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -102,7 +102,7 @@ export async function renewMembership(gymId: string, userId: string) {
 
   const startsAt = new Date()
   const endsAt = new Date()
-  endsAt.setDate(endsAt.getDate() + lastMembership.plan.durationDays)
+  endsAt.setDate(endsAt.getDate() + 30)
 
   try {
     return await prisma.membership.create({
@@ -123,4 +123,50 @@ export async function renewMembership(gymId: string, userId: string) {
   } catch (err) {
     handlePrismaError(err)
   }
+}
+
+export async function updateMembership(
+  gymId: string,
+  membershipId: string,
+  data: {
+    status?: 'ACTIVE' | 'INACTIVE' | 'TRIAL'
+    extendDays?: number
+    reversalNotes?: string
+  },
+) {
+  // Verificar que la membresía pertenece a este gym (multi-tenancy)
+  const membership = await prisma.membership.findFirst({
+    where: { id: membershipId, user: { gymId } },
+  })
+  if (!membership) throw new Error('Membresía no encontrada')
+
+  const updateData: Record<string, unknown> = {}
+
+  if (data.status !== undefined) {
+    updateData.status = data.status
+  }
+
+  if (data.extendDays && data.extendDays > 0) {
+    // Extender desde endsAt actual, o desde ahora si ya venció
+    const base = membership.endsAt > new Date() ? membership.endsAt : new Date()
+    const newEndsAt = new Date(base)
+    newEndsAt.setDate(newEndsAt.getDate() + data.extendDays)
+    updateData.endsAt = newEndsAt
+    // Si se extiende y no se especificó status explícito, activar automáticamente
+    if (data.status === undefined) updateData.status = 'ACTIVE'
+  }
+
+  if (data.reversalNotes !== undefined) {
+    updateData.paymentNotes = data.reversalNotes
+    updateData.status = 'INACTIVE'
+  }
+
+  return prisma.membership.update({
+    where: { id: membershipId },
+    data: updateData,
+    include: {
+      plan: { select: { name: true, durationDays: true } },
+      user: { select: { name: true, email: true } },
+    },
+  })
 }

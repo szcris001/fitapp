@@ -182,7 +182,10 @@ async function runPendingConfirmExpiryJob() {
     include: {
       user: { select: { pushToken: true } },
       class: {
-        include: { gym: { select: { id: true, waitlistConfirmEnabled: true, waitlistConfirmMins: true } } },
+        select: {
+          startsAt: true,
+          gym: { select: { id: true, waitlistConfirmEnabled: true, waitlistConfirmMins: true } },
+        },
       },
     },
   })
@@ -208,7 +211,10 @@ async function runPendingConfirmExpiryJob() {
     })
     if (!next) continue
 
-    if (gym.waitlistConfirmEnabled) {
+    const minsUntilClass = (booking.class.startsAt.getTime() - now.getTime()) / 60000
+    const needsManualConfirm = gym.waitlistConfirmEnabled && minsUntilClass > gym.waitlistConfirmMins
+
+    if (needsManualConfirm) {
       const confirmDeadline = new Date(now.getTime() + gym.waitlistConfirmMins * 60 * 1000)
       await prisma.booking.update({
         where: { id: next.id },

@@ -135,6 +135,22 @@
 
 ---
 
+---
+
+## 📱 Mobile — mejoras UX (2026-06-10)
+
+- [x] `[BUG][CERRADO 2026-06-10]` **Timezone bookings**: reservar clase de CrossFit para el jueves bloqueaba por clase del miércoles. Root cause: `setUTCHours(0,0,0,0)` en UTC ponía clases nocturnas chilenas (23:00 → 02:00 UTC siguiente día) en el día incorrecto. Fix: helper `startOfDayUTC(date, timezone)` en `classes.service.ts` usando `Intl.DateTimeFormat`; campo `timezone` agregado al modelo `Gym` (migración `20260611014306_add_gym_timezone`). Cron de waitlist también corregido para calcular `minsUntilClass` correctamente. · backend-dev
+
+- [x] `[NEW][CERRADO 2026-06-10]` **ProgressScreen** (reemplaza pestaña WOD): pantalla nueva en `apps/mobile/src/screens/ProgressScreen.tsx` con dos tabs — "Marcas personales" (RMs agrupados por categoría del gym, indicador de mejora, modal dos pasos con picker exclusivo del `movementLibrary` del gym + buscador, sin texto libre) y "Gimnasia" (habilidades del gym, hitos con progress dots, marcar logrado). `AppNavigator.tsx` actualizado: tab `WOD` → `Progress`, ícono `trending-up`. · mobile-dev
+
+- [x] `[NEW][CERRADO 2026-06-10]` **HomeScreen — refactoring UX**: fusión del bloque membresía dentro del hero (ahorro de espacio), campana de notificaciones en esquina superior derecha del hero, "Mi próxima clase" muestra todas las clases del mismo día, Pizarra del Box corregida para iterar `wod.blocks[].movements` (antes usaba `wod.movements` inexistente), tabs horizontales para múltiples tipos de clase del día, colores glass sutiles (sin pills sólidos). · mobile-dev
+
+- [x] `[NEW][CERRADO 2026-06-10]` **ProfileScreen — limpieza**: eliminadas secciones de RMs y gimnasia (ahora en ProgressScreen). Quedan solo: info del gym, datos personales, estadísticas de asistencia, contraseña, confirmaciones pendientes de waitlist, auto-renovación, QR, logout. · mobile-dev
+
+- [x] `[NEW][CERRADO 2026-06-10]` **ClassesScreen — mejoras de ventana**: `cancelCutoffMins` cargado del gym, botón cancelar deshabilitado dentro del corte. Botón confirmar (waitlist) muestra cuenta regresiva de minutos. · mobile-dev
+
+---
+
 ## Bugs reportados por qa-engineer
 
 - [x] `[BUG-SECURITY][CERRADO 2026-05-22]` `POST /payments/callback/payu` — firma obligatoria: `if (!sign) throw new Error('Falta firma PayU')` en línea 719 payments.service.ts. Verificado en código y tests (47/47).
@@ -156,3 +172,5 @@
 **Total estimado de todo (items restantes incluyendo 🟡+🟢+pre-release)**: ~8-10 días de trabajo concentrado.
 
 > Nota al 2026-05-07: implementación ~90% completa. Tests: 895/895 pasando (32 suites). IA retención: 22/22 verde. E2E flujo crítico API: 16/16 verde. Lo que falta: sandboxes reales de pasarelas (MP, Flow, Khipu, MACH, Kushki), E2E web/mobile, Dockerfiles, staging, elegir plataforma de deploy.
+>
+> Nota al 2026-06-10: Mobile ~88% completo. Bug timezone bookings cerrado. ProgressScreen nueva reemplaza WOD tab. HomeScreen, ClassesScreen y ProfileScreen mejorados. Estimación global sube a ~92%.

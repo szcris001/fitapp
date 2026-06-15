@@ -4,13 +4,13 @@
 > Los agentes principales (qa-engineer, payments-specialist, architect, backend-dev) tienen sección fija.
 > Los excepcionales (web-dev, mobile-dev, product-owner, devops) solo agregan entrada cuando actúan.
 
-**Última actualización**: 2026-05-09 · qa-engineer (E2E Playwright web: 28/28 tests, 6 flujos cubiertos. Total API tests: 895/895.)
+**Última actualización**: 2026-06-12 · web-dev (Settings page modernizada: nav lateral de 9 secciones, sport theme selector visual con cards, toast auto-dismiss, spinner en botones de guardar, todos los paneles colapsables migrados a secciones propias)
 
 ---
 
 ## Foco actual
 
-895/895 tests API pasando + 28/28 tests E2E Playwright web. E2E web cubierto: login+dashboard, planes, tipos de clase, excel import, fintoc conciliación, alertas IA. Gotcha crítico documentado: Zustand race condition con SPA navigation. Pendiente: sandboxes de pasarelas, Dockerfiles, staging, E2E mobile (Maestro).
+895/895 tests API pasando + 28/28 tests E2E Playwright web. Mobile: HomeScreen refactorizado, ProgressScreen nueva (reemplaza WOD tab), bug timezone bookings corregido, ProfileScreen limpiado. Pendiente: sandboxes de pasarelas, Dockerfiles, staging, E2E mobile (Maestro).
 
 ---
 
@@ -186,22 +186,88 @@
 
 ## architect
 
-**Última actuación**: 2026-05-06 — Diseño Fintoc Payments (Pay by Bank).
+**Última actuación**: 2026-06-11 — Diseño sistema WOD Results + Leaderboard.
 
 **Diseños vigentes pendientes de implementar**:
 - `calculateLoad(rm, porcentaje, redondeo)` — RESUELTO.
 - Campo `weightRounding` en modelo Gym — RESUELTO.
 - Refresh Token (auth) — RESUELTO.
 - Fintoc conciliación bancaria — RESUELTO.
-- **[NUEVO] Fintoc Payments (Pay by Bank)** — Diseño aprobado 2026-05-06. Tabla nueva: `FintocPaymentIntent` (enum `FintocPaymentIntentStatus`: PENDING|SUCCEEDED|FAILED|EXPIRED). Config per-gym en `paymentGateways.fintocPayments { enabled, secretKey, webhookSecret, currency }`. 3 endpoints: `POST /payments/checkout/fintoc-pay`, `GET /payments/fintoc-pay/status/:paymentIntentId`, `POST /payments/webhook/fintoc-pay`. Idempotencia: `fintocIntentId @unique` + chequeo de status antes de activar membresía + `paymentNotes: 'fintoc_pay:{id}'`. Firma HMAC-SHA256 en webhook igual que patrón Khipu/Fintoc conciliación. Archivos: `prisma/schema.prisma`, nueva migración, `payments.service.ts` (+3 funciones), `payments.routes.ts` (+3 endpoints). Invocar: payments-specialist primero, qa-engineer al final.
+- Fintoc Payments (Pay by Bank) — RESUELTO.
+- **[NUEVO] WOD Results + Leaderboard** — Diseño aprobado 2026-06-11. Enum nuevo: `WodScoreType` (TIME|REPS|WEIGHT|ROUNDS|CUSTOM). Campo nuevo en Wod: `scoreType WodScoreType @default(REPS)`. Tabla nueva: `WodResult` (gymId, wodId, userId, score Float, scoreText?, rx bool, notes?, recordedBy; unique wodId+userId; onDelete Cascade desde Wod). Relaciones en Gym/User/Wod. 4 endpoints: `POST /wods/:id/results` (COACH|ADMIN), `GET /wods/:id/leaderboard` (any auth), `PUT /wods/:id/results/:userId` (COACH|ADMIN), `DELETE /wods/:id/results/:userId` (COACH|ADMIN). Archivo nuevo: `wod.schema.ts`. formatScore en service. Invariante: userId en resultado debe pertenecer al gymId del JWT (validar con findFirst antes de insert). Migración: `add_wod_results_and_score_type`. Invocar: backend-dev primero, luego web-dev + mobile-dev en paralelo, qa-engineer al final.
 
-**Contratos de API**: desactualizados (no hay docs/api-contracts.md). Fintoc Payments es el tercer diseño formal documentado.
+**Contratos de API**: desactualizados (no hay docs/api-contracts.md). WOD Results es el cuarto diseño formal documentado.
 
 ---
 
 ## backend-dev
 
-**Última actuación**: 2026-05-05 — Refresh token implementado. Tabla `RefreshToken`, rotación en `$transaction`, revocación idempotente. Endpoints POST /auth/refresh y POST /auth/logout. 528/528 tests estables.
+**Última actuación**: 2026-06-13 — Endpoint `PATCH /memberships/:id` para gestión administrativa de membresías. 0 errores TypeScript.
+
+**Membresías siempre 30 días** (2026-06-13):
+- `plans.service.ts`: `assignMembership` y `renewMembership` — `plan.durationDays` → `30`.
+- `payments.service.ts`: 10 ocurrencias `endsAt.setDate(... + durationDays)` → `+ 30` (activateMembership, autoRenew trigger, 6 gateways email, manual, transfer). Línea 1823 (`fitPlan.durationDays`) es suscripción de plataforma FitApp — no tocada.
+
+**Restricción de planes por clase** (2026-06-13):
+- `prisma/schema.prisma`: many-to-many `ClassAllowedPlans` entre `Class` y `Plan`. Migración `20260613071332_add_class_allowed_plans`. `prisma generate` ejecutado.
+- `classes.schema.ts`: `allowedPlanIds: z.array(z.string().uuid()).optional()` en `createClassSchema`. Nuevo `updateClassAllowedPlansSchema`.
+- `classes.service.ts`: `createClass` con `allowedPlanIds`. `listClasses`/`getClassById` incluyen `allowedPlans`. `bookClass` valida que el plan activo del alumno esté en `allowedPlans` (si la clase tiene restricciones).
+- `classes.routes.ts`: `POST /classes` pasa `allowedPlanIds`. `PATCH /classes/:id` soporta `allowedPlanIds`. Nuevo `PUT /classes/:id/allowed-plans` (set completo).
+- Pendiente qa-engineer: bookClass con plan restringido/no-restringido, PUT allowed-plans, PATCH con allowedPlanIds.
+- Pendiente web-dev: selector multi-plan en form de creación/edición de clase.
+
+**Última actuación previa**: 2026-06-12 — Registro de asistencia enriquecido: campos `attended`/`attendedAt` en modelo `Booking` + 2 endpoints nuevos. 0 errores TypeScript.
+
+**Asistencia enriquecida en Booking** (2026-06-12):
+- `prisma/schema.prisma`: campos `attended Boolean @default(false)` y `attendedAt DateTime?` agregados al modelo `Booking`. Migración `20260612132834_add_attendance_to_booking` aplicada. `prisma generate` ejecutado.
+- `classes.routes.ts` líneas 323-387: 2 endpoints nuevos insertados ANTES de `/my-bookings`:
+  - `PATCH /classes/:id/bookings/:userId/attend` (preHandler: `requireCoachOrAdmin`) — marca/desmarca asistencia por composite key `userId_classId`. Actualiza `attended`, `attendedAt` y `status` (ATTENDED ↔ CONFIRMED) en sincronía.
+  - `GET /classes/:id/attendees` (preHandler: `requireCoachOrAdmin`) — devuelve lista completa con totales `{ classId, total, attended, bookings[] }`.
+- Gotcha: `prisma generate` fue necesario explícitamente para que los nuevos campos `attended`/`attendedAt` fueran reconocidos por el compilador TS (ver memoria `feedback_prisma_generate_after_migrate`).
+- Pendiente para qa-engineer: tests de ambos endpoints (marcar, desmarcar, userId de otro gym, classId de otro gym, userId sin reserva, total/attended count correcto).
+- Pendiente para web-dev y mobile-dev: consumir `PATCH /classes/:id/bookings/:userId/attend` con body `{ attended: boolean }` y `GET /classes/:id/attendees` con shape `{ classId, total, attended, bookings[{userId, userName, userEmail, userAvatar, status, attended, attendedAt, bookedAt}] }`.
+
+**Última actuación previa**: 2026-06-12 — Endpoint `GET /users/export` para exportación de miembros en CSV. 0 errores TypeScript.
+
+**Exportación de miembros CSV** (2026-06-12):
+- `users.routes.ts`: nuevo endpoint `GET /users/export` (preHandler: `requireCoachOrAdmin`) insertado en línea 28, ANTES de `GET /users/:id` (línea 88) para evitar que "export" sea capturado como `:id`.
+- Query params soportados: `format=csv` (default), `status=ACTIVE|INACTIVE|TRIAL|all` (default `all`), `role=MEMBER|COACH|ADMIN` (default `MEMBER`).
+- Lógica: `prisma.user.findMany` con `gymId` del JWT, `include: memberships[take:1, orderBy:endsAt desc]`, genera CSV con BOM UTF-8 (para compatibilidad con Excel).
+- Cabeceras: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="miembros_YYYY-MM-DD.csv"`.
+- Campos CSV: Nombre, Email, Teléfono, RUT, Género, Plan activo, Vencimiento, Estado, Registrado. Campos con comas/comillas escapados con RFC 4180.
+- Pendiente para qa-engineer: tests del endpoint (membresía ACTIVE vs TRIAL vs sin membresía, filtro por status, filtro por role, campos con coma en el nombre, respuesta vacía).
+- Pendiente para web-dev: botón "Exportar CSV" en `/dashboard/usuarios` que llame `GET /users/export` y dispare descarga del archivo.
+
+**Última actuación previa**: 2026-06-12 — Endpoints `/me` para resultados WOD de miembros. 2 endpoints nuevos. 0 errores TypeScript.
+
+**WOD Results /me** (2026-06-12):
+- `wod.routes.ts`: 2 endpoints nuevos para que miembros registren/consulten su propio resultado sin permisos de coach/admin.
+  - `GET /wods/:id/results/me` (auth: solo JWT) — devuelve el resultado del usuario autenticado para ese WOD, o `null` si no existe.
+  - `POST /wods/:id/results/me` (auth: solo JWT) — upsert del resultado propio. Body: `{ score, scoreText?, rx, notes? }`. `recordedBy` se setea al `userId` del JWT. Responde 201 con el resultado + `scoreFormatted`.
+- Ambas rutas ubicadas ANTES del `PUT /wods/:id/results/:userId` para evitar que "me" sea capturado como `:userId`.
+- Import estático de `zod` agregado en el top del archivo.
+- Typecheck: `tsc --noEmit` sin errores.
+- Pendiente para qa-engineer: tests upsert (crear, actualizar, gym incorrecto), GET null vs con resultado, validación Zod (score negativo, notes > 500 chars).
+- Pendiente para mobile-dev: consumir `POST /wods/:id/results/me` (body `{score, scoreText?, rx, notes?}`) y `GET /wods/:id/results/me` para precargar el form.
+
+**Última actuación previa**: 2026-06-11 — WOD Results + Leaderboard implementado. Schema + migración + 4 endpoints. 0 errores TypeScript.
+
+**WOD Results + Leaderboard** (2026-06-11):
+- `prisma/schema.prisma`: enum `WodScoreType` (TIME|REPS|WEIGHT|ROUNDS|CUSTOM). Campo `scoreType WodScoreType @default(REPS)` en modelo `Wod`. Relación `results WodResult[]` en `Wod`. Nuevo modelo `WodResult` (gymId, wodId, userId, score Float, scoreText?, rx bool, notes?, recordedBy; unique [wodId, userId]; onDelete Cascade desde Wod). Relaciones `wodResults`/`wodResultsRecorded` en `User`. Relación `wodResults` en `Gym`.
+- Migración: `20260612033012_add_wod_results_and_score_type` aplicada. `prisma generate` ejecutado.
+- `wod.routes.ts`: 4 endpoints nuevos: `POST /wods/:id/results` (upsert, coach|admin), `GET /wods/:id/leaderboard` (cualquier auth, query rx=all|true|false, rank independiente RX vs Scaled, formatScore TIME→M:SS), `PUT /wods/:id/results/:userId` (patch parcial, coach|admin), `DELETE /wods/:id/results/:userId` (coach|admin). PUT `/wods/:id` extendido con `scoreType` opcional. Función utilitaria `formatScore` en el mismo archivo. Interfaz `AuthUser` para tipado fuerte (sin `any` en el JWT user).
+- Typecheck: `tsc --noEmit` sin errores.
+- Pendiente para qa-engineer: tests de integración de los 4 endpoints + casos borde (userId de otro gym, doble upsert, leaderboard vacío, filtro rx, orden TIME ascendente vs REPS descendente).
+- Pendiente para web-dev y mobile-dev: consumir `GET /wods/:id/leaderboard` y `POST /wods/:id/results` con shape `{ wodId, scoreType, total, entries[{rank, category, userId, user{id,name,avatarUrl}, score, scoreFormatted, rx, notes}] }`.
+
+**Última actuación previa**: 2026-06-10 — Bug timezone en bookings corregido. Schema Gym +campo `timezone`. Helper `startOfDayUTC`.
+
+**Fix timezone en bookings** (2026-06-10):
+- `prisma/schema.prisma`: campo `timezone String @default("America/Santiago")` en modelo `Gym`. Migración `20260611014306_add_gym_timezone` aplicada.
+- `classes.service.ts`: helper `startOfDayUTC(date, timezone)` calcula la medianoche real en la zona horaria del gym usando `Intl.DateTimeFormat`. Fix en `bookClass`: `dayStart/dayEnd` ahora calculados con la TZ del gym en lugar de `setUTCHours(0,0,0,0)`, que ubicaba clases nocturnas chilenas en el día UTC siguiente y bloqueaba reservas incorrectamente.
+- `cron.ts`: `runPendingConfirmExpiryJob` incluye `class.startsAt` para calcular `minsUntilClass` al promover desde waitlist. Lógica `needsManualConfirm = waitlistConfirmEnabled && minsUntilClass > waitlistConfirmMins` (si hay poco tiempo antes de la clase, se confirma automáticamente aunque el modo sea manual).
+
+**Última actuación previa**: 2026-05-05 — Refresh token implementado. Tabla `RefreshToken`, rotación en `$transaction`, revocación idempotente. Endpoints POST /auth/refresh y POST /auth/logout. 528/528 tests estables.
 
 **Implementado (2026-05-05) — Refresh Token**:
 - `prisma/schema.prisma`: modelo `RefreshToken` (id, tokenHash UNIQUE, userId, expiresAt, revokedAt, createdAt) + relación `refreshTokens` en `User`.
@@ -250,8 +316,8 @@
 | Users CRUD | 100% | ✅ 45 tests | passwordHash removido de respuestas |
 | Gyms / Settings | 95% | ✅ 53 tests | weightRounding en GET/PUT me |
 | Plans + Memberships | 95% | ✅ 69 tests | activateMembership + CRUD completo |
-| Classes + Bookings | 95% | ✅ 73 tests | ClassType, Class instancias, bookings, waitlist |
-| WOD + Bloques + Movimientos | 100% | ✅ 71 tests | calculateLoad integrada, recommendedKg por género |
+| Classes + Bookings | 97% | ✅ 73 tests | ClassType, Class instancias, bookings, waitlist, timezone fix |
+| WOD + Bloques + Movimientos | 100% | ✅ 71 tests | calculateLoad integrada, recommendedKg por género, Results+Leaderboard implementados (sin tests aún) |
 | Payments / Stripe | 95% | ✅ 12+54 tests | webhook OK. Falta sandbox pago real |
 | Payments / MercadoPago | 95% | ✅ 16+27 tests | HMAC-SHA256 implementada. checkout+webhook integración. Falta sandbox |
 | Payments / Transferencia | 100% | ✅ 23 tests | submit, confirm, reject, idempotencia |
@@ -269,7 +335,7 @@
 | Email automatizado | 85% | ✅ 21 tests | nodemailer + SMTP configurable, Ethereal fallback, vi.mock() hoisting pattern |
 | Push notifications | 80% | ✅ 13 tests | sendPushNotification + sendPushToMany: token inválido, chunks, data, swallow errors, múltiples chunks |
 | Web admin (Next.js) | 85% | ❌ 0 E2E | Falta pantalla Fintoc |
-| Mobile (React Native Expo) | 80% | ❌ 0 E2E | |
+| Mobile (React Native Expo) | 88% | ❌ 0 E2E | HomeScreen refactorizado, ProgressScreen nueva, ProfileScreen limpiado, ClassesScreen mejorado |
 | Superadmin | 85% | ❌ 0 | |
 | Framework de tests | 100% | — | vitest 4.1.5, 895/895 tests pasando |
 | CI/CD | 80% | — | GitHub Actions CI+CD, docker-compose.prod.yml. Falta: plataforma, Dockerfiles, dominio |
@@ -277,14 +343,131 @@
 | E2E web (Playwright) | ✅ | ✅ 28/28 | 6 flujos: login, planes, clases+WOD, Excel, Fintoc, Alertas IA |
 | E2E mobile (Maestro) | 0% | — | Sin implementar |
 
-**Completitud global estimada**: ~90% implementación, ~60% cobertura de tests (32 suites API 895 tests + 6 suites E2E Playwright 28 tests = 923 tests pasando).
+**Completitud global estimada**: ~92% implementación, ~60% cobertura de tests (32 suites API 895 tests + 6 suites E2E Playwright 28 tests = 923 tests pasando).
 
 ---
 
 ## Agentes excepcionales (solo escriben acá cuando actúan)
 
 ### web-dev
-**Última actuación**: 2026-05-06 — Pantalla Fintoc conciliación bancaria implementada.
+**Última actuación**: 2026-06-13 — Acciones de membresía agregadas a `/dashboard/users/[id]`.
+
+- `apps/web/app/dashboard/users/[id]/page.tsx`: 5 cambios quirúrgicos sin tocar lógica existente. (1) 5 estados nuevos: `showExtendModal`, `showReversalModal`, `extendDays`, `reversalNotes`, `membershipActionLoading`. (2) 3 handlers nuevos: `handleToggleMembership` (ACTIVE↔INACTIVE via `PATCH /memberships/:id` con `{status}`), `handleExtend` (extiende con `{extendDays}`), `handleReversal` (reversa con `{reversalNotes}`). Todos llaman `fetchData(false)` al terminar. (3) Row de 3 botones al pie de la card "Membresía activa": Extender (abre modal), Desactivar/Activar (toggle inline), Reversar pago (abre modal, estilo rojo). (4) Columna "Acciones" en tabla de historial de membresías — botón Desactivar/Activar por fila para status ACTIVE|TRIAL|INACTIVE. (5) 2 modales nuevos: ExtendModal (input days, preview fecha nuevo vencimiento) y ReversalModal (textarea motivo opcional). Ambos con overlay blur + confirmación. TypeScript: 0 errores nuevos (solo preexistentes en e2e/fixtures).
+- Endpoint consumido: `PATCH /memberships/:id` (backend-dev 2026-06-13). Bodies: `{status}`, `{extendDays}`, `{reversalNotes}`.
+
+**Pendiente para qa-engineer**: verificar botón "Desactivar" en card activa hace toggle y recarga; verificar modal Extender calcula fecha correctamente; verificar modal Reversar desactiva con motivo; verificar botones en tabla de historial para cada status; verificar `membershipActionLoading` bloquea doble-click.
+
+**Última actuación previa**: 2026-06-13 — Selector de planes ("Restricción de planes") agregado a `NewClassModal` en `/dashboard/classes`.
+
+- `apps/web/app/dashboard/classes/page.tsx`: 5 cambios quirúrgicos en `NewClassModal`: (1) estados `plans: any[]` y `allowedPlanIds: string[]` nuevos; (2) `api.get('/plans')` en el `Promise.all` de mount, filtra `isActive === true`; (3) función `togglePlan(planId)` para toggle; (4) sección "Restricción de planes" entre "Configuración base" y "Días de la semana" — oculta si no hay planes activos, pills toggleables con Trial badge, indicador "Todos los planes" cuando nada seleccionado, botón para limpiar selección; (5) `allowedPlanIds` incluido en el cuerpo del `POST /classes` solo si el array es no vacío. TypeScript: 0 errores nuevos (solo preexistentes en e2e/fixtures).
+- Endpoints consumidos: `GET /plans` (nuevo), `POST /classes` (campo `allowedPlanIds` nuevo, aguarda backend-dev para activarlo en API).
+
+**Pendiente para qa-engineer**: verificar que la sección aparece solo si hay planes activos; verificar toggle activo/inactivo de cada pill; verificar badge Trial; verificar botón "Limpiar selección"; verificar que al crear una clase con planes seleccionados el payload incluye `allowedPlanIds`; verificar que sin selección el campo se omite.
+
+**Última actuación previa**: 2026-06-13 — Corrección de errores TypeScript en `apps/web/app/dashboard/classes/page.tsx`. 0 errores en el archivo (solo errores preexistentes en e2e/fixtures).
+
+- Agregados imports `LayoutList` y `CalendarDays` de lucide-react (línea 7).
+- Agregados estados faltantes en `ClassesPage`: `displayMode` ('list'|'calendar'), `view` (ViewMode), `currentDate`, `weekOffset`, `calendarClasses`, `calendarLoading` con type local `ViewMode`.
+- Agregadas funciones faltantes: `navigate(dir)`, `titleLabel()`, `getCalendarWeekRange()`, `getClassesForDay(day)`, `getWeekDays()`, `getMonthDays()`, `groupByTime(cls)`, `refreshCurrentRange()` + `useEffect([weekOffset])` para fetch del modo calendario.
+- Agregados componentes `WeekTimeline` y `CalendarWeekView` antes de `ClassesPage` (antes eran referencias a funciones/componentes indefinidos).
+- Reemplazadas 3 llamadas a `fetchClasses()` (0 args, firma requiere 2) por `refreshCurrentRange()` que maneja ambos modos (lista + calendario) internamente.
+- Total errores antes: 55 en `classes/page`. Total después: 0.
+
+**Última actuación previa**: 2026-06-12 — Settings page modernizada con nav lateral de 9 secciones, sport theme selector visual y toast auto-dismiss.
+
+- `apps/web/app/dashboard/settings/page.tsx`: reescrito completamente manteniendo toda la lógica CRUD existente. Layout 2 columnas (220px nav + contenido). 9 secciones: Perfil del box, Marca y diseño, Reservas y clases, Notificaciones, Asistencia, Lista de espera, Facturación, Pagos (cuenta bancaria + pasarelas), Avanzado. Sport theme selector: grid de cards visuales con emoji, color propio por tema, borde coloreado cuando activo, sombra glow, dispara `sport-theme-changed` event y persiste en localStorage + backend. Toast component fijo en bottom-right, auto-dismiss 3.5s. Spinner `Loader2` dentro de cada botón guardar mientras saving. `SectionCard`, `FieldLabel`, `PillSelector`, `Toggle`, `GatewayRow`, `SaveButton` como sub-componentes inline. `sportTheme` se lee/escribe en `PUT /gyms/me`. TypeScript: 0 errores nuevos.
+
+**Pendiente para qa-engineer**: Verificar que nav lateral muestra sección activa con `--primary`; verificar sport theme selector aplica colores al panel en tiempo real; verificar toast de éxito/error con auto-dismiss 3s; verificar spinner en cada botón de guardar; verificar que toda la lógica CRUD de cada sección sigue funcionando.
+
+**Última actuación previa**: 2026-06-12 — Sección "Registro de asistencia" integrada en `ClassPanel` de `/dashboard/classes`.
+
+- `apps/web/app/dashboard/classes/page.tsx` líneas 227-408: nuevo componente `AttendanceSection({ classId })`. Fetcha `GET /classes/:id/attendees` al montar. Muestra resumen "N/M asistieron" con barra de progreso coloreada (verde ≥70%, brand-primary ≥40%, amarillo <40%). Lista de asistentes con avatar de iniciales, nombre, estado (hora si asistió / "Reservado" si no), toggle circular. Click en fila llama `PATCH /classes/:id/bookings/:userId/attend` con toggle optimista. Estado `toggling: Set<string>` por userId. Skeleton de 3 filas mientras carga. Interfaces TypeScript `AttendeeBooking` y `AttendeesData`.
+- Integración en `ClassPanel` (líneas 1045-1053): nueva card `.card.rounded-xl` con header "REGISTRO DE ASISTENCIA" renderizada condicionalmente con `{canManage && ...}` al final de la columna derecha, después de la card de asistencia existente.
+- No se tocó la lógica de edición/eliminación de clases ni la card de asistencia existente (bookingId-based).
+- TypeScript: 0 errores nuevos. Solo errores preexistentes en e2e/fixtures.
+
+**Pendiente para qa-engineer**: Verificar que la sección aparece para ADMIN y COACH pero no para MEMBER; verificar barra de progreso con distintos valores; verificar toggle asistencia marca/desmarca optimistamente; verificar skeleton durante carga; verificar que no se muestra si el fetch falla (devuelve null silenciosamente).
+
+**Última actuación previa**: 2026-06-12 — Página `/dashboard/plans` modernizada con vista de pricing cards.
+
+- `apps/web/app/dashboard/plans/page.tsx`: reescrita completamente manteniendo toda la lógica CRUD existente. Cambios: (1) Header mejorado con subtítulo "Configuracion de planes", h1 grande display font, descripción y botón "Nuevo plan" a la derecha; (2) `PlanCard` nuevo — tarjeta de pricing con badge "MAS POPULAR" para planes de 30 días (position absolute, gradient-btn), badge TRIAL (purple), badge PAUSADO (gris), precio prominente (34px display font, gradient en trial/gratis), features con iconos lucide (Calendar, Layers, FlaskConical, Clock) y colores de `--primary`, divider, botones Editar + Trash con hover states; (3) `EditCard` como componente separado con estado local — reemplaza el edit inline anterior, borde `--primary`, campos reutilizan `PlanFormFields`; (4) `SkeletonCard` — 3 cards skeleton con `.skeleton` CSS class mientras carga; (5) `EmptyState` — icono circular con `--primary-dim`, texto + botón "Crear primer plan"; (6) Grid 3 columnas `lg:grid-cols-3` (antes 2); (7) Summary strip al pie con total/activos/trial cuando hay datos; (8) `PlanFormFields` labels con `var(--text-3)` (antes slate-700 hardcodeado); (9) Toast de success auto-dismiss 3.5s; (10) `FormShape` con state local en `EditCard` en lugar de estado compartido `editForm` en el padre — evita race conditions. Toda la lógica CRUD `handleCreate`, `handleSaveEdit`, `handleDelete`, `fetchPlans` conservada idéntica. Importación: `Edit2, Trash2, Calendar, Layers, Infinity` (ya no `Tag, Clock` hardcoded).
+- Endpoints: `GET /plans`, `POST /plans`, `PUT /plans/:id`, `DELETE /plans/:id` (sin cambios).
+- TypeScript: 0 errores nuevos.
+
+**Pendiente para qa-engineer**: Verificar que badge "MAS POPULAR" aparece en plan de 30 días; verificar skeleton 3 cards en carga; verificar empty state con botón cuando no hay planes; verificar que editar un plan abre EditCard inline en esa posición; verificar toast success auto-dismiss; verificar summary strip con contadores; verificar que CRUD completo sigue funcionando (crear, editar, eliminar).
+
+**Última actuación previa**: 2026-06-12 — Botón "Exportar CSV" agregado a `/dashboard/users`. Solo visible para ADMIN y SUPER_ADMIN. Llama `GET /users/export?format=csv` con Axios (blob) y dispara descarga del archivo `miembros_YYYY-MM-DD.csv`.
+
+- `apps/web/app/dashboard/users/page.tsx`: línea 9: `Download` agregado al import de lucide-react. Líneas 997-998: estado `exporting` nuevo. Líneas 1089-1112: `canExport` (ADMIN|SUPER_ADMIN) + `handleExportCSV` (GET blob → Blob → `<a>` temporal → click → revoke). Líneas 1137-1153: botón renderizado condicionalmente con spinner durante la exportación, ubicado antes de "Importar Excel" en el header.
+- Endpoint consumido: `GET /users/export?format=csv` (implementado por backend-dev 2026-06-12).
+- TypeScript: 0 errores nuevos. Solo errores preexistentes en e2e/fixtures.
+
+**Pendiente para qa-engineer**: verificar que el botón aparece para ADMIN/SUPER_ADMIN y no para COACH; verificar que se descarga el CSV con nombre correcto; verificar spinner durante descarga; verificar alert en caso de error del endpoint.
+
+**Última actuación previa**: 2026-06-12 — Tab "Analítica" agregado a `/dashboard/reports` (página de reportes). 5 secciones nuevas sin romper tabs existentes.
+
+- `apps/web/app/dashboard/reports/page.tsx`: nuevo tab `'analitica'` con icono `Activity`. Helpers SVG inline nuevos: `OccupancyBarChart` (barras SVG sin librerías, gradient/verde por umbral 80%), `GenderDonut` (donut stroke-dasharray 3 segmentos: primario/rosa/gris), `Sparkline` (polyline bezier 64px). `SkeletonBlock` genérico reutilizable. Estados nuevos: `gymStats`, `occupancy`, `plans`, `occupancyPeriod`, `loadingAnalitica`, `errorAnalitica`. `fetchAnalitica` con `Promise.allSettled` (3 endpoints en paralelo). `fetchOccupancy` para cambio de período sin re-fetch de stats/plans. Sección 1: 4 KPI cards (retención con badge verde/amarillo/rojo, ocupación promedio con sparkline, clases hoy, membresías por vencer con badge naranja). Sección 2: gráfica de barras SVG con selector de 5 períodos (pills). Sección 3+4: grid 2 columnas (donut género + insights topType/topSlot). Sección 5: grid de planes con precio, duración, clases máx., membresías por vencer. Bonus: tabla de alumnos sin membresía activa (max 10 del backend). Error state con retry button. Skeletons en todas las secciones.
+- Endpoints consumidos: `GET /gyms/me/stats`, `GET /gyms/me/occupancy?period=...`, `GET /plans`.
+- TypeScript: 0 errores nuevos (solo errores preexistentes en e2e/fixtures).
+
+**Pendiente para qa-engineer**: verificar que tabs Ingresos/Alertas/Evolución/Pagos no tienen regresiones; verificar 5 secciones del tab Analítica; verificar selector de período recarga solo ocupación; verificar donut con datos de género; verificar skeleton en carga lenta; verificar error state y retry; verificar que topType/topSlot muestran bien si son null.
+
+**Última actuación previa**: 2026-06-12 — Vista de calendario semanal agregada a `/dashboard/classes`.
+
+- `apps/web/app/dashboard/classes/page.tsx`: toggle "Lista / Semana" en header del main area. Estado nuevo: `displayMode` ('list'|'calendar'), `weekOffset` (int), `calendarClasses` (Class[]), `calendarLoading` (bool). Componente nuevo `CalendarWeekView` (inline en mismo archivo): CSS grid 8 columnas (48px labels + 7 días), 6am–22pm, bloques posicionados absolutamente por minutos. Fetch propio con `useEffect([displayMode, weekOffset])` → `GET /classes?from=...&to=...&limit=200`. Navegacion ← → Hoy para cambiar semana, label "DD MMM – DD MMM YYYY". Click en bloque abre `ClassPanel` existente. Modo 'list' conserva todas las vistas existentes (día/semana/mes) sin ninguna modificación. Iconos nuevos: `LayoutList`, `CalendarDays` de lucide-react. Import `React` explícito para usar `React.Fragment` con key en el map de horas.
+- Endpoint consumido: `GET /classes?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=200` (ya existía en la API).
+
+**Pendiente para qa-engineer**: verificar toggle Lista/Semana; verificar que navegacion de semana carga clases correctas; verificar que click en bloque abre ClassPanel; verificar que vista Lista no tiene regresiones; verificar highlight del día de hoy; verificar bloques con diferentes duraciones.
+
+**Última actuación previa**: 2026-06-12 — Página de perfil de miembro mejorada (`/dashboard/users/[id]`).
+
+- `apps/web/app/dashboard/users/[id]/page.tsx`: reescrito manteniendo toda la funcionalidad previa (edición, avatar, PaymentModal, ResetPasswordModal, renovar membresía). Cambios nuevos: (1) Skeleton loading completo con 5 niveles de placeholder mientras carga; (2) Header de perfil con Avatar de iniciales (72px, border-radius proporcional, gradiente `--gradient-btn`), badges de estado dinámicos (ACTIVE/TRIAL/EXPIRED/INACTIVE con colores semánticos), pill de membresía activa con fecha de vencimiento y días restantes, meta-row con ícono Phone/User2/Calendar para teléfono/género/edad calculada desde birthDate; (3) Sección de estadísticas rápidas 2x2/4x1 con 4 `QuickStatCard` (Membresías, Récords personales, Hitos gimnásticos, Días como miembro); (4) Historial de membresías en tabla HTML con columnas Plan/Inicio/Vencimiento/Método/Monto/Estado, reemplaza lista anterior; (5) Récords personales con hover highlight amarillo y fecha del registro; (6) Progresión gimnástica conservada sin cambios; (7) Botones de acción consolidados en el header (Renovar + Registrar pago + Editar). Sin endpoints nuevos: todo se extrae del payload de `GET /users/:id` que ya incluye `rmRecords`, `gymnasticProgress`, `memberships`, `birthDate`. `Promise.allSettled` no fue necesario (sólo 1 request de datos + `/plans`). Endpoints consumidos: `GET /users/:id`, `GET /plans`.
+
+**Pendiente para qa-engineer**: Verificar skeleton durante carga lenta; verificar avatar con/sin imagen; verificar badge de estado en los 4 casos (ACTIVE/TRIAL/EXPIRED/INACTIVE); verificar tabla de historial con múltiples membresías; verificar stat cards con valores correctos; verificar funcionamiento de edición y modales de pago/resetPassword sin regresiones.
+
+**Última actuación previa**: 2026-06-12 — Command palette (⌘K / Ctrl+K) implementado en el dashboard.
+
+- `apps/web/app/dashboard/components/CommandPalette.tsx`: componente nuevo `'use client'`. Overlay global con backdrop blur. Panel centrado con animación slide-down. Input de búsqueda con debounce 250ms para `GET /users?role=MEMBER&search=QUERY&limit=5`. Resultados agrupados por categoría (Acciones rápidas / Miembros / Navegación / Configuración). Navegación con ↑↓ teclado + Enter para navegar + ESC para cerrar. Listener de evento personalizado `open-command-palette` para el hint del sidebar. 12 ítems de navegación estática + 1 acción rápida. Keyframe animations con prefijo `cp-` para evitar colisiones. TypeScript estricto, 0 errores.
+- `apps/web/app/dashboard/layout.tsx`: import `CommandPalette` + `Search` de lucide-react agregados. Botón hint pill `⌘K` en el header del sidebar (visible solo cuando expandido), dispara `window.dispatchEvent(new CustomEvent('open-command-palette'))`. `<CommandPalette />` montado al final del JSX junto al `OnboardingWizard`.
+- Endpoint consumido: `GET /users?role=MEMBER&search=QUERY&limit=5`.
+- TypeScript: 0 errores nuevos (solo errores preexistentes en e2e/fixtures).
+
+**Pendiente para qa-engineer**: Verificar que ⌘K/Ctrl+K abre el palette desde cualquier página del dashboard; verificar búsqueda de alumnos por nombre; verificar navegación con teclado (↑↓↵); verificar cierre con ESC y click en backdrop; verificar que el botón hint del sidebar abre el palette; verificar que el palette no aparece fuera del layout /dashboard.
+
+**Última actuación previa**: 2026-06-12 — Centro de notificaciones (campana) implementado en sidebar.
+
+- `apps/web/app/dashboard/components/NotificationBell.tsx`: componente nuevo `'use client'`. Poll cada 5 min a `GET /gyms/stats`. Genera notificaciones de tipo `expiring` (membresías por vencer) y `inactive` (alumnos sin membresía, máx 5). Badge numérico rojo (>= 2 días urgencia alta) o amarillo (urgencia media). Dropdown panel 320px con lista scrollable, íconos por tipo (Clock/UserX), colores por urgencia. Footer con link a `/dashboard/alerts`. Cierre al click fuera. En sidebar colapsado: panel abre a la derecha. En sidebar expandido: panel abre hacia arriba. Solo renderizado para roles ADMIN y SUPER_ADMIN.
+- `apps/web/app/dashboard/layout.tsx`: import `NotificationBell` (línea 7). En footer colapsado: `{isAdmin && <NotificationBell collapsed={true} />}` entre toggleTheme y avatar (línea 587). En footer expandido: `{isAdmin && <div style={{marginTop:4}}><NotificationBell collapsed={false} /></div>}` en la fila de botones entre toggleTheme y logout (líneas 636-640).
+- TypeScript: 0 errores nuevos (solo errores preexistentes en e2e/fixtures).
+- Endpoint consumido: `GET /gyms/stats` (campos: `expiringMemberships[]{id,endsAt,user{id,name}}`, `inactiveMembers[]{id,name}`).
+
+**Pendiente para qa-engineer**: Verificar que badge aparece con membresías por vencer; verificar click en notificación navega a /dashboard/users/:id; verificar cierre al click fuera; verificar que COACH no ve la campana; verificar posición del panel en sidebar colapsado vs expandido.
+
+**Última actuación previa**: 2026-06-11 — Onboarding wizard implementado (overlay de 4 pasos para nuevos gyms).
+
+- `apps/web/app/dashboard/onboarding/OnboardingWizard.tsx`: componente client nuevo. Overlay full-screen con backdrop blur. Tarjeta `card rounded-xl` centrada. Indicador de 4 pasos con dots conectados por línea. Paso 1 (perfil/link a settings), Paso 2 (crear tipo de clase via POST /class-types), Paso 3 (crear plan via POST /plans con priceCents=precio*100), Paso 4 (invitar staff via POST /users + pantalla de celebración con accesos rápidos). Botón X cierra en cualquier paso. "Hacer despues" en pasos 2 y 3 avanza sin bloquear. Pantalla celebración con 3 accesos rápidos (clases, alumnos, reportes). CSS vars en todos los colores.
+- `apps/web/app/dashboard/layout.tsx`: import OnboardingWizard (línea 6). Estado `showOnboarding` (línea 115). useEffect que consulta GET /class-types + GET /plans en paralelo (líneas 198-220) — solo ADMIN/SUPER_ADMIN, respeta `fitapp_onboarding_done` en localStorage. Montura del wizard al final del JSX (líneas 773-783), cierre guarda `fitapp_onboarding_done`.
+- TypeScript: 0 errores nuevos (solo errores preexistentes en e2e/fixtures).
+
+**Pendiente para qa-engineer**: E2E del flujo wizard (gym sin class-types ni planes → wizard aparece → completar pasos → localStorage marca done → wizard no reaparece); verificar X cierra y guarda flag; verificar "Hacer despues" avanza; verificar pantalla celebración y navegación.
+
+- `apps/web/app/dashboard/classes/page.tsx` (WodEditorModal): campo `scoreType` agregado al estado del formulario (default `'REPS'`, lee `wod.scoreType` si existe). Incluido en payload de `save()`. UI: bloque de pills con 5 opciones (REPS/TIME/WEIGHT/ROUNDS/CUSTOM) antes de la sección de bloques de movimientos.
+- `apps/web/app/dashboard/wods/page.tsx`: reescrito desde redirect a página real. Lista WODs de últimos 60 días + próximos 14. Tarjeta por WOD con badge de scoreType y botón "Ver pizarra" → `/dashboard/wods/${id}/leaderboard`. Skeleton loading + error state con retry.
+- `apps/web/app/dashboard/wods/[id]/leaderboard/page.tsx`: nueva página. Header con info del WOD (título, fecha, scoreType con icono). Dos columnas RX/Scaled. Skeleton + error con retry + empty state. Modal de registro de resultado (selector de atleta con búsqueda, campo score, toggle RX/Scaled, notas). Solo visible para COACH/ADMIN. Consume: `GET /wods/:id`, `GET /wods/:id/leaderboard`, `POST /wods/:id/results`, `GET /users?role=MEMBER`.
+- `apps/web/app/dashboard/layout.tsx`: item "Pizarra" con icono `Trophy` agregado a `allNavItems` (entre Clases y Planes, `coachAllowed: true`). Import `Trophy` añadido a lucide-react.
+
+**Pendiente para qa-engineer**: E2E del flujo registrar resultado; verificar columnas RX/Scaled; verificar que el scoreType guardado en el editor persiste al reabrir.
+
+**Última actuación previa**: 2026-06-11 — Dashboard modernizado (5 mejoras UI en page.tsx).
+
+- `DashboardSkeleton`: reemplaza el spinner de texto. Muestra header, KPI strip y grid con tarjetas placeholder animadas (`skeletonPulse` keyframe inline). Usado en admin view y coach view.
+- `Sparkline`: reemplaza `MiniBarChart` (eliminado). SVG con línea suave bezier, área degradada y punto final. Dos referencias actualizadas en la sección de ocupación de clases.
+- Tarjeta "Salud del box": nueva en columna derecha (entre Composición y Inactivos). Badge Excelente/Regular/Critico con color condicional, número grande de `activeRate%`, barra de progreso y 3 métricas (Por vencer / Sin membresía / En trial).
+- Coach view rediseñado: fetch real de clases y WODs del día en `useEffect` (eliminado el `setLoading(false)` temprano). Grid 3+2 columnas con lista de clases (badge EN VIVO, color por ocupación), tarjeta WOD del día con botón Gestionar/Publicar, y 3 accesos rápidos en grid (sin WODs, ya está en la tarjeta).
+- Animaciones escalonadas: `animationDelay: \`${i * 60}ms\`` en KPI cards y `animationDelay` en tarjetas del grid derecho (0ms, 60ms, 120ms, 180ms, 240ms).
+- TypeScript: 0 errores nuevos. Errores preexistentes en e2e/fixtures sin cambio.
+
+**Última actuación previa**: 2026-05-06 — Pantalla Fintoc conciliación bancaria implementada.
 
 - `apps/web/app/dashboard/fintoc/page.tsx`: pantalla completa `'use client'`. Status card con info de cuenta bancaria. 3 stat cards (Pendientes/Coincidencias/Confirmados hoy). 4 tabs filtrando por `reconciliationStatus`. Tabla con columnas Fecha/Monto/Emisor/Referencia/Estado/Membresía/Acciones. Modal Confirmar (MATCHED prefill membershipId, PENDING input manual). Modal Rechazar (textarea motivo opcional). Paginación server-side limit=50. Botón Sincronizar con estado loading. Error state con Retry button. Carga paralela status+movimientos con `Promise.all`.
 - `apps/web/app/dashboard/layout.tsx`: nav item `{ label: 'Conciliacion', href: '/dashboard/fintoc', icon: Landmark, coachAllowed: false }` agregado. Import `Landmark` añadido a lucide-react.
@@ -300,6 +483,91 @@
 2026-04-30 (inferido del código): Implementados dashboard completo, importación Excel (WODs, clases, tipos de clase), pantalla de alertas IA, evolución de alumnos, comprobantes de transferencia, QR scanner, branding dinámico, superadmin.
 
 ### mobile-dev
+
+**Última actuación**: 2026-06-15 — Refactor BottomSheet: 7 bottom-sheets manuales reemplazados por el componente `BottomSheet` unificado en 7 archivos. Modales full-screen (BenchmarksScreen, MemberWodScreen, ProfileScreen) intactos.
+
+**Archivos modificados**:
+- `HomeScreen.tsx`: 1 bottom-sheet (detalle de clase). `Modal` eliminado del import.
+- `PlanesScreen.tsx`: 1 bottom-sheet (`PayModal`). Modal Fintoc WebView (full-screen) conservado. `Modal` sigue en import para Fintoc.
+- `ProgressScreen.tsx`: 2 BottomSheets independientes para el flujo de 2 pasos del modal RM (paso 1: picker de movimiento, paso 2: ingresar peso). `Modal` eliminado del import.
+- `admin/CreateClassScreen.tsx`: 2 bottom-sheets (Type Picker + Coach Picker). `Modal` eliminado del import.
+- `admin/CommunicationsScreen.tsx`: 1 bottom-sheet (Member Picker). `Modal` + `ScrollView` del sheet eliminados del import.
+- `admin/CreateWodScreen.tsx`: 1 bottom-sheet (Type Picker). `Modal` eliminado del import.
+
+**Estilos eliminados**: `modalOverlay`, `modalSheet`, `modalHandle`, `modalCard`, `overlay`, `sheet`, `sheetTitle`, `pickerSheet`, `weightSheet`, `modalHeaderRow`, `modalTitle`, `cancelText`, `modalMovName` — solo los relativos al wrapper del bottom-sheet. Contenido de los modales preservado exactamente.
+
+**Anteriores**: todos los modales full-screen (`pageSheet`, WebView) sin cambios.
+
+**Última actuación previa**: 2026-06-12 — ProfileScreen: mejoras menores en las secciones de días como miembro y récords personales. (1) Stat de días como miembro: texto `${memberDays} dias como miembro` → `🏋️ ${memberDays} días entrenando` (cero días → `🏋️ Miembro desde hoy`). (2) Sección "Mis récords": removida la condición `topRms.length > 0` del bloque exterior — la sección siempre se renderiza con el título "Mis récords"; cuando `topRms` está vacío muestra "Aún no tienes récords registrados" en lugar de ocultar la sección. El link "Ver todos" solo aparece si hay registros. Estilos de las tarjetas de RM ajustados a `flex: 1`, `alignItems: 'center'`, `backgroundColor: rgba(255,255,255,0.05)`, `borderColor: rgba(255,255,255,0.1)` — alineados con el diseño solicitado. Datos de membresía, auto-renovación, cambio de contraseña y logout sin cambios.
+
+**Última actuación previa**: 2026-06-12 — Reserva rápida en HomeScreen (ajuste). La feature ya estaba implementada. Corregido: `Alert.alert('Error', msg)` → `Alert.alert('Aviso', msg)` en `handleBook` catch (linea 148). Sin cambios de comportamiento ni de lógica.
+
+**Última actuación previa**: 2026-06-12 — Formulario "Registrar mi resultado" en MemberWodScreen. Modal slide-up con form adaptado por scoreType.
+
+**MemberWodScreen — formulario de resultado** (`apps/mobile/src/screens/MemberWodScreen.tsx`):
+- Estado nuevo: `myResult: MyResult | null`, `logModalVisible: boolean`.
+- `fetchLeaderboard` usa `Promise.allSettled` para cargar leaderboard + `GET /wods/:id/results/me` en paralelo. Si la request de /me falla o devuelve null, `myResult` queda null sin bloquear la pantalla.
+- Botón flotante visible solo para `user?.role === 'MEMBER'`. Estado visual dual: primario opaco si sin resultado, borde semitransparente si ya hay resultado con texto "Mi resultado: X (RX/Scaled)". Hint "Toca para actualizar".
+- `LogResultModal`: `Modal` con `animationType="slide"` y `presentationStyle="pageSheet"`. `KeyboardAvoidingView` para iOS/Android. Preload de valores cuando `myResult` existe. Toggle RX/Scaled con accesibilidad (`accessibilityRole="radio"`). Inputs adaptativos por scoreType: TIME (dos campos min/seg separados con validación seg 0-59), REPS/ROUNDS/WEIGHT (un campo numérico con placeholder apropiado), CUSTOM (texto libre + número opcional). Notas multiline maxLength=200 con contador. Validación local antes del POST con `Alert.alert` para mensajes de error. Submit hace `POST /wods/:id/results/me`, llama `onSaved(data)` + cierra modal + refresca leaderboard.
+- Endpoints: `GET /wods/:id/results/me`, `POST /wods/:id/results/me`.
+- Scoreype default: `'REPS'` si ni leaderboard ni route.params lo proveen.
+
+**Última actuación previa**: 2026-06-11 — MemberWodScreen nueva (leaderboard solo lectura para MEMBER). HomeScreen WOD card navegable.
+
+**MemberWodScreen** (`apps/mobile/src/screens/MemberWodScreen.tsx`):
+- Pantalla solo lectura. Acepta `route.params`: `wodId`, `wodTitle?`, `wodDate?`, `scoreType?`.
+- Consume `GET /wods/:id/leaderboard`. Muestra RX y Scaled en secciones verticales separadas con `CategorySection`.
+- Medallas 🥇🥈🥉 para top 3 de cada categoría. Fila del usuario actual resaltada (borde izquierdo primario + texto "yo").
+- Stats row con totales: Resultados / RX / Scaled. `ScoreTypeBadge` en el header con color por tipo.
+- Sin formularios ni botones de edición. `useNavigation + useRoute` (sin props de navegación directas).
+- Header con boton ← navegación back. Error state con retry. Loading state con `ActivityIndicator`.
+
+**AppNavigator.tsx** — `MemberHomeStack()` nuevo: wrappea `HomeScreen` (ruta `HomeMain`) y agrega `MemberWodScreen` (ruta `MemberWod`). Tab `Home` ahora usa `MemberHomeStack` en lugar de `HomeScreen` directamente.
+
+**HomeScreen.tsx** — WOD card envuelto en `TouchableOpacity`. `onPress` navega a `MemberWod` con `{ wodId, wodTitle, wodDate, scoreType }`. Hint "Ver pizarra →" al pie del card (estilo `wodLeaderboardHint`).
+
+**Última actuación previa**: 2026-06-11 — WODScreen rediseñado con Pizarra (leaderboard), tabs de tipo de clase y cargas personales.
+
+**WODScreen rediseñado** (`apps/mobile/src/screens/WODScreen.tsx`):
+- Tabs horizontales de tipo de clase con color dinámico por tipo. "Todos" seleccionado por defecto.
+- Tarjeta glassmorphism (`rgba(255,255,255,0.05)`) por WOD con barra accent del color del tipo de clase.
+- Badge de scoreType: TIME/REPS/WEIGHT/ROUNDS/CUSTOM con emoji e icono de color propio.
+- Bloques con movimientos: inline con `MovementRow` (carga calculada del backend, weight Rx, o % si no hay RM).
+- Pizarra: `GET /wods/:id/leaderboard` por WOD al cargar. Top 5 RX + Top 5 Scaled con medallas 🥇🥈🥉. Fila del usuario autenticado resaltada (borde izquierdo primario). Botón "Ver todos (+N)" para expandir. Cero recálculo en cliente.
+- Mis cargas: `GET /wods/class/:classId/my-loads` por WOD, mostradas inline en cada movimiento y como bloque resumen.
+- `RefreshControl` + `useSafeAreaInsets` para padding top correcto.
+- TypeScript estricto: interfaces tipadas (`Wod`, `LeaderboardData`, `LeaderboardEntry`, `WodBlock`, `WodMovement`, `MyLoad`). Sin `any` en props. Llaves balanceadas (793 líneas).
+- Nota: la pantalla existe pero no está en el tab navigator (ProgressScreen ocupa esa pestaña). Puede importarse cuando sea necesario o añadirse como pantalla dentro de un stack.
+
+**Última actuación previa**: 2026-06-10 — HomeScreen refactorizado, ProgressScreen nueva, ProfileScreen limpiado, ClassesScreen mejorado.
+
+**ProgressScreen nueva** (`apps/mobile/src/screens/ProgressScreen.tsx`):
+- Reemplaza la pestaña WOD del navigator de MEMBER (ícono `trending-up`, label "Progreso").
+- Tab "Marcas personales": RMs agrupados por categoría (usa `movementLibrary` del gym como fuente única). Card por categoría, peso actual destacado, indicador `+X kg ↑` en verde. Botón "Registrar nueva marca".
+- Tab "Gimnasia": habilidades del gym desde `/skills`, barra de progreso por skill, hitos con dot check, tap para marcar como logrado (`POST /gymnastic-progress/me`). Badge "Siguiente: X" al pie.
+- Modal de agregar RM en **2 pasos**: Paso 1 — picker de movimientos del gym con búsqueda (sin texto libre, `SectionList` agrupado por categoría). Paso 2 — peso y notas + botón Cancelar y "← Cambiar" para volver al listado.
+- Categorías resueltas con `movementLibrary[i].category` si existe, fallback a tabla estándar CF.
+
+**HomeScreen refactorizado** (`apps/mobile/src/screens/HomeScreen.tsx`):
+- Membresía fusionada dentro del bloque hero (nombre + plan pill + días restantes + fecha de vencimiento). Ganancia de espacio vertical.
+- Campana de notificaciones movida al interior del bloque hero, esquina superior derecha.
+- "Mi próxima clase": muestra todas las clases del mismo día (no solo la primera).
+- Pizarra: renderiza `wod.blocks[].movements` (corregido bug que usaba `wod.movements` inexistente). Con 2+ tipos de clase del día → tabs horizontales de selección; contenido único que cambia al tocar la pestaña.
+- Colores del bloque hero alineados con estilo glass del bloque "próxima clase" (`rgba(255,255,255,0.08)` background, sin fondos sólidos chilenos en pills).
+
+**ClassesScreen mejorado** (`apps/mobile/src/screens/ClassesScreen.tsx`):
+- `cancelCutoffMins` cargado desde `/gyms/me`; botón Cancelar deshabilitado dentro de la ventana de corte.
+- Booking map tipado con `confirmDeadline?: string | null`. Botón Confirmar muestra cuenta regresiva `⏱ Confirmar · Xm`.
+
+**ProfileScreen limpiado** (`apps/mobile/src/screens/ProfileScreen.tsx`):
+- Eliminadas secciones de RMs y progresión gimnástica (ahora viven en ProgressScreen).
+- Eliminados: constantes `MOVEMENTS`, `DEFAULT_SKILLS`, `SKILL_GIFS`; estado `rms`, `progress`, `gymSkills`, `showRMModal`, `showSkillModal`, etc.; funciones `saveRM`, `saveProgress`, `saveProgressWithEvidence`, `isMilestoneCompleted`, `getSkillProgress`, `toLibras`; modales RM y Skill.
+- Queda: hero con estadísticas de asistencia, info del gym, datos personales, cambio de contraseña, confirmaciones pendientes de waitlist, auto-renovación, QR, logout.
+
+**AppNavigator.tsx**:
+- `WODScreen` → `ProgressScreen`. Tab name `WOD` → `Progress`. `TAB_ICONS` actualizado a `trending-up/trending-up-outline`.
+
+---
 
 2026-05-06 — Fintoc Pay integrado en PlanesScreen.tsx (flujo en-app con WebView).
 

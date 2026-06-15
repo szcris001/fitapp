@@ -60,6 +60,7 @@ model Gym {
   waitlistConfirmEnabled Boolean                  @default(false)
   waitlistConfirmMins    Int                      @default(30)
   country             String                   @default("CL")
+  timezone            String                   @default("America/Santiago")
   movementLibrary     Json                     @default("[]")
   weightRounding      Float                    @default(2.5)
   benchmarks          Benchmark[]
@@ -74,6 +75,7 @@ model Gym {
   fintocLink          FintocLink?
   bankMovements       BankMovement[]
   fintocPaymentIntents FintocPaymentIntent[]
+  wodResults          WodResult[]
 }
 
 model User {
@@ -94,14 +96,16 @@ model User {
   mustChangePassword   Boolean              @default(false)
   stripeCustomerId     String?
   rut                  String?
-  bookings           Booking[]
-  coachClasses       Class[]              @relation("CoachClasses")
-  gymnasticProgress  GymnasticProgress[]
-  memberships        Membership[]
-  passwordResets     PasswordResetToken[]
-  refreshTokens      RefreshToken[]
-  rmRecords          RmRecord[]
-  gym                Gym?                 @relation(fields: [gymId], references: [id])
+  bookings             Booking[]
+  coachClasses         Class[]              @relation("CoachClasses")
+  gymnasticProgress    GymnasticProgress[]
+  memberships          Membership[]
+  passwordResets       PasswordResetToken[]
+  refreshTokens        RefreshToken[]
+  rmRecords            RmRecord[]
+  gym                  Gym?                 @relation(fields: [gymId], references: [id])
+  wodResults           WodResult[]
+  wodResultsRecorded   WodResult[]          @relation("WodResultRecordedBy")
 
   @@unique([gymId, email])
   @@unique([gymId, rut])
@@ -126,6 +130,7 @@ model Plan {
   memberships          Membership[]
   gym                  Gym          @relation(fields: [gymId], references: [id])
   classTypes           ClassType[]  @relation("PlanClassTypes")
+  allowedClasses       Class[]      @relation("ClassAllowedPlans")
 }
 
 model Membership {
@@ -188,20 +193,21 @@ model ClassTypeBlock {
 }
 
 model Class {
-  id          String         @id @default(uuid())
-  gymId       String
-  classTypeId String
-  coachId     String
-  startsAt    DateTime
-  endsAt      DateTime
-  capacity    Int
-  frequency   ClassFrequency @default(ONCE)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  bookings    Booking[]
-  classType   ClassType      @relation(fields: [classTypeId], references: [id])
-  coach       User           @relation("CoachClasses", fields: [coachId], references: [id])
-  gym         Gym            @relation(fields: [gymId], references: [id])
+  id           String         @id @default(uuid())
+  gymId        String
+  classTypeId  String
+  coachId      String
+  startsAt     DateTime
+  endsAt       DateTime
+  capacity     Int
+  frequency    ClassFrequency @default(ONCE)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  bookings     Booking[]
+  classType    ClassType      @relation(fields: [classTypeId], references: [id])
+  coach        User           @relation("CoachClasses", fields: [coachId], references: [id])
+  gym          Gym            @relation(fields: [gymId], references: [id])
+  allowedPlans Plan[]         @relation("ClassAllowedPlans")
 
   @@index([gymId, startsAt])
   @@index([gymId, classTypeId, startsAt])
@@ -213,6 +219,8 @@ model Booking {
   classId         String
   status          BookingStatus @default(CONFIRMED)
   confirmDeadline DateTime?
+  attended        Boolean       @default(false)
+  attendedAt      DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   class           Class         @relation(fields: [classId], references: [id])
@@ -223,16 +231,18 @@ model Booking {
 }
 
 model Wod {
-  id          String     @id @default(uuid())
+  id          String       @id @default(uuid())
   gymId       String
   classTypeId String
   title       String?
+  scoreType   WodScoreType @default(REPS)
   date        DateTime
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  gym         Gym        @relation(fields: [gymId], references: [id])
-  classType   ClassType  @relation(fields: [classTypeId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  gym         Gym          @relation(fields: [gymId], references: [id])
+  classType   ClassType    @relation(fields: [classTypeId], references: [id])
   blocks      WodBlock[]
+  results     WodResult[]
 
   @@index([gymId, classTypeId])
   @@index([date])
@@ -453,6 +463,14 @@ model BenchmarkMovement {
   benchmark        Benchmark @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
 }
 
+enum WodScoreType {
+  TIME
+  REPS
+  WEIGHT
+  ROUNDS
+  CUSTOM
+}
+
 enum BenchmarkCategory {
   GIRL
   HERO
@@ -572,6 +590,30 @@ model BankMovement {
 
   @@index([gymId, reconciliationStatus])
   @@index([gymId, postedAt])
+}
+
+model WodResult {
+  id             String       @id @default(uuid())
+  gymId          String
+  wodId          String
+  userId         String
+  score          Float        @default(0)
+  scoreText      String?
+  rx             Boolean      @default(true)
+  notes          String?
+  recordedBy     String
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  gym            Gym          @relation(fields: [gymId], references: [id])
+  wod            Wod          @relation(fields: [wodId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id])
+  recordedByUser User         @relation("WodResultRecordedBy", fields: [recordedBy], references: [id])
+
+  @@unique([wodId, userId])
+  @@index([gymId, wodId])
+  @@index([wodId, rx, score])
 }
 
 model FintocPaymentIntent {

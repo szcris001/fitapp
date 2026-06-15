@@ -15,9 +15,83 @@ export async function userRoutes(app: FastifyInstance) {
     return reply.send(await listUsers(user.gymId, status, role))
   })
 
-  app.get('/users/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+  // Cualquier usuario autenticado puede leer su propio perfil
+  app.get('/users/me', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    try {
+      return reply.send(await getUserById(user.gymId, user.userId))
+    } catch (err: any) {
+      return reply.status(404).send({ error: err.message })
+    }
+  })
+
+  app.get('/users/export', { preHandler: [requireCoachOrAdmin] }, async (req, reply) => {
+    const { format = 'csv', status = 'all', role = 'MEMBER' } = req.query as any
+    const gymId = (req.user as any).gymId
+
+    const whereStatus = status === 'all' ? {} : {
+      memberships: { some: { status: status as any } },
+    }
+
+    const users = await prisma.user.findMany({
+      where: {
+        gymId,
+        role: role as any,
+        ...whereStatus,
+      },
+      include: {
+        memberships: {
+          where: { status: { in: ['ACTIVE', 'TRIAL'] } },
+          include: { plan: { select: { name: true } } },
+          orderBy: { endsAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    const header = ['Nombre', 'Email', 'Teléfono', 'RUT', 'Género', 'Plan activo', 'Vencimiento', 'Estado', 'Registrado']
+    const rows = users.map(u => {
+      const membership = u.memberships[0]
+      const memberStatus = membership
+        ? membership.status === 'ACTIVE' ? 'Activo' : 'Trial'
+        : 'Inactivo'
+      const plan = membership?.plan?.name ?? ''
+      const endsAt = membership?.endsAt
+        ? new Date(membership.endsAt).toLocaleDateString('es-CL')
+        : ''
+      const gender = u.gender === 'M' ? 'Masculino' : u.gender === 'F' ? 'Femenino' : ''
+      const createdAt = new Date(u.createdAt).toLocaleDateString('es-CL')
+
+      const escape = (val: any) => {
+        const str = String(val ?? '')
+        return str.includes(',') || str.includes('"') || str.includes('\n')
+          ? `"${str.replace(/"/g, '""')}"`
+          : str
+      }
+
+      return [u.name, u.email, u.phone ?? '', u.rut ?? '', gender, plan, endsAt, memberStatus, createdAt]
+        .map(escape)
+        .join(',')
+    })
+
+    const csv = [header.join(','), ...rows].join('\r\n')
+    const filename = `miembros_${new Date().toISOString().split('T')[0]}.csv`
+    const bom = '﻿'
+
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(bom + csv)
+  })
+
+  app.get('/users/:id', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as any
+    // Members solo pueden leer su propio perfil
+    if (!['ADMIN', 'SUPER_ADMIN', 'COACH'].includes(user.role) && user.userId !== id) {
+      return reply.status(403).send({ error: 'Acceso denegado' })
+    }
     try {
       return reply.send(await getUserById(user.gymId, id))
     } catch (err: any) {

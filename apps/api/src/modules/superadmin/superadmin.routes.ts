@@ -260,12 +260,41 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const gym = await prisma.gym.findUnique({
       where: { id },
       include: {
-        users: { where: { role: 'ADMIN' }, select: { id: true, name: true, email: true } },
+        users: {
+          where: { role: { in: ['ADMIN', 'COACH'] } },
+          select: { id: true, name: true, email: true, role: true },
+        },
         _count: { select: { users: true, classes: true } },
       },
     })
     if (!gym) return reply.status(404).send({ error: 'Gimnasio no encontrado' })
     return reply.send(gym)
+  })
+
+  const resetPasswordSchema = z.object({
+    userId:      z.string().uuid(),
+    newPassword: z.string().min(6),
+  })
+
+  app.post('/superadmin/gyms/:id/reset-password', { preHandler: requireSuperAdmin }, async (request, reply) => {
+    const { id } = request.params as any
+    const parsed = resetPasswordSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+
+    const { userId, newPassword } = parsed.data
+
+    const user = await prisma.user.findFirst({
+      where: { id: userId, gymId: id, role: { in: ['ADMIN', 'COACH'] } },
+    })
+    if (!user) return reply.status(404).send({ error: 'Usuario no encontrado en este gimnasio' })
+
+    const passwordHash = await bcrypt.hash(newPassword, 10)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, mustChangePassword: true },
+    })
+
+    return reply.send({ ok: true, message: 'Contraseña actualizada correctamente' })
   })
 
   // Generar link de pago Stripe para la suscripción de un gym

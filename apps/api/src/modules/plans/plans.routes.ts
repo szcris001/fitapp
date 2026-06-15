@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
 import { createPlanSchema, updatePlanSchema, createMembershipSchema } from './plans.schema'
-import { listPlans, createPlan, updatePlan, deactivatePlan, assignMembership, renewMembership } from './plans.service'
+import { listPlans, createPlan, updatePlan, deactivatePlan, assignMembership, renewMembership, updateMembership } from './plans.service'
 
 export async function planRoutes(app: FastifyInstance) {
   app.get('/plans', { preHandler: authenticate }, async (request, reply) => {
@@ -74,6 +74,22 @@ export async function planRoutes(app: FastifyInstance) {
     try {
       const membership = await renewMembership(user.gymId, userId)
       return reply.status(201).send(membership)
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message })
+    }
+  })
+
+  app.patch('/memberships/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as { id: string }
+    const body = request.body as {
+      status?: 'ACTIVE' | 'INACTIVE' | 'TRIAL'
+      extendDays?: number
+      reversalNotes?: string
+    }
+    try {
+      const membership = await updateMembership(user.gymId, id, body)
+      return reply.send(membership)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }
