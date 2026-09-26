@@ -165,12 +165,34 @@ export async function rmRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/uploads/evidence/:filename', async (request, reply) => {
+  // Las evidencias son privadas: requieren autenticación y pertenencia al userId
+  app.get('/uploads/evidence/:filename', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
     const { filename } = request.params as any
     const fs = await import('fs')
     const path = await import('path')
-    const filepath = path.join(process.cwd(), 'uploads', 'evidence', filename)
+
+    // Prevenir path traversal
+    if (/[/\\]|\.\.|\0/.test(filename)) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+    const baseDir = path.resolve(process.cwd(), 'uploads', 'evidence')
+    const filepath = path.resolve(baseDir, filename)
+    if (!filepath.startsWith(baseDir + path.sep)) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+
     if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
+
+    // Verificar que la evidencia pertenece a una progresión del usuario autenticado (o es coach/admin del gym)
+    const progressId = filename.replace(/^evidence_([^_]+)_.*$/, '$1')
+    if (progressId && progressId !== filename) {
+      const isAdminOrCoach = ['ADMIN', 'SUPER_ADMIN', 'COACH'].includes(user.role)
+      if (!isAdminOrCoach) {
+        const progress = await prisma.gymnasticProgress.findFirst({
+          where: { id: progressId, userId: user.userId },
+          select: { id: true },
+        })
+        if (!progress) return reply.status(403).send({ error: 'Acceso denegado' })
+      }
+    }
+
     const ext = path.extname(filename).toLowerCase()
     const mimeTypes: Record<string, string> = {
       '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',

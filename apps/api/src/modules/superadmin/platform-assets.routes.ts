@@ -47,6 +47,21 @@ export async function platformAssetsRoutes(app: FastifyInstance) {
     const assets = await prisma.platformAsset.findMany()
     const map: Record<string, string> = {}
     for (const a of assets) map[a.key] = `${a.url}?v=${new Date(a.updatedAt).getTime()}`
+
+    // Complementar con archivos en disco que no tienen registro en DB
+    const EXTS = ['.png', '.webp', '.svg', '.jpg', '.jpeg', '.html']
+    for (const slot of ASSET_SLOTS) {
+      if (map[slot.key]) continue
+      for (const ext of EXTS) {
+        const fp = path.join(uploadsDir, `${slot.key}${ext}`)
+        if (fs.existsSync(fp)) {
+          const stat = fs.statSync(fp)
+          map[slot.key] = `/uploads/assets/${slot.key}${ext}?v=${stat.mtimeMs}`
+          break
+        }
+      }
+    }
+
     return reply.send({ assets: map, slots: ASSET_SLOTS })
   })
 

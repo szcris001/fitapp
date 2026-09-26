@@ -677,18 +677,26 @@ describe('AI: GET /api/ai/athlete-projection/:userId', () => {
     expect(typeof body.coachTip).toBe('string')
   })
 
-  it('miembro consulta su propia proyección (role != ADMIN → usa user.userId en vez del param) → 200', async () => {
-    // El route usa `user.role === 'ADMIN' ? userId : user.userId`
-    // memberAtRiskToken tiene userId = memberAtRiskId
-    // El :userId del path puede ser cualquier cosa — el service usará el del token
+  it('miembro consulta su propia proyección (:userId = user.userId) → 200', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/api/ai/athlete-projection/cualquier-cosa`,
+      url: `/api/ai/athlete-projection/${memberAtRiskId}`,
       headers: { authorization: `Bearer ${memberAtRiskToken}` },
     })
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.athlete).toBe('Member At Risk')
+  })
+
+  it('miembro intenta ver proyección de otro userId → 403 (fix de seguridad)', async () => {
+    // Antes el service ignoraba el :userId del path para roles no-ADMIN y siempre
+    // usaba user.userId — ahora se deniega explícitamente si no coinciden.
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/ai/athlete-projection/cualquier-cosa`,
+      headers: { authorization: `Bearer ${memberAtRiskToken}` },
+    })
+    expect(res.statusCode).toBe(403)
   })
 
   it('atleta con RMs registrados → el prompt enviado a Anthropic contiene el nombre del movimiento y los kg', async () => {

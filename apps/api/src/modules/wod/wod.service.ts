@@ -53,15 +53,17 @@ export async function getWodWithLoads(gymId: string, classId: string, userId: st
     ...b,
     movements: b.movements.map(m => {
       const rm = rmMap.get(m.movementName) ?? null
-      // Prescribed weight for athlete's gender (Rx > Scale > Rookie cascade)
       const prescribed = isFemale
         ? (m.weightRxF ?? m.weightScaleF ?? m.weightRookieF ?? null)
         : (m.weightRxM ?? m.weightScaleM ?? m.weightRookieM ?? null)
-      // When the movement gains a percentage field, replace prescribed with:
-      // calculateLoad(rm, m.percentage, rounding)
-      const recommendedKg = prescribed !== null
-        ? calculateLoad(prescribed, 100, rounding)
-        : null
+
+      // Si el movimiento tiene % y el atleta tiene RM registrado → calcular carga personalizada
+      // Si no → usar el peso fijo prescripto (redondeado al ajuste del gym)
+      const recommendedKg = (m.percentage && rm !== null)
+        ? calculateLoad(rm, m.percentage, rounding)
+        : prescribed !== null
+          ? calculateLoad(prescribed, 100, rounding)
+          : null
       return { ...m, rmKg: rm, recommendedKg }
     }),
   }))

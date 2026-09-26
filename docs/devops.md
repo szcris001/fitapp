@@ -146,13 +146,14 @@ El nginx y Docker usan `/healthz`. Las plataformas gestionadas (Railway, Render)
 
 ---
 
-## Dockerfiles pendientes
+## Dockerfiles (creados 2026-06-15)
 
-Los siguientes archivos son necesarios si se usa `docker-compose.prod.yml` pero aun no existen:
-- `apps/api/Dockerfile`
-- `apps/web/Dockerfile`
+Ambos Dockerfiles fueron creados con builds multi-stage:
 
-Si se elige Railway, Render o Vercel, estos archivos no son necesarios — esas plataformas detectan el framework automaticamente (Node.js / Next.js).
+- `apps/api/Dockerfile` — deps → builder (tsc + prisma generate) → runner. CMD: `prisma migrate deploy && node dist/index.js`
+- `apps/web/Dockerfile` — deps → builder (next build) → runner (next standalone). Requiere `ARG NEXT_PUBLIC_API_URL` en build time.
+
+Railway los detecta y construye automaticamente desde GitHub.
 
 ---
 
@@ -167,13 +168,98 @@ Si se elige Railway, Render o Vercel, estos archivos no son necesarios — esas 
 
 ---
 
-## Pendientes (bloqueados por decision de Cristian)
+## Plan de despliegue — Railway + Cloudflare (decidido 2026-06-15)
 
-- [ ] Elegir plataforma de backend: Railway / Render / VPS
-- [ ] Elegir plataforma de web: Vercel (recomendado) / VPS
-- [ ] Crear proyecto en Sentry y obtener DSN
+### Arquitectura elegida
+
+| Servicio | Plataforma | Costo aprox. |
+|---|---|---|
+| API (Fastify) | Railway — servicio Docker | ~$5 USD/mes |
+| Web (Next.js) | Railway — servicio Docker | ~$5 USD/mes |
+| PostgreSQL 16 | Railway — plugin Postgres | ~$5 USD/mes |
+| Redis 7 | Railway — plugin Redis | ~$3 USD/mes |
+| Dominio + DNS + CDN | Cloudflare | ~$10-15 USD/año |
+| **Total estimado** | | **~$20 USD/mes** |
+
+### Pasos para el primer deploy (acciones de Cristian)
+
+#### 1. Crear proyecto en Railway
+1. Ir a https://railway.app → New Project
+2. Agregar 4 servicios: PostgreSQL, Redis, API (Docker), Web (Docker)
+3. Conectar el repositorio de GitHub al proyecto
+
+#### 2. Configurar variables de entorno en Railway
+
+**API Service → Variables**:
+```
+NODE_ENV=production
+JWT_SECRET=cb2f24e2fdd333db1fd4a0b4515ce961299e30a7f4e35960ad4899730a3ef5a9
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+PORT=3001
+FRONTEND_URL=https://app.tudominio.com
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+ANTHROPIC_API_KEY=sk-ant-...
+SMTP_HOST=...
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASS=...
+```
+
+**Web Service → Variables**:
+```
+NEXT_PUBLIC_API_URL=https://api.tudominio.com/api
+```
+
+**Web Service → Build Arguments** (necesario para Next.js en build time):
+```
+NEXT_PUBLIC_API_URL=https://api.tudominio.com/api
+```
+
+#### 3. Configurar dominios en Railway
+- API Service: agregar dominio custom → `api.tudominio.com`
+- Web Service: agregar dominio custom → `app.tudominio.com`
+
+#### 4. Apuntar DNS en Cloudflare
+- Crear registro CNAME `api` → URL interna de Railway
+- Crear registro CNAME `app` → URL interna de Railway
+- Activar proxy Cloudflare (nube naranja) para CDN + DDoS protection
+
+#### 5. Mobile app — antes de publicar en stores
+Actualizar URL hardcodeada en `apps/mobile/src/lib/api.ts`:
+```ts
+// Cambiar de IP local a:
+baseURL: 'https://api.tudominio.com/api'
+```
+
+Luego configurar EAS Build (Expo Application Services) para generar los binarios:
+```bash
+npm install -g eas-cli
+eas login
+eas build --platform android   # Google Play ($25 one-time)
+eas build --platform ios       # App Store (Apple Developer $99/año)
+```
+
+### GitHub Actions → Railway
+
+Para activar deploy automático desde CI:
+1. Obtener `RAILWAY_TOKEN` desde Railway → Account → API Tokens
+2. Agregarlo en GitHub → Settings → Secrets → Actions
+3. Descomentar el bloque Railway en `.github/workflows/deploy.yml`
+
+---
+
+## Pendientes
+
+- [x] Elegir plataforma de backend: **Railway** (decidido 2026-06-15)
+- [x] Crear `apps/api/Dockerfile` y `apps/web/Dockerfile` (completado 2026-06-15)
+- [ ] Crear proyecto en Railway y configurar 4 servicios
+- [ ] Configurar variables de entorno en Railway (ver seccion arriba)
+- [ ] Comprar dominio en Cloudflare y apuntar DNS
 - [ ] Configurar environment `production` en GitHub con aprobacion manual
-- [ ] Crear `apps/api/Dockerfile` y `apps/web/Dockerfile` (solo si VPS)
-- [ ] Configurar dominio y apuntar DNS a servidor
-- [ ] Primer certificado SSL con Certbot (solo si VPS)
-- [ ] Configurar staging: rama `develop` + environment separado
+- [ ] Crear proyecto en Sentry y obtener DSN
+- [ ] Actualizar URL de API en apps/mobile antes de publicar en stores
+- [ ] Configurar EAS Build para Google Play y App Store
+- [ ] Implementar middleware RLS en Fastify (ver docs/SECURITY.md — P1)
+- [ ] Configurar staging: rama `develop` + environment separado en Railway

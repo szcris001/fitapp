@@ -66,6 +66,22 @@ Estos 4 son tu equipo del día a día. Los invocas como subagentes con su nombre
 | **architect** | 10% de invocaciones | Antes de cambiar DB, feature nueva, o cuando hay inconsistencia entre módulos. | `> architect: diseña endpoint para marcar hito gimnástico. Lee prisma/schema.prisma.` |
 | **backend-dev** | Cuando modo directo no basta | Features complejas que tocan múltiples módulos o requieren coordinación con architect. | `> backend-dev: implementa el diseño de docs/designs/gymnastic-progress.md.` |
 
+### 🟠 Pre-deploy obligatorio
+
+| Agente | Cuándo invocar | Frecuencia |
+|---|---|---|
+| **security** | **Obligatorio antes de cada release a producción.** También al agregar endpoints públicos, cambiar auth, o modificar lógica multi-tenancy. | Antes de cada deploy |
+
+Qué hace: RLS en PostgreSQL, CORS estricto, cabeceras HTTP (CSP, HSTS, Helmet), rate limiting en auth, JWT hardening, checklist OWASP Top 10, verificación de aislamiento por `gymId`.
+
+```
+> security: ejecuta checklist pre-deploy completo.
+Lee apps/api/src/index.ts, apps/web/next.config.ts y apps/api/prisma/schema.prisma.
+Reporta hallazgos y aplica los controles faltantes.
+```
+
+---
+
 ### 🔵 Excepcionales (uso puntual — 10% de tus invocaciones)
 
 Estos 4 existen y sus prompts están listos, pero **la mayoría de las veces

@@ -80,7 +80,7 @@ export async function gymRoutes(app: FastifyInstance) {
       email: user.email,
       name: user.name,
       role: 'ADMIN',
-    })
+    }, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
 
     return reply.send({
       token: newToken,

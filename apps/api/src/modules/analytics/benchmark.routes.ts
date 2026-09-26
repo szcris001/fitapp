@@ -171,4 +171,143 @@ export async function benchmarkRoutes(app: FastifyInstance) {
     await prisma.benchmark.delete({ where: { id } })
     return reply.status(204).send()
   })
+
+  // ── Registrar resultado de benchmark (atleta) ─────────────────────────────
+  app.post('/benchmarks/:id/result', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+    const schema = z.object({
+      scoreType:  z.enum(['TIME', 'REPS', 'ROUNDS', 'WEIGHT', 'CUSTOM']),
+      scoreValue: z.number().positive(),
+      scoreNotes: z.string().optional(),
+      isRx:       z.boolean().default(true),
+      recordedAt: z.string().optional(),
+    })
+    const parsed = schema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+
+    const benchmark = await prisma.benchmark.findFirst({
+      where: { id, OR: [{ gymId: null, isOfficial: true }, { gymId: user.gymId }] },
+    })
+    if (!benchmark) return reply.status(404).send({ error: 'Benchmark no encontrado' })
+
+    const result = await prisma.benchmarkResult.create({
+      data: {
+        benchmarkId: id,
+        userId:      user.id,
+        gymId:       user.gymId,
+        scoreType:   parsed.data.scoreType,
+        scoreValue:  parsed.data.scoreValue,
+        scoreNotes:  parsed.data.scoreNotes,
+        isRx:        parsed.data.isRx,
+        recordedAt:  parsed.data.recordedAt ? new Date(parsed.data.recordedAt) : new Date(),
+      },
+      include: { benchmark: { select: { nombre: true } } },
+    })
+    return reply.status(201).send(result)
+  })
+
+  // ── Mi mejor resultado en un benchmark ────────────────────────────────────
+  app.get('/benchmarks/:id/my-result', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+
+    const results = await prisma.benchmarkResult.findMany({
+      where: { benchmarkId: id, userId: user.id },
+      orderBy: { recordedAt: 'desc' },
+    })
+    return reply.send(results)
+  })
+
+  // ── Leaderboard del box para un benchmark ─────────────────────────────────
+  app.get('/benchmarks/:id/leaderboard', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+
+    // Mejor resultado por atleta (score más bajo para TIME, más alto para el resto)
+    const allResults = await prisma.benchmarkResult.findMany({
+      where: { benchmarkId: id, gymId: user.gymId },
+      include: {
+        user: { select: { id: true, name: true, avatarUrl: true, gender: true } },
+      },
+      orderBy: { scoreValue: 'asc' },
+    })
+
+    // Agrupar por usuario — mantener solo el mejor resultado
+    const bestByUser = new Map<string, typeof allResults[0]>()
+    for (const r of allResults) {
+      const existing = bestByUser.get(r.userId)
+      if (!existing) { bestByUser.set(r.userId, r); continue }
+      // Para TIME: menor es mejor. Para el resto: mayor es mejor
+      const isBetter = r.scoreType === 'TIME'
+        ? r.scoreValue < existing.scoreValue
+        : r.scoreValue > existing.scoreValue
+      if (isBetter) bestByUser.set(r.userId, r)
+    }
+
+    const leaderboard = Array.from(bestByUser.values())
+      .sort((a, b) => a.scoreType === 'TIME'
+        ? a.scoreValue - b.scoreValue
+        : b.scoreValue - a.scoreValue)
+
+    return reply.send(leaderboard)
+  })
+
+  // ── Todos los benchmarks con sus resultados del gym (para la Pizarra) ────
+  app.get('/benchmarks/board', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+
+    const benchmarks = await prisma.benchmark.findMany({
+      where: { OR: [{ gymId: null, isOfficial: true }, { gymId: user.gymId }] },
+      include: {
+        movimientos: { orderBy: { orden: 'asc' } },
+        resultados: {
+          where: { gymId: user.gymId },
+          include: {
+            user: { select: { id: true, name: true, avatarUrl: true, gender: true } },
+          },
+          orderBy: { scoreValue: 'asc' },
+        },
+      },
+      orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }],
+    })
+
+    return reply.send(benchmarks)
+  })
+
+  // ── RMs de todos los alumnos del gym (para la Pizarra) ────────────────────
+  app.get('/rms/gym-board', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+
+    const rms = await prisma.rmRecord.findMany({
+      where: { user: { gymId: user.gymId } },
+      include: {
+        user: { select: { id: true, name: true, avatarUrl: true, gender: true } },
+      },
+      orderBy: [{ movementName: 'asc' }, { weightKg: 'desc' }],
+    })
+
+    // Agrupar por movimiento
+    const byMovement: Record<string, { movement: string; records: typeof rms }> = {}
+    for (const rm of rms) {
+      if (!byMovement[rm.movementName]) {
+        byMovement[rm.movementName] = { movement: rm.movementName, records: [] }
+      }
+      // Solo el mejor RM por usuario
+      const existing = byMovement[rm.movementName].records.find(r => r.userId === rm.userId)
+      if (!existing || rm.weightKg > existing.weightKg) {
+        byMovement[rm.movementName].records = [
+          ...byMovement[rm.movementName].records.filter(r => r.userId !== rm.userId),
+          rm,
+        ]
+      }
+    }
+
+    // Ordenar cada movimiento por peso desc
+    for (const key of Object.keys(byMovement)) {
+      byMovement[key].records.sort((a, b) => b.weightKg - a.weightKg)
+    }
+
+    return reply.send(Object.values(byMovement).sort((a, b) => a.movement.localeCompare(b.movement)))
+  })
 }

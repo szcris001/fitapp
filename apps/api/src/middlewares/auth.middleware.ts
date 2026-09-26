@@ -27,6 +27,20 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
   if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
     return reply.status(403).send({ error: 'Se requiere rol de administrador' })
   }
+  // SUPER_ADMIN sin gymId no puede operar sobre recursos de un gimnasio específico.
+  // Los endpoints de negocio usan user.gymId en cada query — con gymId=null se obtendrían
+  // resultados erróneos o queries fallidas. Bloquear aquí es la defensa correcta.
+  if (user.role === 'SUPER_ADMIN' && !user.gymId) {
+    // Permitir si la ruta es /api/superadmin/* o /api/gyms/switch-sede
+    const isSuperAdminPath = request.url.startsWith('/api/superadmin/') ||
+      request.url.startsWith('/api/gyms/my-sedes') ||
+      request.url.startsWith('/api/gyms/switch-sede') ||
+      request.url.startsWith('/api/gyms/me/subscription') ||
+      request.url.startsWith('/api/payments/')
+    if (!isSuperAdminPath) {
+      return reply.status(403).send({ error: 'SUPER_ADMIN debe seleccionar un gimnasio para esta operación' })
+    }
+  }
 }
 
 export async function requireCoachOrAdmin(request: FastifyRequest, reply: FastifyReply) {
@@ -34,6 +48,16 @@ export async function requireCoachOrAdmin(request: FastifyRequest, reply: Fastif
   const user = request.user as any
   if (!['ADMIN', 'SUPER_ADMIN', 'COACH'].includes(user.role)) {
     return reply.status(403).send({ error: 'Se requiere rol de coach o administrador' })
+  }
+  // Misma protección: SUPER_ADMIN sin gymId no puede operar sobre datos de gym
+  if (user.role === 'SUPER_ADMIN' && !user.gymId) {
+    const isSuperAdminPath = request.url.startsWith('/api/superadmin/') ||
+      request.url.startsWith('/api/gyms/my-sedes') ||
+      request.url.startsWith('/api/gyms/switch-sede') ||
+      request.url.startsWith('/api/payments/')
+    if (!isSuperAdminPath) {
+      return reply.status(403).send({ error: 'SUPER_ADMIN debe seleccionar un gimnasio para esta operación' })
+    }
   }
 }
 

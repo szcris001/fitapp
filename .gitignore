@@ -33,3 +33,9 @@ apps/api/src/generated/
 # Logs
 *.log
 npm-debug.log*
+
+# Binarios y artefactos locales
+*.AppImage
+*.flatpakrepo
+coverage/
+_tmp_*

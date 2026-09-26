@@ -2,12 +2,58 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import nodemailer from 'nodemailer'
 import { prisma } from '../../lib/prisma'
+import { redis } from '../../lib/redis'
 import { RegisterInput, LoginInput } from './auth.schema'
 
 const REFRESH_TOKEN_EXPIRES_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? '7', 10)
 
 function hashToken(raw: string): string {
   return crypto.createHash('sha256').update(raw).digest('hex')
+}
+
+// ── Lockout por email — Redis INCR + EXPIRE ───────────────────────────────────
+// Funciona en múltiples instancias y sobrevive reinicios.
+// Fallback a allow-through si Redis no está disponible (no bloquear logins).
+const LOGIN_MAX_ATTEMPTS = 5
+const LOGIN_LOCKOUT_SECS = 15 * 60 // 15 minutos
+
+async function checkLoginLockout(key: string): Promise<void> {
+  try {
+    const locked = await redis.get(`lockout:${key}`)
+    if (locked) {
+      const ttl = await redis.ttl(`lockout:${key}`)
+      const mins = Math.ceil(ttl / 60)
+      throw new Error(`Cuenta bloqueada temporalmente. Intenta en ${mins} minuto${mins !== 1 ? 's' : ''}.`)
+    }
+  } catch (err: any) {
+    // Re-throw solo si es el error de lockout, no errores de Redis
+    if (err.message.startsWith('Cuenta bloqueada')) throw err
+    // Redis no disponible → permitir login (fail open)
+  }
+}
+
+async function recordFailedLogin(key: string): Promise<void> {
+  try {
+    const attemptsKey = `attempts:${key}`
+    const count = await redis.incr(attemptsKey)
+    // Expirar el contador en 15 min (se reinicia el conteo si pasa tiempo)
+    if (count === 1) await redis.expire(attemptsKey, LOGIN_LOCKOUT_SECS)
+
+    if (count >= LOGIN_MAX_ATTEMPTS) {
+      await redis.setex(`lockout:${key}`, LOGIN_LOCKOUT_SECS, '1')
+      await redis.del(attemptsKey)
+    }
+  } catch {
+    // Redis no disponible → ignorar, no bloquear la API
+  }
+}
+
+async function clearLoginAttempts(key: string): Promise<void> {
+  try {
+    await redis.del(`attempts:${key}`, `lockout:${key}`)
+  } catch {
+    // ignorar
+  }
 }
 
 export async function createRefreshToken(userId: string): Promise<string> {
@@ -111,13 +157,21 @@ export async function loginUser(data: LoginInput) {
   if (!gym) throw new Error('Gimnasio no encontrado')
   if (gym.status === 'SUSPENDED') throw new Error('Este gimnasio está suspendido')
 
+  const lockoutKey = `${data.gymSlug}:${data.email.toLowerCase()}`
+  await checkLoginLockout(lockoutKey)
+
   const user = await prisma.user.findFirst({
     where: { gymId: gym.id, email: data.email },
   })
-  if (!user) throw new Error('Credenciales inválidas')
 
-  const valid = await bcrypt.compare(data.password, user.passwordHash)
-  if (!valid) throw new Error('Credenciales inválidas')
+  const valid = user ? await bcrypt.compare(data.password, user.passwordHash) : false
+
+  if (!user || !valid) {
+    await recordFailedLogin(lockoutKey)
+    throw new Error('Credenciales inválidas')
+  }
+
+  await clearLoginAttempts(lockoutKey)
 
   return {
     userId: user.id,

@@ -187,6 +187,25 @@ export async function classRoutes(app: FastifyInstance) {
     const body = request.body as any
     const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
     if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+
+    // Verificar que coachId pertenece al mismo gym (previene asignación cross-tenant)
+    if (body.coachId) {
+      const coach = await prisma.user.findFirst({
+        where: { id: body.coachId, gymId: user.gymId, role: { in: ['COACH', 'ADMIN'] } },
+        select: { id: true },
+      })
+      if (!coach) return reply.status(400).send({ error: 'El coach no pertenece a este gimnasio' })
+    }
+
+    // Verificar que classTypeId pertenece al mismo gym
+    if (body.classTypeId) {
+      const ct = await prisma.classType.findFirst({
+        where: { id: body.classTypeId, gymId: user.gymId },
+        select: { id: true },
+      })
+      if (!ct) return reply.status(400).send({ error: 'El tipo de clase no pertenece a este gimnasio' })
+    }
+
     try {
       const updated = await prisma.class.update({
         where: { id },
@@ -421,7 +440,7 @@ export async function classRoutes(app: FastifyInstance) {
       include: {
         class: {
           include: {
-            classType: { select: { id: true, name: true, color: true } },
+            classType: { select: { id: true, name: true, color: true, discipline: true } },
             bookings: {
               where: { status: { in: ['CONFIRMED', 'ATTENDED', 'WAITLIST', 'PENDING_CONFIRM'] } },
               include: { user: { select: { id: true, name: true, avatarUrl: true } } },

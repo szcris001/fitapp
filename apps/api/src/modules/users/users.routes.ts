@@ -137,6 +137,60 @@ export async function userRoutes(app: FastifyInstance) {
     return reply.send({ ok: true })
   })
 
+  // Cualquier usuario autenticado puede eliminar su propia cuenta y todos sus datos
+  app.delete('/users/me', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    await prisma.$transaction([
+      prisma.booking.deleteMany({ where: { userId: user.userId } }),
+      prisma.rmRecord.deleteMany({ where: { userId: user.userId } }),
+      prisma.gymnasticProgress.deleteMany({ where: { userId: user.userId } }),
+      prisma.wodResult.deleteMany({ where: { userId: user.userId } }),
+      prisma.refreshToken.deleteMany({ where: { userId: user.userId } }),
+      prisma.membership.deleteMany({ where: { userId: user.userId } }),
+      prisma.user.delete({ where: { id: user.userId } }),
+    ])
+    return reply.status(200).send({ ok: true, message: 'Cuenta eliminada correctamente' })
+  })
+
+  // Cualquier usuario autenticado puede subir su propio avatar
+  app.post('/users/me/avatar', { preHandler: authenticate }, async (request: FastifyRequest, reply) => {
+    const user = request.user as any
+    try {
+      const data = await (request as any).file() as MultipartFile
+      if (!data) return reply.status(400).send({ error: 'No se recibió archivo' })
+
+      const ALLOWED_MIME: Record<string, string> = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/webp': '.webp',
+      }
+      const ext = ALLOWED_MIME[data.mimetype]
+      if (!ext) {
+        data.file.resume()
+        return reply.status(400).send({ error: 'Tipo de archivo no permitido. Solo se aceptan JPG, PNG o WebP.' })
+      }
+
+      const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars')
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
+
+      const filename = `avatar_${user.userId}${ext}`
+      const filepath = path.join(uploadsDir, filename)
+
+      await new Promise<void>((resolve, reject) => {
+        const writeStream = fs.createWriteStream(filepath)
+        data.file.pipe(writeStream)
+        writeStream.on('finish', resolve)
+        writeStream.on('error', reject)
+      })
+
+      const avatarUrl = `/uploads/avatars/${filename}`
+      await prisma.user.update({ where: { id: user.userId }, data: { avatarUrl } })
+      return reply.send({ avatarUrl })
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message })
+    }
+  })
+
   app.post('/users/:id/avatar', { preHandler: requireAdmin }, async (request: FastifyRequest, reply) => {
     const admin = request.user as any
     const { id } = request.params as any
@@ -147,10 +201,20 @@ export async function userRoutes(app: FastifyInstance) {
       const data = await (request as any).file() as MultipartFile
       if (!data) return reply.status(400).send({ error: 'No se recibió archivo' })
 
+      const ALLOWED_MIME: Record<string, string> = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/webp': '.webp',
+      }
+      const ext = ALLOWED_MIME[data.mimetype]
+      if (!ext) {
+        data.file.resume()
+        return reply.status(400).send({ error: 'Tipo de archivo no permitido. Solo se aceptan JPG, PNG o WebP.' })
+      }
+
       const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars')
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 
-      const ext = path.extname(data.filename) || '.png'
       const filename = `avatar_${id}${ext}`
       const filepath = path.join(uploadsDir, filename)
 

@@ -29,7 +29,15 @@ const resetSchema = z.object({
 })
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post('/auth/login', async (request, reply) => {
+  // Rate limit en rutas sensibles: más permisivo en dev para no bloquear pruebas
+  const isDev = process.env.NODE_ENV !== 'production'
+  const authRateLimit = {
+    config: {
+      rateLimit: { max: isDev ? 50 : 10, timeWindow: '15 minutes' },
+    },
+  }
+
+  app.post('/auth/login', { ...authRateLimit }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
@@ -42,7 +50,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post('/auth/refresh', async (request, reply) => {
+  app.post('/auth/refresh', { ...authRateLimit }, async (request, reply) => {
     const parsed = refreshBodySchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
@@ -51,7 +59,7 @@ export async function authRoutes(app: FastifyInstance) {
         where: { id: userId },
         select: { id: true, gymId: true, email: true, name: true, role: true, avatarUrl: true, mustChangePassword: true },
       })
-      if (!user) return reply.status(401).send({ error: 'Usuario no encontrado' })
+      if (!user) return reply.status(401).send({ error: 'Sesión inválida' })
       const payload = {
         userId: user.id,
         gymId: user.gymId,
@@ -76,7 +84,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.status(200).send({ message: 'Sesión cerrada correctamente' })
   })
 
-  app.post('/auth/forgot-password', async (request, reply) => {
+  app.post('/auth/forgot-password', { ...authRateLimit }, async (request, reply) => {
     const parsed = forgotSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     // Always return 200 to avoid email enumeration
@@ -118,7 +126,11 @@ export async function authRoutes(app: FastifyInstance) {
     if (phone !== undefined) updateData.phone = phone
 
     if (email && email !== user.email) {
-      const existing = await prisma.user.findFirst({ where: { email, NOT: { id: userId } } })
+      // Verificar unicidad solo dentro del mismo gimnasio (multi-tenancy)
+      // El email puede existir en otro gym — eso es válido por diseño
+      const existing = await prisma.user.findFirst({
+        where: { email, gymId: user.gymId ?? null, NOT: { id: userId } },
+      })
       if (existing) return reply.status(400).send({ error: 'El email ya está en uso' })
       updateData.email = email
     }
@@ -145,7 +157,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send(updated)
   })
 
-  app.post('/auth/reset-password', async (request, reply) => {
+  app.post('/auth/reset-password', { ...authRateLimit }, async (request, reply) => {
     const parsed = resetSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {

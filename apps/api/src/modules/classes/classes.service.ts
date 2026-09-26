@@ -85,7 +85,7 @@ export async function listClasses(gymId: string, from?: string, to?: string) {
   return prisma.class.findMany({
     where: { gymId, ...(Object.keys(startsAt).length && { startsAt }) },
     include: {
-      classType: { select: { id: true, name: true, color: true } },
+      classType: { select: { id: true, name: true, color: true, discipline: true } },
       _count: { select: { bookings: { where: { status: { in: ['CONFIRMED', 'ATTENDED'] } } } } },
       bookings: { where: { status: 'ATTENDED' }, select: { id: true } },
       allowedPlans: { select: { id: true, name: true } },

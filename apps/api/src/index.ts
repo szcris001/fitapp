@@ -1,5 +1,7 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
+import rateLimit from '@fastify/rate-limit'
 import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
 import dotenv from 'dotenv'
@@ -29,14 +31,64 @@ import { requireActiveGym } from './middlewares/auth.middleware'
 
 dotenv.config()
 
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET no configurado. La API no puede iniciar sin un secreto seguro.')
+  process.exit(1)
+}
+
 const app = Fastify({ logger: true })
 
+// ── Cabeceras de seguridad HTTP ───────────────────────────────────────────────
+app.register(helmet, {
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  // Permite que browsers carguen imágenes y assets desde otro origen (web→API)
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+})
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// origin: true en producción abre la API a cualquier dominio → CRÍTICO.
+// En producción sólo se acepta FRONTEND_URL; en dev se permiten localhost/*.
 app.register(cors, {
-  origin: true,
+  origin: (origin, callback) => {
+    const frontendUrl = process.env.FRONTEND_URL
+
+    // Requests sin origin = app móvil nativa, curl, servidor a servidor → permitir
+    if (!origin) return callback(null, true)
+
+    // En desarrollo: permitir localhost Y cualquier IP de red local (WebViews en Expo)
+    if (process.env.NODE_ENV !== 'production') {
+      if (/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+        return callback(null, true)
+      }
+    }
+
+    // En producción: solo el dominio de frontend configurado
+    if (frontendUrl && origin === frontendUrl) return callback(null, true)
+
+    callback(new Error(`CORS: origen no permitido — ${origin}`), false)
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  maxAge: 86400,
 })
-app.register(jwt, { secret: process.env.JWT_SECRET || 'fallback_secret' })
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+app.register(rateLimit, {
+  global: true,
+  max: 120,
+  timeWindow: '1 minute',
+  keyGenerator: (req) => req.ip,
+  errorResponseBuilder: () => ({
+    statusCode: 429,
+    error: 'Too Many Requests',
+    message: 'Demasiadas solicitudes. Espera un momento e intenta de nuevo.',
+  }),
+})
+
+app.register(jwt, { secret: process.env.JWT_SECRET })
 app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
 
 // ─── rawBody support para webhooks de Stripe ─────────────────────────────────
@@ -64,9 +116,34 @@ app.addContentTypeParser(
   },
 )
 
+// ── Error handler seguro (sin stack traces en producción) ────────────────────
+app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
+  const isProd = process.env.NODE_ENV === 'production'
+  const status = error.statusCode ?? 500
+  app.log.error({ err: error, status }, error.message)
+  reply.status(status).send({
+    statusCode: status,
+    error: isProd && status >= 500 ? 'Error interno del servidor' : error.message,
+    ...(isProd ? {} : { stack: error.stack }),
+  })
+})
+
+// ── Protección path traversal ─────────────────────────────────────────────────
+// Valida que el filepath resuelto no salga del directorio base permitido.
+function safeResolvePath(base: string, filename: string): string | null {
+  // Rechazar filename que contenga separadores de directorio o nulos
+  if (/[/\\]|\.\.|\0/.test(filename)) return null
+  const resolved = path.resolve(base, filename)
+  // La ruta resuelta debe empezar con la base
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) return null
+  return resolved
+}
+
 const serveDirFile = (dir: string) => async (request: any, reply: any) => {
   const { filename } = request.params as any
-  const filepath = path.join(process.cwd(), 'uploads', dir, filename)
+  const baseDir = path.resolve(process.cwd(), 'uploads', dir)
+  const filepath = safeResolvePath(baseDir, filename)
+  if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
   if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
   const ext = path.extname(filename).toLowerCase()
   const mimeTypes: Record<string, string> = {
@@ -84,7 +161,9 @@ app.get('/uploads/assets/:filename', serveDirFile('assets'))
 
 app.get('/uploads/:filename', async (request, reply) => {
   const { filename } = request.params as any
-  const filepath = path.join(process.cwd(), 'uploads', filename)
+  const baseDir = path.resolve(process.cwd(), 'uploads')
+  const filepath = safeResolvePath(baseDir, filename)
+  if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
   if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
   const ext = path.extname(filename).toLowerCase()
   const mimeTypes: Record<string, string> = {
@@ -99,7 +178,10 @@ app.get('/uploads/:filename', async (request, reply) => {
 
 app.get('/movements/:filename', async (request, reply) => {
   const { filename } = request.params as any
-  const filepath = path.join(process.cwd(), 'public', 'movements', filename)
+  const baseDir = path.resolve(process.cwd(), 'public', 'movements')
+  const resolvedFilepath = safeResolvePath(baseDir, filename)
+  if (!resolvedFilepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+  const filepath = resolvedFilepath
   if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Movimiento no encontrado' })
   reply.header('Content-Type', 'image/gif')
   reply.header('Cache-Control', 'public, max-age=86400')
@@ -121,9 +203,14 @@ app.get('/healthz', async (_request, reply) => {
   }
 })
 
-// Bloquear gimnasios con suscripción vencida en todas las rutas autenticadas
+// ── Hook global: verificar JWT + gym activo ───────────────────────────────────
+// NOTA: la propagación de gymId a RLS (AsyncLocalStorage + Prisma Client
+// Extension, ver lib/tenant-context.ts y lib/prisma.ts) está construida pero
+// NO conectada aquí todavía — activarla rompe transacciones explícitas
+// existentes (ver comentario en lib/prisma.ts). RLS queda inerte por ahora;
+// la defensa real de multi-tenancy sigue siendo el filtro `gymId` explícito
+// en cada query de los services (ver CLAUDE.md).
 app.addHook('preHandler', async (request, reply) => {
-  // Solo aplica a rutas /api/ con token JWT presente
   if (!request.url.startsWith('/api/') || !request.headers.authorization) return
   try {
     await request.jwtVerify()

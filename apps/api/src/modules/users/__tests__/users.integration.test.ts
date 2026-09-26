@@ -832,9 +832,10 @@ describe('Users: SUPER_ADMIN tiene acceso completo', () => {
 
   afterAll(async () => { await app.close() })
 
-  it('SUPER_ADMIN puede crear usuario (requireAdmin incluye SUPER_ADMIN)', async () => {
-    // SUPER_ADMIN tiene gymId: null → createUser lanza "el usuario no tiene gimnasio asignado"
-    // Esto es comportamiento correcto: SUPER_ADMIN no opera sobre gyms directamente
+  it('SUPER_ADMIN sin gymId no puede crear usuario (bloqueado en requireAdmin, no llega al service)', async () => {
+    // SUPER_ADMIN tiene gymId: null → requireAdmin lo bloquea antes de llegar al service,
+    // porque /api/users no está en el allowlist de rutas /superadmin/*.
+    // Ver CLAUDE.md § SUPER_ADMIN: "con gymId: null solo puede acceder a rutas /superadmin/*".
     const res = await app.inject({
       method: 'POST',
       url: '/api/users',
@@ -845,8 +846,7 @@ describe('Users: SUPER_ADMIN tiene acceso completo', () => {
         password: 'password123',
       },
     })
-    // requireAdmin pasa (SUPER_ADMIN), pero el service lanza error porque gymId es null
-    expect(res.statusCode).toBe(400)
-    expect(res.json().error).toMatch(/no tiene un gimnasio asignado/i)
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toMatch(/debe seleccionar un gimnasio/i)
   })
 })

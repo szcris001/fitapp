@@ -97,7 +97,83 @@ PostgreSQL 16 managed by Prisma. Key models: `Gym`, `User`, `Plan`, `Membership`
 
 Migrations live in `apps/api/prisma/migrations/`. Always run `prisma migrate dev` from `apps/api/`.
 
-## Environment Variables
+## Reglas de Seguridad Obligatorias
+
+Estas reglas aplican a **todos los agentes** que toquen código de la API. Violarlas es un bug de seguridad, no un bug de negocio.
+
+### Multi-tenancy — REGLA NÚMERO 1
+
+**Toda query Prisma en `apps/api/src/modules/` DEBE incluir `gymId` en el `where`.**
+
+```typescript
+// ✅ CORRECTO
+prisma.user.findMany({ where: { gymId: user.gymId, ... } })
+
+// ❌ INCORRECTO — expone datos de todos los gyms
+prisma.user.findMany({ where: { email } })
+```
+
+Excepción: `auth/`, `superadmin/`, y tablas globales (`Gym`, `Movement`).
+
+Verificar antes de cada PR:
+```bash
+grep -rn "prisma\.\(findMany\|findFirst\|update\|delete\)" apps/api/src/modules/ | grep -v "gymId\|userId\|superadmin\|auth"
+```
+Cualquier resultado es un bug de seguridad.
+
+### Autenticación en endpoints
+
+- **Todo endpoint** de negocio debe tener `{ preHandler: authenticate }` o un middleware más restrictivo.
+- **Archivos estáticos** (`/uploads/`, evidencias, avatares) **no son públicos** — deben validar JWT.
+- Nunca asumir que una URL de archivo es secreta por ser larga o aleatoria.
+
+### Parámetros del body vs JWT
+
+**Nunca usar `gymId` o `userId` que vengan del body/params del cliente para autorizar acceso.**
+
+```typescript
+// ✅ CORRECTO — gymId del JWT, no del cliente
+const gymId = request.user.gymId
+
+// ❌ INCORRECTO — el cliente controla a qué gym accede
+const gymId = request.body.gymId
+```
+
+Si el body incluye `coachId`, `classTypeId`, `planId` u otros IDs de recursos, **siempre verificar** que pertenecen al mismo `gymId`:
+```typescript
+const coach = await prisma.user.findFirst({ where: { id: body.coachId, gymId: user.gymId } })
+if (!coach) return reply.status(403).send({ error: 'No autorizado' })
+```
+
+### JWT
+
+- Todo `jwt.sign()` **DEBE incluir `expiresIn`**. Sin expiración = token eterno = riesgo crítico.
+- El token solo lleva: `{ userId, gymId, role }`. Sin datos sensibles.
+
+### Servir archivos estáticos
+
+Usar siempre la función `safeResolvePath(base, filename)` de `src/index.ts`:
+```typescript
+// ✅ CORRECTO
+const filePath = safeResolvePath(uploadsDir, filename)
+
+// ❌ INCORRECTO — path traversal: ../../.env
+const filePath = path.join(uploadsDir, filename)
+```
+
+### SUPER_ADMIN
+
+- `requireAdmin` acepta SUPER_ADMIN pero **solo cuando tiene `gymId` en el JWT** (post switch-sede).
+- SUPER_ADMIN con `gymId: null` solo puede acceder a rutas `/superadmin/*`.
+- Nunca usar `user.gymId` de un SUPER_ADMIN sin verificar que no es `null`.
+
+### Rate limiting en auth
+
+Los endpoints `POST /auth/login`, `POST /auth/register`, `POST /auth/refresh` deben tener `authRateLimit` aplicado. No agregar nuevos endpoints de auth sin rate limit.
+
+---
+
+
 
 **`apps/api/.env`**
 ```

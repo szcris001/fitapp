@@ -11,6 +11,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─── Auditoría de dependencias (CVEs High/Critical) ─────────────────────────
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high
+
   # ─── Lint (raíz, aplica a toda la monorepo) ──────────────────────────────────
   lint:
     name: Lint

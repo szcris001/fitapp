@@ -4,13 +4,13 @@
 > Los agentes principales (qa-engineer, payments-specialist, architect, backend-dev) tienen sección fija.
 > Los excepcionales (web-dev, mobile-dev, product-owner, devops) solo agregan entrada cuando actúan.
 
-**Última actualización**: 2026-06-12 · web-dev (Settings page modernizada: nav lateral de 9 secciones, sport theme selector visual con cards, toast auto-dismiss, spinner en botones de guardar, todos los paneles colapsables migrados a secciones propias)
+**Última actualización**: 2026-06-25 · security (auditoría auth/multi-tenancy: 6 vulnerabilidades corregidas, RLS ampliado a 8 tablas adicionales)
 
 ---
 
 ## Foco actual
 
-895/895 tests API pasando + 28/28 tests E2E Playwright web. Mobile: HomeScreen refactorizado, ProgressScreen nueva (reemplaza WOD tab), bug timezone bookings corregido, ProfileScreen limpiado. Pendiente: sandboxes de pasarelas, Dockerfiles, staging, E2E mobile (Maestro).
+895/895 tests API pasando + 28/28 tests E2E Playwright web. WOD % RM implementado (migración `20260620010406_add_wod_movement_percentage`). Seguridad pre-deploy aplicada. Dockerfiles creados. Plataforma elegida: Railway. Pendiente: middleware RLS en Fastify, sandboxes de pasarelas, tests nuevos para % RM, staging, E2E mobile (Maestro).
 
 ---
 
@@ -350,7 +350,15 @@
 ## Agentes excepcionales (solo escriben acá cuando actúan)
 
 ### web-dev
-**Última actuación**: 2026-06-13 — Acciones de membresía agregadas a `/dashboard/users/[id]`.
+**Última actuación**: 2026-06-23 — Refactor editor de clases: ClassPanel convertido de modal overlay a página dedicada.
+
+- `apps/web/app/dashboard/classes/_components/ClassDetail.tsx` (NUEVO): contiene `ClassPanel` (exportado), `AttendanceSection`, `MovementPicker`, `WodEditorModal` y todas sus interfaces y helpers. `ClassPanel` en versión página: sin backdrop `fixed inset-0`, con botón "Volver" (`onClose → router.back()`), navegacion entre clases con `ChevronLeft/Right` horizontales, `h1` en lugar de `h2`. `WodEditorModal` mantiene su overlay `fixed inset-0 z-[59]` (correcto: se superpone dentro de la página). Confirm delete también mantiene su overlay.
+- `apps/web/app/dashboard/classes/[classId]/page.tsx` (NUEVO): página `'use client'` que recibe `params: Promise<{classId}>` con `use()`, monta `<ClassPanel>` con `onNavigate→router.push`, `onClose→router.back()`, `onRefresh→router.refresh()`, `onDeleted→router.push('/dashboard/classes')`.
+- `apps/web/app/dashboard/classes/page.tsx` (MODIFICADO): eliminados `AttendanceSection`, `ClassPanel`, `MovementPicker`, `WodEditorModal`, `ClassDetail`/`AttendeeBooking`/`AttendeesData` interfaces, `CF_MOVEMENTS` import, `API_BASE` import, lucide icons no usados. `openClass(id)` ahora hace `router.push('/dashboard/classes/' + id)` en lugar de `setSelectedId(id)`. Estado `selectedId` y render `<ClassPanel>` eliminados. `NewClassModal` y `ClassesParamsWatcher` conservados sin cambios. TypeScript: 0 errores (solo e2e/fixtures preexistentes).
+
+**Pendiente para qa-engineer**: E2E del flujo click-en-clase → navega a `/dashboard/classes/:id` → sidebar visible, sin overlay; verificar botón Volver regresa al calendario; verificar flechas prev/next entre clases; verificar WOD editor se abre como overlay dentro de la página; verificar editar/eliminar clase desde la página dedicada.
+
+**Última actuación previa**: 2026-06-13 — Acciones de membresía agregadas a `/dashboard/users/[id]`.
 
 - `apps/web/app/dashboard/users/[id]/page.tsx`: 5 cambios quirúrgicos sin tocar lógica existente. (1) 5 estados nuevos: `showExtendModal`, `showReversalModal`, `extendDays`, `reversalNotes`, `membershipActionLoading`. (2) 3 handlers nuevos: `handleToggleMembership` (ACTIVE↔INACTIVE via `PATCH /memberships/:id` con `{status}`), `handleExtend` (extiende con `{extendDays}`), `handleReversal` (reversa con `{reversalNotes}`). Todos llaman `fetchData(false)` al terminar. (3) Row de 3 botones al pie de la card "Membresía activa": Extender (abre modal), Desactivar/Activar (toggle inline), Reversar pago (abre modal, estilo rojo). (4) Columna "Acciones" en tabla de historial de membresías — botón Desactivar/Activar por fila para status ACTIVE|TRIAL|INACTIVE. (5) 2 modales nuevos: ExtendModal (input days, preview fecha nuevo vencimiento) y ReversalModal (textarea motivo opcional). Ambos con overlay blur + confirmación. TypeScript: 0 errores nuevos (solo preexistentes en e2e/fixtures).
 - Endpoint consumido: `PATCH /memberships/:id` (backend-dev 2026-06-13). Bodies: `{status}`, `{extendDays}`, `{reversalNotes}`.
@@ -645,6 +653,61 @@
 4. **Las 8 pasarelas están codeadas pero ninguna fue probada contra sandbox real.** El riesgo de cobros fallidos en producción es alto. Priorizar Stripe primero (la única con sandbox disponible de inmediato).
 
 5. **Vitest instalado y funcionando.** Scripts: `pnpm test`, `pnpm test:watch`, `pnpm test:coverage`. La pirámide de tests puede crecer ahora.
+
+---
+
+### devops
+**Última actuación**: 2026-06-15 — Checklist pre-deploy ejecutado. 7 controles de seguridad aplicados. Dockerfiles creados. Plataforma elegida: Railway.
+
+**Controles aplicados**:
+- `@fastify/helmet` → HSTS + X-Content-Type + X-Frame en todos los responses de la API
+- CORS restrictivo → origin: función que valida contra `FRONTEND_URL`; requests sin origin (mobile) siempre pasan
+- Rate limit → global 120 req/min; auth routes 10 req/15min
+- JWT_SECRET guard → `process.exit(1)` si no está configurado
+- Error handler seguro → oculta stack traces en producción
+- Next.js security headers → CSP, HSTS, X-Frame, Referrer, Permissions-Policy en `next.config.ts`
+- RLS PostgreSQL → activo en 10 tablas; **pendiente middleware Fastify** que inyecte `app.current_gym_id` antes de cada query
+- `@fastify/jwt` actualizado 10.0.0 → 10.1.0 (3 CVEs críticos resueltos)
+
+**Archivos nuevos**: `apps/api/Dockerfile`, `apps/web/Dockerfile`, `apps/api/.dockerignore`, `apps/web/.dockerignore`, `apps/api/.env.example`, `apps/web/.env.example`, `apps/api/prisma/migrations/20260616000000_enable_rls/migration.sql`, `.claude/agents/security.md`
+
+**Plataforma elegida**: Railway (API + Web + Postgres + Redis), dominio + CDN en Cloudflare. Ver `docs/SECURITY.md` y `docs/devops.md` para pasos detallados.
+
+**Pendiente crítico**: middleware Fastify para `SET LOCAL app.current_gym_id = $gymId` antes de cada request autenticado. Sin esto el RLS no funciona. Ver `docs/SECURITY.md § P1`.
+
+**2026-06-18 — Cumplimiento tiendas**:
+- `apps/mobile/app.json`: NSLocation agregado, NSMicrophone eliminado, NSCamera corregido, android.permissions explícitos, plugins expo-camera/location/notifications añadidos
+- `DELETE /users/me` en users.routes.ts (obligatorio Google Play — eliminación de cuenta desde la app)
+- `ProfileScreen.tsx`: sección Legal (Privacidad + Términos) + botón "Eliminar mi cuenta" con BottomSheet de confirmación
+- **Pendiente Cristian**: publicar Privacy Policy y ToS en URL pública → actualizar links en ProfileScreen → llenar Data Safety (Play) y App Privacy (App Store Connect)
+
+---
+
+## security
+
+**Última actuación**: 2026-06-25 — Auditoría completa de auth/multi-tenancy. 6 vulnerabilidades corregidas.
+
+**Hallazgos corregidos**:
+- CRÍTICO: Path traversal en `/uploads/avatars/:filename`, `/uploads/:filename`, `/uploads/evidence/:filename` — `safeResolvePath()` implementado en `index.ts`
+- ALTO: JWT sin expiresIn en `POST /gyms/switch-sede` — ahora usa `process.env.JWT_EXPIRES_IN ?? '15m'`
+- ALTO: `POST /auth/refresh` sin rate limit — ahora usa `authRateLimit` (10 req/15min en prod)
+- MEDIO: `/auth/me PUT` — email uniqueness verificaba cross-tenant; ahora filtra por `gymId`
+- MEDIO: `PATCH /classes/:id` — `coachId` y `classTypeId` del body no verificados contra gymId; añadida validación
+- MEDIO: `/uploads/evidence/:filename` sin autenticación — ahora requiere JWT + ownership del progress
+- DISEÑO: `SUPER_ADMIN` con `gymId=null` podía pasar `requireAdmin` y llegar a endpoints de gym — bloqueado en middleware con allowlist de rutas permitidas
+- BAJO: `GET /ai/athlete-projection/:userId` — MEMBER podía pasar userId arbitrario (aunque service lo ignoraba); denegación explícita añadida
+
+**RLS ampliado** (nueva migración `20260625000000_rls_missing_tables`):
+- 8 tablas adicionales cubiertas: Membership, Booking, RmRecord, GymnasticProgress, GymSkillMilestone, WodBlock, WodMovement, BenchmarkResult
+
+**Pendiente (requiere acción externa)**:
+- Middleware Fastify para inyectar `SET LOCAL app.current_gym_id` en cada request — sin esto el RLS no actúa
+- Aplicar migración `20260625000000_rls_missing_tables` en producción
+- `pnpm audit` en CI — verificar 0 high/critical tras cambios
+
+**Riesgos residuales confirmados (aceptados por diseño)**:
+- Lockout login es in-memory (se pierde al reiniciar instancia) — Redis recomendado si se escala horizontal
+- `allowedPlanIds` en PATCH /classes/:id no verifica que los planIds sean del gym correcto (los planes de otro gym simplemente no existirían en producción por multi-tenancy, pero se debería añadir validación explícita)
 
 ---
 

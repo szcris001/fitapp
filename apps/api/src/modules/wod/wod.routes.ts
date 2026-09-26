@@ -29,6 +29,7 @@ function sanitizeMovement(m: any, order: number) {
     order,
     movementName:   m.movementName   ?? '',
     repScheme:      m.repScheme      ?? null,
+    percentage:     m.percentage != null && m.percentage !== '' ? Number(m.percentage) : null,
     weightRookieM:  toFloat(m.weightRookieM),
     weightRookieF:  toFloat(m.weightRookieF),
     weightScaleM:   toFloat(m.weightScaleM),
@@ -46,7 +47,9 @@ function sanitizeMovement(m: any, order: number) {
 function sanitizeBlocks(blocks: any[]) {
   return blocks.map((b: any, bi: number) => ({
     title:    b.title   ?? null,
+    scheme:   b.scheme  ?? null,
     timecap:  b.timecap ?? null,
+    notes:    b.notes   ?? null,
     order:    bi,
     movements: {
       create: (b.movements as any[]).map((m: any, mi: number) => sanitizeMovement(m, mi)),
@@ -139,12 +142,19 @@ export async function wodRoutes(app: FastifyInstance) {
     })
     if (!wod) return reply.send([])
     const allMovements = wod.blocks.flatMap(b => b.movements)
+    const gym = await prisma.gym.findUnique({ where: { id: user.gymId }, select: { weightRounding: true } })
+    const rounding = gym?.weightRounding ?? 2.5
+
+    const { calculateLoad } = await import('./wod.utils')
     const loads = await Promise.all(allMovements.map(async (m) => {
       const rm = await prisma.rmRecord.findFirst({
         where: { userId: user.userId, movementName: { contains: m.movementName, mode: 'insensitive' } },
         orderBy: { recordedAt: 'desc' },
       })
-      return { ...m, calculatedKg: null, rmKg: rm?.weightKg || null }
+      const calculatedKg = (rm && m.percentage)
+        ? calculateLoad(rm.weightKg, m.percentage, rounding)
+        : null
+      return { ...m, calculatedKg, rmKg: rm?.weightKg || null }
     }))
     return reply.send(loads)
   })
