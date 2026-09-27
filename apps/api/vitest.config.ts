@@ -9,6 +9,8 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/__tests__/**/*.test.ts'],
     exclude: ['dist/**', 'node_modules/**'],
     sequence: { concurrent: false },
+    // Rutas de los tests con contexto de tenant (RLS) como en producción
+    setupFiles: ['src/test/tenant-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

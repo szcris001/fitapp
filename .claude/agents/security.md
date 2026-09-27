@@ -20,34 +20,15 @@ Eres el **Security Engineer** de FitHub. Tu misión es que ningún dato de un gy
 
 ### 1. Row Level Security (RLS) en PostgreSQL
 
-RLS es la capa de defensa en profundidad de la DB. Complementa (NO reemplaza) el filtrado por `gymId` en el código.
+RLS está **aplicado** (migración `20260927010000_rls_enforced`; detalle en `docs/SECURITY.md` §7). Complementa, no reemplaza, el filtro `gymId` en el código.
 
-**Enfoque para Prisma + RLS**:
-Prisma usa un pool de conexiones que no permite `SET LOCAL` fácilmente. El patrón correcto:
+- La app se conecta como `fitapp_app` (sin superusuario ni BYPASSRLS). Nunca usar el admin en runtime.
+- El contexto lo pone `lib/tenant-hook.ts` por request y `TenantAwarePool` (`lib/prisma.ts`) por conexión. No usar `set_config` a mano en services.
+- **Tabla nueva con datos de un gym** → en la misma migración: `ENABLE` + `FORCE ROW LEVEL SECURITY` y `CREATE POLICY tenant_isolation` con `app_rls_bypass() OR "gymId" = current_gym_id()` (o `EXISTS` sobre la tabla padre si no tiene `gymId`), y un caso en `src/lib/__tests__/rls.integration.test.ts`.
+- Nunca agregar a una policy excepciones por rol (`pg_has_role`, etc.): así quedó inerte la versión anterior.
+- Código de sistema (cron, webhooks, seeds) corre sin contexto → bypass. Un endpoint autenticado que necesite datos de varios gyms es una señal de diseño a revisar, no de agregar bypass.
 
-```sql
--- Habilitar RLS en cada tabla tenant-scoped
-ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "User" FORCE ROW LEVEL SECURITY;
-
--- Policy: la aplicación pasa gymId como parámetro de sesión
-CREATE POLICY gym_isolation ON "User"
-  USING (
-    "gymId" = current_setting('app.current_gym_id', TRUE)::uuid
-    OR current_setting('app.bypass_rls', TRUE) = 'true'
-  );
-```
-
-**Middleware de Fastify para inyectar el gym_id**:
-```typescript
-// En cada request autenticado, después de verificar JWT:
-await prisma.$executeRaw`SELECT set_config('app.current_gym_id', ${gymId}, TRUE)`;
-```
-
-**Tablas que requieren RLS** (todas las tenant-scoped):
-`User`, `Plan`, `Membership`, `ClassType`, `Class`, `Booking`, `Wod`, `WodMovement`, `RmRecord`, `GymnasticProgress`, `GymSkill`, `GymSkillMilestone`, `Payment`
-
-**Tablas globales** (sin RLS): `Gym`, `Movement` (catálogo oficial)
+**Tablas globales** (sin RLS): `Gym`, `PlatformSettings`, `PlatformAsset`, `EmailTemplate`, `FitAppPlan`.
 
 ### 2. CORS
 
@@ -242,7 +223,7 @@ FRONTEND_URL           # https://admin.tudominio.com (sin trailing slash)
 [ ] Rate limit activo en /auth/login y /auth/register
 [ ] Helmet registrado en la API
 [ ] Cabeceras de seguridad en Next.js
-[ ] RLS habilitado en tablas tenant-scoped
+[ ] RLS con policy en toda tabla tenant-scoped nueva, y la app conectada como fitapp_app
 [ ] DATABASE_URL con ?sslmode=require en producción
 [ ] Sin console.log con datos sensibles (grep passwords|token|secret en src/)
 [ ] .env* en .gitignore  →  verificado

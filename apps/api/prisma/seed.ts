@@ -2,7 +2,8 @@ import 'dotenv/config'
 import { PrismaClient, BenchmarkCategory } from '../src/generated/prisma'
 import { PrismaPg } from '@prisma/adapter-pg'
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
+// El seed es una tarea de administración: usa el usuario admin, no el rol de la app (RLS)
+const adapter = new PrismaPg({ connectionString: (process.env.DATABASE_ADMIN_URL ?? process.env.DATABASE_URL)! })
 const prisma = new PrismaClient({ adapter })
 
 // ─── Category map ─────────────────────────────────────────────────────────────

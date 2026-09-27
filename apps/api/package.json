@@ -36,11 +36,13 @@
     "mercadopago": "^3.0.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.4",
+    "pg": "8.20.0",
     "stripe": "^20.4.1",
     "zod": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/pg": "^8.11.11",
     "@vitest/coverage-v8": "^4.1.5",
     "nodemon": "latest",
     "prisma": "latest",

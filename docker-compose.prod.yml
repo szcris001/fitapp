@@ -59,7 +59,10 @@ services:
     env_file: .env.production
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      # La API usa fitapp_app (sin superusuario, sujeto a RLS); el admin solo migra
+      DATABASE_URL: postgresql://fitapp_app:${APP_DB_PASSWORD}@postgres:5432/${DB_NAME}
+      DATABASE_ADMIN_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     depends_on:
       postgres:

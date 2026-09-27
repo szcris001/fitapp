@@ -55,13 +55,30 @@ jobs:
       - name: Run lint
         run: pnpm lint
 
-  # ─── Tests de API (sin PostgreSQL real — usa mocks de Prisma) ────────────────
+  # ─── Tests de API (PostgreSQL + Redis reales; la app corre como fitapp_app, bajo RLS) ─
   test-api:
     name: Test API
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fitapp
+          POSTGRES_PASSWORD: fitapp123
+          POSTGRES_DB: fitapp_dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fitapp -d fitapp_dev"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
     env:
-      # Variables mínimas para que el proceso arranque y los mocks funcionen
-      DATABASE_URL: "postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"
+      # Admin: migraciones y seeds. App: rol fitapp_app sin superusuario (RLS efectivo)
+      DATABASE_ADMIN_URL: "postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"
+      DATABASE_URL: "postgresql://fitapp_app:ci-app-password@localhost:5432/fitapp_dev"
+      APP_DB_PASSWORD: "ci-app-password"
+      REDIS_URL: "redis://localhost:6379"
       JWT_SECRET: "ci-test-secret-do-not-use-in-prod"
       NODE_ENV: test
       PORT: 3001
@@ -87,6 +104,12 @@ jobs:
       - name: Generate Prisma client
         working-directory: apps/api
         run: pnpm prisma generate
+
+      - name: Migrate DB and enable app role
+        working-directory: apps/api
+        run: |
+          pnpm prisma migrate deploy
+          pnpm exec ts-node src/scripts/setup-app-db-role.ts
 
       - name: Run tests
         working-directory: apps/api

@@ -121,6 +121,16 @@ grep -rn "prisma\.\(findMany\|findFirst\|update\|delete\)" apps/api/src/modules/
 ```
 Cualquier resultado es un bug de seguridad.
 
+### Row Level Security — defensa en profundidad
+
+RLS está aplicado en PostgreSQL (detalle: `docs/SECURITY.md` §7). No reemplaza la regla anterior.
+- La app se conecta como `fitapp_app` (sin superusuario ni BYPASSRLS). Migraciones, seeds y scripts de admin usan `DATABASE_ADMIN_URL`.
+- Cada request autenticado con gym corre sus queries con ese gym (`lib/tenant-hook.ts` + `TenantAwarePool` en `lib/prisma.ts`). Código de sistema sin request (cron, webhooks, callbacks, login) corre en bypass.
+- **Tabla nueva con datos de un gym** → en la misma migración: `ENABLE`/`FORCE ROW LEVEL SECURITY` + `CREATE POLICY tenant_isolation` (ver `20260927010000_rls_enforced`) + caso en `src/lib/__tests__/rls.integration.test.ts`.
+- Las queries de Prisma son perezosas: si se arma una query fuera del request y se ejecuta después, corre con el contexto del `await`, no con el de su creación.
+
+Setup local tras `docker-compose up`: `pnpm prisma migrate deploy` y `npx ts-node src/scripts/setup-app-db-role.ts` (en `apps/api`).
+
 ### Autenticación en endpoints
 
 - **Todo endpoint** de negocio debe tener `{ preHandler: authenticate }` o un middleware más restrictivo.
@@ -179,7 +189,9 @@ Los endpoints `POST /auth/login`, `POST /auth/register`, `POST /auth/refresh` de
 
 **`apps/api/.env`**
 ```
-DATABASE_URL="postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"
+DATABASE_ADMIN_URL="postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"   # migraciones, seeds
+DATABASE_URL="postgresql://fitapp_app:<APP_DB_PASSWORD>@localhost:5432/fitapp_dev" # la app (sujeta a RLS)
+APP_DB_PASSWORD="..."
 JWT_SECRET="..."
 PORT=3001
 STRIPE_SECRET_KEY="sk_test_..."
