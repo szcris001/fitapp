@@ -6,6 +6,26 @@ const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
 })
 
+// ── Token de medios ────────────────────────────────────────────────────────
+// login, refresh y switch-sede devuelven `mediaToken`: un token de solo lectura para
+// /uploads que va en la URL, porque <img src> no puede enviar Authorization.
+api.interceptors.response.use((response) => {
+  if (typeof window !== 'undefined' && response.data?.mediaToken) {
+    localStorage.setItem('fitapp_media_token', response.data.mediaToken)
+  }
+  return response
+})
+
+// URL absoluta de un archivo subido (avatarUrl, logoUrl…) lista para <img src>
+export function mediaUrl(path?: string | null): string {
+  if (!path) return ''
+  // Los assets de plataforma son públicos
+  if (!path.startsWith('/uploads/') || path.startsWith('/uploads/assets/')) return `${API_BASE}${path}`
+  const token = typeof window !== 'undefined' ? localStorage.getItem('fitapp_media_token') : null
+  if (!token) return `${API_BASE}${path}`
+  return `${API_BASE}${path}${path.includes('?') ? '&' : '?'}t=${encodeURIComponent(token)}`
+}
+
 // ── Request interceptor: adjunta el token JWT a cada petición ──────────────
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
@@ -39,6 +59,7 @@ function rejectQueue(err: unknown) {
 function doLogout() {
   localStorage.removeItem('fitapp_token')
   localStorage.removeItem('fitapp_refresh_token')
+  localStorage.removeItem('fitapp_media_token')
   localStorage.removeItem('fitapp_user')
   localStorage.removeItem('fitapp_colors')
   // Actualizar el store de Zustand sin importarlo directamente (evita ciclo de

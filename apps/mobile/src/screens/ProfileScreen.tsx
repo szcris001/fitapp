@@ -8,7 +8,7 @@ import { BottomSheet } from '../components/BottomSheet'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { useAuthStore } from '../store/auth.store'
-import api, { API_BASE as API_URL } from '../lib/api'
+import api, { API_BASE as API_URL, mediaUrl } from '../lib/api'
 import { useTheme } from '../theme/ThemeContext'
 
 interface RmRecord {
@@ -210,7 +210,7 @@ export default function ProfileScreen({ navigation }: any) {
       <View style={[styles.hero, { paddingTop: insets.top + 20 }]}>
         <TouchableOpacity onPress={pickPhoto} style={styles.avatarWrap}>
           {profile?.avatarUrl
-            ? <Image source={{ uri: `${API_URL}${profile.avatarUrl}` }} style={[styles.avatarImg, { borderColor: c.primary }]} />
+            ? <Image source={{ uri: mediaUrl(profile.avatarUrl) }} style={[styles.avatarImg, { borderColor: c.primary }]} />
             : (
               <View style={[styles.avatar, { backgroundColor: c.primary + '30', borderColor: c.primary }]}>
                 <Text style={[styles.avatarText, { color: c.primary }]}>{user?.name?.[0]?.toUpperCase()}</Text>

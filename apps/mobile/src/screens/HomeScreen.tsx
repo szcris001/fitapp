@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation } from '@react-navigation/native'
 import { useAuthStore } from '../store/auth.store'
 import { useTheme } from '../theme/ThemeContext'
-import api, { API_BASE as API_URL } from '../lib/api'
+import api, { API_BASE as API_URL, mediaUrl } from '../lib/api'
 import { BottomSheet } from '../components/BottomSheet'
 
 export default function HomeScreen() {
@@ -83,7 +83,7 @@ export default function HomeScreen() {
         || mems.find((m: any) => m.endsAt && new Date(m.endsAt) > now)
         || mems[0] || null
       setMembership(activeMem)
-      if (userRes.data.avatarUrl) setAvatarUrl(`${API_URL}${userRes.data.avatarUrl}`)
+      if (userRes.data.avatarUrl) setAvatarUrl(mediaUrl(userRes.data.avatarUrl))
 
       // Próximas clases: todas las del mismo día que la primera confirmada
       const upcoming: any[] = (bookingsRes.data || [])

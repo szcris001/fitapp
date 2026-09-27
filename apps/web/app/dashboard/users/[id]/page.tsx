@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
-import api from '../../../../lib/api'
+import api, { mediaUrl } from '../../../../lib/api'
 import {
   ArrowLeft, Edit2, CheckCircle, CreditCard, Banknote,
   RefreshCw, X, ExternalLink, Wallet, Camera, KeyRound,
@@ -30,7 +30,6 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }>
   INACTIVE: { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', label: 'Inactivo' },
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? 'http://localhost:3001'
 
 /* ─── Skeleton ──────────────────────────────────── */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -592,7 +591,7 @@ export default function UserDetailPage() {
   const daysLeft = activeMembership
     ? Math.ceil((new Date(activeMembership.endsAt).getTime() - Date.now()) / 86_400_000)
     : null
-  const currentAvatar = member.avatarUrl ? `${API_BASE}${member.avatarUrl}` : null
+  const currentAvatar = member.avatarUrl ? mediaUrl(member.avatarUrl) : null
   const displayAvatar = avatarPreview ?? currentAvatar
 
   const memberStatus = activeMembership?.status ?? (member.memberships?.length > 0 ? 'EXPIRED' : 'INACTIVE')

@@ -87,6 +87,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     localStorage.removeItem('fitapp_token')
     localStorage.removeItem('fitapp_refresh_token')
+    localStorage.removeItem('fitapp_media_token')
     localStorage.removeItem('fitapp_user')
     localStorage.removeItem('fitapp_colors')
     set({ user: null, token: null, refreshToken: null })

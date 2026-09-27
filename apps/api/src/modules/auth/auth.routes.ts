@@ -13,6 +13,7 @@ import { authenticate } from '../../middlewares/auth.middleware'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
+import { signMediaToken } from '../../lib/media-token'
 
 const refreshBodySchema = z.object({
   refreshToken: z.string().min(1),
@@ -44,7 +45,8 @@ export async function authRoutes(app: FastifyInstance) {
       const user = await loginUser(parsed.data)
       const token = app.jwt.sign(user, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
       const refreshToken = await createRefreshToken(user.userId)
-      return reply.status(200).send({ token, refreshToken, user })
+      const mediaToken = signMediaToken(app, user)
+      return reply.status(200).send({ token, refreshToken, mediaToken, user })
     } catch (err: any) {
       return reply.status(401).send({ error: err.message })
     }
@@ -70,7 +72,7 @@ export async function authRoutes(app: FastifyInstance) {
         mustChangePassword: user.mustChangePassword,
       }
       const token = app.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
-      return reply.status(200).send({ token, refreshToken: newRaw })
+      return reply.status(200).send({ token, refreshToken: newRaw, mediaToken: signMediaToken(app, payload) })
     } catch (err: any) {
       return reply.status(401).send({ error: err.message })
     }

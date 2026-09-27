@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
-import api, { API_BASE } from '../../../lib/api'
+import api, { API_BASE , mediaUrl } from '../../../lib/api'
 import {
   Building2, Sun, Moon, Calendar, Upload,
   CheckCircle, Bell, FileText, Palette, Receipt,
@@ -492,7 +492,7 @@ export default function SettingsPage() {
               overflow: 'hidden', backgroundColor: 'var(--surface-base)', flexShrink: 0,
             }}>
               {gym?.logoUrl ? (
-                <img src={`${API_BASE}${gym.logoUrl}`} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={mediaUrl(gym.logoUrl)} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--border-2)' }}>{gym?.name?.[0]}</span>
               )}

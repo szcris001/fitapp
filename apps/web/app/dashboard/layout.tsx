@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
-import api from '../../lib/api'
+import api, { mediaUrl } from '../../lib/api'
 import OnboardingWizard from './onboarding/OnboardingWizard'
 import CommandPalette from './components/CommandPalette'
 
@@ -362,7 +362,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onClick={() => router.push('/dashboard')}
           >
             {gym?.logoUrl
-              ? <img src={`${API_BASE}${gym.logoUrl}`} alt="logo" className="w-full h-full object-cover" />
+              ? <img src={mediaUrl(gym.logoUrl)} alt="logo" className="w-full h-full object-cover" />
               : gym?.name?.[0] || 'F'}
           </div>
 
@@ -619,7 +619,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
               >{isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}</button>
               {user?.avatarUrl ? (
-                <img src={`${API_BASE}${user.avatarUrl}`} title={user.email}
+                <img src={mediaUrl(user.avatarUrl)} title={user.email}
                   className="w-8 h-8 rounded-full object-cover shrink-0"
                   onError={e => { const el = e.currentTarget; el.style.display = 'none'; (el.nextElementSibling as HTMLElement)?.style.setProperty('display', 'flex') }} />
               ) : null}
@@ -641,7 +641,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           ) : (
             <div className="flex flex-col items-center gap-2 py-2">
               {user?.avatarUrl ? (
-                <img src={`${API_BASE}${user.avatarUrl}`}
+                <img src={mediaUrl(user.avatarUrl)}
                   className="w-14 h-14 rounded-full object-cover"
                   style={{ outline: '2px solid var(--brand-accent)', outlineOffset: '2px' }}
                   onError={e => { const el = e.currentTarget; el.style.display = 'none'; (el.nextElementSibling as HTMLElement)?.style.setProperty('display', 'flex') }} />

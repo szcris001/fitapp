@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
-import api, { API_BASE } from '../../../lib/api'
+import api, { mediaUrl } from '../../../lib/api'
 import { Users2, UserPlus, Camera, Edit2, Check, X } from 'lucide-react'
 
 export default function StaffPage() {
@@ -242,7 +242,7 @@ export default function StaffPage() {
                           {editAvatarPreview ? (
                             <img src={editAvatarPreview} className="w-12 h-12 rounded-full object-cover" alt="" />
                           ) : s.avatarUrl ? (
-                            <img src={`${API_BASE}${s.avatarUrl}`} className="w-12 h-12 rounded-full object-cover" alt=""
+                            <img src={mediaUrl(s.avatarUrl)} className="w-12 h-12 rounded-full object-cover" alt=""
                               onError={e => { const el = e.currentTarget; el.style.display = 'none'; (el.nextElementSibling as HTMLElement)?.style.setProperty('display', 'flex') }} />
                           ) : null}
                           {!editAvatarPreview && (
@@ -292,7 +292,7 @@ export default function StaffPage() {
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
                           {s.avatarUrl ? (
-                            <img src={`${API_BASE}${s.avatarUrl}`}
+                            <img src={mediaUrl(s.avatarUrl)}
                               className="w-8 h-8 rounded-full object-cover shrink-0" alt=""
                               onError={e => { const el = e.currentTarget; el.style.display = 'none'; (el.nextElementSibling as HTMLElement)?.style.setProperty('display', 'flex') }} />
                           ) : null}

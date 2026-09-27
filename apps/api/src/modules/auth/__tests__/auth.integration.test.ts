@@ -180,6 +180,9 @@ describe('Auth Integration — POST /api/auth/login', () => {
     expect(decoded.userId).toBeDefined()
 
     // Verificar objeto user en la respuesta
+    // Token de medios para <img src>: scope 'media', distinto del token de acceso
+    expect((app.jwt.decode(body.mediaToken) as any).scope).toBe('media')
+
     expect(body.user).toBeDefined()
     expect(body.user.email).toBe(TEST_ADMIN_EMAIL)
     expect(body.user.role).toBe('ADMIN')

@@ -10,6 +10,7 @@ import path from 'path'
 import fs from 'fs'
 import { z } from 'zod'
 import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../payments/payments.service'
+import { signMediaToken } from '../../lib/media-token'
 
 const createSedeSchema = z.object({
   name: z.string().min(2),
@@ -84,6 +85,7 @@ export async function gymRoutes(app: FastifyInstance) {
 
     return reply.send({
       token: newToken,
+      mediaToken: signMediaToken(app, { userId: user.userId, gymId: gym.id, role: 'ADMIN' }),
       user: { userId: user.userId, gymId: gym.id, email: user.email, name: user.name, role: 'ADMIN' },
       gym: { id: gym.id, name: gym.name, slug: gym.slug, logoUrl: gym.logoUrl },
     })
