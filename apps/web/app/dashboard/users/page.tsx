@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api, { API_BASE } from '../../../lib/api'
+import { toMajorUnits } from '../../../lib/money'
 import {
   Users, Search, UserPlus, Upload, X, CheckCircle, AlertCircle,
   Wallet, CreditCard, Banknote, RefreshCw, ExternalLink,
@@ -80,7 +81,7 @@ function PaymentModal({ userId, plans, onClose, onSuccess, zBase = 60 }: {
   const [error, setError]           = useState('')
 
   const selectedPlan = plans.find(p => p.id === planId)
-  const fmt = (p: any) => p ? `${(p.priceCents / 100).toLocaleString('es-CL')} ${p.currency}` : ''
+  const fmt = (p: any) => p ? `${toMajorUnits(p.priceCents, p.currency).toLocaleString('es-CL')} ${p.currency}` : ''
 
   const handleManual = async () => {
     if (!planId) return
@@ -135,7 +136,7 @@ function PaymentModal({ userId, plans, onClose, onSuccess, zBase = 60 }: {
             <select value={planId} onChange={e => setPlanId(e.target.value)} className="input">
               {plans.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.name} — {(p.priceCents / 100).toLocaleString('es-CL')} {p.currency} · {p.durationDays}d
+                  {p.name} — {toMajorUnits(p.priceCents, p.currency).toLocaleString('es-CL')} {p.currency} · {p.durationDays}d
                 </option>
               ))}
             </select>

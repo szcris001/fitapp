@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import api from '../../../lib/api'
+import { toMinorUnits } from '../../../lib/money'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -407,7 +408,8 @@ function Step3({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
     setLoading(true)
     try {
       const priceNum = parseFloat(price)
-      const priceCents = Math.round(priceNum * 100)
+      // Plan en CLP (moneda por defecto): sin decimales, unidad mínima = peso
+      const priceCents = toMinorUnits(priceNum, 'CLP')
       await api.post('/plans', {
         name: name.trim(),
         priceCents,

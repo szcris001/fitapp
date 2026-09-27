@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { useAuthStore } from '../store/auth.store'
 import api, { API_BASE as API_URL, mediaUrl } from '../lib/api'
+import { toMajorUnits } from '../lib/money'
 import { useTheme } from '../theme/ThemeContext'
 
 interface RmRecord {
@@ -387,7 +388,7 @@ export default function ProfileScreen({ navigation }: any) {
                             ? ` → ${new Date(m.endsAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}`
                             : ''}
                           {m.paymentMethod ? `  ·  ${METHOD_LABEL[m.paymentMethod] ?? m.paymentMethod}` : ''}
-                          {m.priceCents ? `  ·  $${(m.priceCents / 100).toLocaleString('es-CL')}` : ''}
+                          {m.priceCents ? `  ·  $${toMajorUnits(m.priceCents, m.currency ?? 'CLP').toLocaleString('es-CL')}` : ''}
                         </Text>
                       </View>
                       <View style={[styles.statusBadge, { backgroundColor: sc + '20' }]}>

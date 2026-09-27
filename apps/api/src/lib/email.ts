@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer'
 import { prisma } from './prisma'
+import { toMajorUnits } from './money'
 
 type GymSmtp = {
   smtpHost?: string | null
@@ -176,7 +177,7 @@ export async function sendPaymentConfirmation(gymId: string, data: {
 
   const { transporter, ethereal, from } = await getTransporter(gym)
 
-  const amountStr = (data.amount / 100).toLocaleString('es-CL')
+  const amountStr = toMajorUnits(data.amount, data.currency).toLocaleString('es-CL')
   const methodLabel: Record<string, string> = {
     cash: 'Efectivo', transfer: 'Transferencia', card: 'Tarjeta',
     stripe: 'Pago online', other: 'Otro',

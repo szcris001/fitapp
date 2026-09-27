@@ -8,6 +8,7 @@ import {
 } from './rm.service'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { safeResolvePath } from '../../lib/safe-path'
+import { toMajorUnits } from '../../lib/money'
 
 export async function rmRoutes(app: FastifyInstance) {
   app.get('/rms/me', { preHandler: authenticate }, async (request, reply) => {
@@ -75,10 +76,11 @@ export async function rmRoutes(app: FastifyInstance) {
       )),
       // Ingresos (membresías pagadas)
       Promise.all(months.map(m =>
-        prisma.membership.aggregate({
+        prisma.membership.groupBy({
+          by: ['currency'],
           where: { user: { gymId }, paidAt: { gte: m.start, lte: m.end } },
           _sum: { pricePaid: true },
-        }).then(r => Math.round((r._sum.pricePaid ?? 0) / 100))
+        }).then(rows => Math.round(rows.reduce((sum, r) => sum + toMajorUnits(r._sum.pricePaid ?? 0, r.currency), 0)))
       )),
     ])
 

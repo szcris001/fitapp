@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
+import { toMajorUnits } from '../../../lib/money'
 import {
   Landmark, RefreshCw, CheckCircle, Clock, AlertCircle,
   XCircle, ChevronLeft, ChevronRight, X, Check,
@@ -61,8 +62,9 @@ interface MovementsResponse {
 
 const LIMIT = 50
 
-function fmtAmount(cents: number): string {
-  return `$ ${Math.round(cents / 100).toLocaleString('es-CL')}`
+// Movimientos bancarios de Fintoc: CLP (sin decimales)
+function fmtAmount(minor: number): string {
+  return `$ ${Math.round(toMajorUnits(minor, 'CLP')).toLocaleString('es-CL')}`
 }
 
 function fmtDate(iso: string): string {
