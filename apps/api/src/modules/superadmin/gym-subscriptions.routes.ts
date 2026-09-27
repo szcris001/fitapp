@@ -1,13 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
-import { authenticate } from '../../middlewares/auth.middleware'
-
-async function requireSuperAdmin(request: any, reply: any) {
-  await authenticate(request, reply)
-  if ((request.user as any).role !== 'SUPER_ADMIN')
-    return reply.status(403).send({ error: 'Acceso solo para super administrador' })
-}
+import { requireSuperAdmin } from '../../middlewares/auth.middleware'
 
 export async function gymSubscriptionsRoutes(app: FastifyInstance) {
   // GET — listar todas las suscripciones con info del gym y plan

@@ -1,15 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
-import { authenticate } from '../../middlewares/auth.middleware'
+import { requireSuperAdmin } from '../../middlewares/auth.middleware'
 import { sendBulkToGyms } from '../../lib/email'
-
-async function requireSuperAdmin(request: any, reply: any) {
-  await authenticate(request, reply)
-  if ((request.user as any).role !== 'SUPER_ADMIN') {
-    return reply.status(403).send({ error: 'Acceso solo para super administrador' })
-  }
-}
 
 const SYSTEM_TEMPLATES = [
   {

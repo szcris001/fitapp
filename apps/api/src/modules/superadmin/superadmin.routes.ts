@@ -1,19 +1,11 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../../lib/prisma'
-import { authenticate } from '../../middlewares/auth.middleware'
+import { requireSuperAdmin } from '../../middlewares/auth.middleware'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { sendWelcomeEmail } from '../../lib/email'
 import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../payments/payments.service'
-
-async function requireSuperAdmin(request: any, reply: any) {
-  await authenticate(request, reply)
-  const user = request.user as any
-  if (user.role !== 'SUPER_ADMIN') {
-    return reply.status(403).send({ error: 'Acceso solo para super administrador' })
-  }
-}
 
 const createGymSchema = z.object({
   gymName: z.string().min(2),
