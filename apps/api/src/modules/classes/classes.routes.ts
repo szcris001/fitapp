@@ -258,9 +258,12 @@ export async function classRoutes(app: FastifyInstance) {
     return reply.send({ message: 'Clase eliminada' })
   })
 
+  // Marca (o desmarca con { attended: false }) la asistencia de una reserva
   app.patch('/bookings/:bookingId/attend', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     const { bookingId } = request.params as any
+    const attended = (request.body as { attended?: unknown } | undefined)?.attended ?? true
+    if (typeof attended !== 'boolean') return reply.status(400).send({ error: 'attended debe ser boolean' })
     try {
       const booking = await prisma.booking.findFirst({
         where: { id: bookingId, class: { gymId: user.gymId } },
@@ -269,7 +272,11 @@ export async function classRoutes(app: FastifyInstance) {
       try {
         const updated = await prisma.booking.update({
           where: { id: bookingId },
-          data: { status: 'ATTENDED' },
+          data: {
+            attended,
+            attendedAt: attended ? new Date() : null,
+            status: attended ? 'ATTENDED' : 'CONFIRMED',
+          },
         })
         return reply.send(updated)
       } catch (err) {
@@ -294,7 +301,7 @@ export async function classRoutes(app: FastifyInstance) {
     // Marcar ATTENDED a los que están en la lista
     await prisma.booking.updateMany({
       where: { classId, userId: { in: userIds }, status: { in: ['CONFIRMED', 'WAITLIST'] } },
-      data: { status: 'ATTENDED' },
+      data: { status: 'ATTENDED', attended: true, attendedAt: new Date() },
     })
     // Los confirmados que NO están: quedan como estaban (no se descuentan)
     return reply.send({ ok: true, marked: userIds.length })
@@ -322,7 +329,7 @@ export async function classRoutes(app: FastifyInstance) {
     if (booking.status === 'ATTENDED') return reply.send({ ok: true, alreadyAttended: true, name: (booking as any).user.name })
     if (booking.status === 'CANCELLED') return reply.status(400).send({ error: 'La reserva fue cancelada' })
 
-    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'ATTENDED' } })
+    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'ATTENDED', attended: true, attendedAt: new Date() } })
     return reply.send({ ok: true, name: (booking as any).user.name })
   })
 
@@ -368,39 +375,8 @@ export async function classRoutes(app: FastifyInstance) {
     if (booking.status === 'ATTENDED') return reply.send({ ok: true, alreadyAttended: true })
     if (booking.status === 'CANCELLED') return reply.status(400).send({ error: 'Tu reserva fue cancelada' })
 
-    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'ATTENDED' } })
+    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'ATTENDED', attended: true, attendedAt: new Date() } })
     return reply.send({ ok: true, distance: Math.round(distance) })
-  })
-
-  // ─── Asistencia: marcar/desmarcar por bookingId del alumno ──────────────────
-  app.patch('/classes/:id/bookings/:userId/attend', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
-    const user = request.user as any
-    const { id: classId, userId } = request.params as { id: string; userId: string }
-    const body = request.body as any
-    if (typeof body?.attended !== 'boolean') return reply.status(400).send({ error: 'El campo attended (boolean) es requerido' })
-    const { attended } = body
-
-    const cls = await prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } })
-    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
-
-    const existing = await prisma.booking.findUnique({
-      where: { userId_classId: { userId, classId } },
-    })
-    if (!existing) return reply.status(404).send({ error: 'Reserva no encontrada para ese alumno en esta clase' })
-
-    const updated = await prisma.booking.update({
-      where: { userId_classId: { userId, classId } },
-      data: {
-        attended,
-        attendedAt: attended ? new Date() : null,
-        status: attended ? 'ATTENDED' : 'CONFIRMED',
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-      },
-    })
-
-    return reply.send(updated)
   })
 
   // ─── Asistencia: lista completa de reservas/asistencia de una clase ──────────

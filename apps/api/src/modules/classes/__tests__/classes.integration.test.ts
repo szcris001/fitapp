@@ -1470,3 +1470,65 @@ describe('Class: allowedPlanIds y coachId de otro gym → rechazados', () => {
     expect(await allowedPlanIdsOf(classId)).toEqual([planAId])
   })
 })
+
+// ─── Suite: PATCH /bookings/:bookingId/attend — marcar y desmarcar ───────────
+
+describe('Asistencia: PATCH /api/bookings/:bookingId/attend', () => {
+  let app: FastifyInstance
+  let classId: string
+  let bookingId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: baseClassTypeAId, coachId: coachAId,
+        startsAt: new Date('2026-12-05T13:00:00Z'), endsAt: new Date('2026-12-05T14:00:00Z'), capacity: 10, frequency: 'ONCE',
+      },
+    })
+    classId = cls.id
+    createdClassIds.push(classId)
+    bookingId = (await prisma.booking.create({ data: { userId: memberAId, classId, status: 'CONFIRMED' } })).id
+  })
+
+  afterAll(async () => {
+    await prisma.booking.deleteMany({ where: { classId } })
+    await app.close()
+  })
+
+  const attend = (payload?: object) => app.inject({
+    method: 'PATCH', url: `/api/bookings/${bookingId}/attend`,
+    headers: { authorization: `Bearer ${coachAToken}` }, ...(payload ? { payload } : {}),
+  })
+
+  it('sin body marca asistencia: status ATTENDED, attended y attendedAt', async () => {
+    const res = await attend()
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ status: 'ATTENDED', attended: true })
+    expect(res.json().attendedAt).not.toBeNull()
+  })
+
+  it('{ attended: false } la desmarca: vuelve a CONFIRMED sin attendedAt', async () => {
+    const res = await attend({ attended: false })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ status: 'CONFIRMED', attended: false, attendedAt: null })
+  })
+
+  it('attended no booleano → 400', async () => {
+    expect((await attend({ attended: 'si' })).statusCode).toBe(400)
+  })
+
+  it('la asistencia masiva (coach) se refleja en /classes/:id/attendees', async () => {
+    const bulk = await app.inject({
+      method: 'PATCH', url: `/api/classes/${classId}/attendance`,
+      headers: { authorization: `Bearer ${coachAToken}` }, payload: { userIds: [memberAId] },
+    })
+    expect(bulk.statusCode).toBe(200)
+    const list = await app.inject({
+      method: 'GET', url: `/api/classes/${classId}/attendees`,
+      headers: { authorization: `Bearer ${coachAToken}` },
+    })
+    // Antes attended nunca se marcaba en este flujo y el contador quedaba en 0
+    expect(list.json().attended).toBe(1)
+  })
+})

@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { reportServerError } from './sentry'
 
 /**
  * Error con status HTTP. El error handler global (index.ts) responde con su
@@ -14,10 +15,15 @@ export class HttpError extends Error {
 
 /** Error handler global: statusCode del error; en producción oculta los mensajes 5xx */
 export function registerErrorHandler(app: FastifyInstance) {
-  app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     const isProd = process.env.NODE_ENV === 'production'
     const status = error.statusCode ?? 500
     app.log.error({ err: error, status }, error.message)
+    if (status >= 500) {
+      reportServerError(error, {
+        url: request.url, method: request.method, gymId: (request.user as { gymId?: string | null } | undefined)?.gymId,
+      })
+    }
     reply.status(status).send({
       statusCode: status,
       error: isProd && status >= 500 ? 'Error interno del servidor' : error.message,

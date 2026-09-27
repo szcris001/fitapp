@@ -80,7 +80,7 @@ async function runAutoAttendanceJob() {
           startsAt: { lte: now },
         },
       },
-      data: { status: 'ATTENDED' },
+      data: { status: 'ATTENDED', attended: true, attendedAt: new Date() },
     })
     if (updated.count > 0) {
       console.log(`[Cron] Auto-asistencia gym ${gym.id}: ${updated.count} reservas marcadas`)
