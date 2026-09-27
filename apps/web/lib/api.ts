@@ -130,7 +130,14 @@ api.interceptors.response.use(
     originalRequest._retry = true
 
     try {
-      const { data } = await api.post('/auth/refresh', { refreshToken })
+      // Enviar la sede activa para que el refresh no vuelva a la sede original tras switch-sede
+      let gymId: string | undefined
+      try {
+        gymId = JSON.parse(localStorage.getItem('fitapp_user') ?? 'null')?.gymId ?? undefined
+      } catch {
+        gymId = undefined
+      }
+      const { data } = await api.post('/auth/refresh', { refreshToken, gymId })
 
       const newToken: string = data.token
       const newRefreshToken: string | undefined = data.refreshToken

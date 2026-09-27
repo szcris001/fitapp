@@ -96,13 +96,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   switchSede: async (targetGymId: string) => {
     const { data } = await api.post('/gyms/switch-sede', { targetGymId })
-    const refreshToken = data.refreshToken ?? null
+    // switch-sede no emite refresh token: se conserva el actual, y /auth/refresh
+    // mantiene la sede porque recibe el gymId de fitapp_user
+    const refreshToken = data.refreshToken ?? get().refreshToken
     localStorage.setItem('fitapp_token', data.token)
     localStorage.setItem('fitapp_user', JSON.stringify(data.user))
     if (refreshToken) {
       localStorage.setItem('fitapp_refresh_token', refreshToken)
-    } else {
-      localStorage.removeItem('fitapp_refresh_token')
     }
     set({ token: data.token, refreshToken, user: data.user })
     return data.gym
