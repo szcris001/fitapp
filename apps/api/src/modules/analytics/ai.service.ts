@@ -1,25 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from '../../lib/prisma'
 import { HttpError } from '../../lib/http-error'
+import { atRiskMembersWhere } from './retention'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 })
 
 export async function getRetentionAlerts(gymId: string) {
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
 
   const [membersAtRisk, expiringSoon, inactiveMembers] = await Promise.all([
     prisma.user.findMany({
-      where: {
-        gymId,
-        role: 'MEMBER',
-        memberships: { some: { status: 'ACTIVE' } },
-        bookings: {
-          none: { createdAt: { gte: sevenDaysAgo } },
-        },
-      },
+      where: atRiskMembersWhere(gymId),
       select: {
         id: true,
         name: true,

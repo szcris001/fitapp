@@ -227,6 +227,8 @@ interface InactiveMember {
   id: string; name: string; email: string; createdAt: string
 }
 interface Stats {
+  revenueMonth: { currency: string; amount: number }[] // unidad mínima ISO
+  atRiskMembers: number
   members: { total: number; active: number; trial: number; inactive: number; male: number; female: number; other: number }
   todayClasses: number
   expiringMemberships: ExpiringMembership[]
@@ -638,6 +640,21 @@ export default function DashboardPage() {
       label: 'Inactivos', value: stats.members.inactive,
       icon: UserX, accent: '#ef4444',
       sub: 'sin membresía activa',
+    },
+    {
+      // Spec §4.1: ingresos del mes (una línea por moneda; normalmente solo CLP)
+      label: 'Ingresos del mes',
+      value: stats.revenueMonth.length
+        ? stats.revenueMonth.map(r => `$${toMajorUnits(r.amount, r.currency).toLocaleString('es-CL')}`).join(' · ')
+        : '$0',
+      icon: Wallet, accent: '#0ea5e9',
+      sub: stats.revenueMonth.map(r => r.currency).join(' · ') || 'CLP',
+    },
+    {
+      // Spec §4.1: alumnos en riesgo de abandono (activos sin reservas en 7 días)
+      label: 'En riesgo', value: stats.atRiskMembers,
+      icon: AlertTriangle, accent: '#f97316',
+      sub: 'sin reservas en 7 días',
     },
   ] : []
 
