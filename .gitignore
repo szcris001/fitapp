@@ -39,3 +39,4 @@ npm-debug.log*
 *.flatpakrepo
 coverage/
 _tmp_*
+apps/web/public/videos/
