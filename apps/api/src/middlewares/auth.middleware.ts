@@ -23,6 +23,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
 
 export async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   await authenticate(request, reply)
+  if (reply.sent) return // authenticate ya respondió 401
   const user = request.user as any
   if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
     return reply.status(403).send({ error: 'Se requiere rol de administrador' })
@@ -45,6 +46,7 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
 
 export async function requireCoachOrAdmin(request: FastifyRequest, reply: FastifyReply) {
   await authenticate(request, reply)
+  if (reply.sent) return // authenticate ya respondió 401
   const user = request.user as any
   if (!['ADMIN', 'SUPER_ADMIN', 'COACH'].includes(user.role)) {
     return reply.status(403).send({ error: 'Se requiere rol de coach o administrador' })
@@ -58,6 +60,14 @@ export async function requireCoachOrAdmin(request: FastifyRequest, reply: Fastif
     if (!isSuperAdminPath) {
       return reply.status(403).send({ error: 'SUPER_ADMIN debe seleccionar un gimnasio para esta operación' })
     }
+  }
+}
+
+export async function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
+  await authenticate(request, reply)
+  if (reply.sent) return // authenticate ya respondió 401
+  if ((request.user as any).role !== 'SUPER_ADMIN') {
+    return reply.status(403).send({ error: 'Acceso solo para super administrador' })
   }
 }
 

@@ -1,15 +1,9 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { MultipartFile } from '@fastify/multipart'
-import { authenticate } from '../../middlewares/auth.middleware'
+import { requireSuperAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
 import path from 'path'
 import fs from 'fs'
-
-async function requireSuperAdmin(request: any, reply: any) {
-  await authenticate(request, reply)
-  if ((request.user as any).role !== 'SUPER_ADMIN')
-    return reply.status(403).send({ error: 'Acceso solo para super administrador' })
-}
 
 // Slots configurables — cada uno describe dónde se usa y el tamaño recomendado
 export const ASSET_SLOTS = [
