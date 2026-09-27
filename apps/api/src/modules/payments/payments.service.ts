@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma'
 import * as mpClient from '../../lib/mp-client'
 import { emitirDTE, DteInput } from '../../lib/dte'
 import { sendPaymentConfirmation } from '../../lib/email'
+import { MEMBERSHIP_DAYS } from '../../lib/membership'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-02-25.clover',
@@ -41,7 +42,7 @@ async function activateMembership(userId: string, planId: string, paymentMethod:
 
   const startsAt = existing ? existing.endsAt : new Date()
   const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + 30)
+  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -91,7 +92,7 @@ export async function createCheckoutSession(gymId: string, planId: string, userI
     line_items: [{
       price_data: {
         currency: plan.currency.toLowerCase(),
-        product_data: { name: plan.name, description: `Membresía ${plan.durationDays} días — ${plan.name}` },
+        product_data: { name: plan.name, description: `Membresía ${MEMBERSHIP_DAYS} días — ${plan.name}` },
         unit_amount: plan.priceCents,
       },
       quantity: 1,
@@ -127,7 +128,7 @@ export async function createSelfCheckout(userId: string, planId: string, autoRen
     line_items: [{
       price_data: {
         currency: plan.currency.toLowerCase(),
-        product_data: { name: plan.name, description: `Membresía ${plan.durationDays} días` },
+        product_data: { name: plan.name, description: `Membresía ${MEMBERSHIP_DAYS} días` },
         unit_amount: plan.priceCents,
       },
       quantity: 1,
@@ -189,7 +190,7 @@ export async function handleStripeWebhook(payload: Buffer, signature: string) {
     const nextAutoRenewAt = wantsAutoRenew && plan.autoRenewDaysBefore
       ? (() => {
           const d = new Date()
-          d.setDate(d.getDate() + 30 - plan.autoRenewDaysBefore)
+          d.setDate(d.getDate() + MEMBERSHIP_DAYS - plan.autoRenewDaysBefore)
           return d
         })()
       : undefined
@@ -278,7 +279,7 @@ export async function createMercadoPagoCheckout(gymId: string, planId: string, u
     items: [{
       id: planId,
       title: plan.name,
-      description: `Membresía ${plan.durationDays} días`,
+      description: `Membresía ${MEMBERSHIP_DAYS} días`,
       quantity: 1,
       // CLP has no subunits — store value is already in the base currency unit
       unit_price: plan.currency.toUpperCase() === 'CLP' ? plan.priceCents : plan.priceCents / 100,
@@ -444,7 +445,7 @@ export async function handleMercadoPagoWebhook(
 
       const user = await prisma.user.findUnique({ where: { id: userId } })
       if (user) {
-        const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
+        const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
         sendPaymentConfirmation(gymId, {
           memberName: user.name, memberEmail: user.email, planName: plan.name,
           amount: plan.priceCents, currency: plan.currency, paymentMethod: 'mercadopago', endsAt,
@@ -535,7 +536,7 @@ export async function handleFlowCallback(token: string, gymId: string, planId: s
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'flow', endsAt,
@@ -646,7 +647,7 @@ export async function handleKhipuCallback(
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'khipu', endsAt,
@@ -726,7 +727,7 @@ export async function handlePayUCallback(body: any, gymId: string, planId: strin
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'payu', endsAt,
@@ -758,7 +759,7 @@ export async function createKushkiCheckout(gymId: string, planId: string, userId
     cancelURL: `${process.env.FRONTEND_URL}/payment/cancelled`,
     callbackURL: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/kushki?gymId=${gymId}&planId=${planId}&userId=${userId}`,
     userType: '0',
-    paymentDescription: `Membresía ${plan.durationDays} días — ${plan.name}`,
+    paymentDescription: `Membresía ${MEMBERSHIP_DAYS} días — ${plan.name}`,
   }
 
   const res = await fetch(`${baseUrl}/card/v1/charges`, {
@@ -847,7 +848,7 @@ export async function handleKushkiCallback(
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'kushki', endsAt,
@@ -939,7 +940,7 @@ export async function handleOpenPayCallback(query: any) {
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
+    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
     sendPaymentConfirmation(gymId, {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'openpay', endsAt,
@@ -965,7 +966,7 @@ export async function createMachCheckout(gymId: string, planId: string, userId: 
   const body = {
     amount: amountCLP,
     currency: 'CLP',
-    description: `${plan.name} — ${plan.durationDays} días`,
+    description: `${plan.name} — ${MEMBERSHIP_DAYS} días`,
     external_id: externalId,
     payer_email: user.email,
     callback_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/webhook/mach`,
@@ -1095,7 +1096,7 @@ export async function registerManualPayment(
   })
   const startsAt = existingManual ? existingManual.endsAt : new Date()
   const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + 30)
+  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -1112,7 +1113,7 @@ export async function registerManualPayment(
       priceCents: plan.priceCents,
       currency: plan.currency,
       planName: plan.name,
-      planDays: plan.durationDays,
+      planDays: MEMBERSHIP_DAYS,
       receiverRut,
       receiverName,
       receiverEmail: user.email,
@@ -1206,7 +1207,7 @@ export async function submitTransferReceipt(gymId: string, userId: string, planI
 
   const startsAt = new Date()
   const endsAt = new Date()
-  endsAt.setDate(endsAt.getDate() + 30)
+  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
 
   return prisma.membership.create({
     data: {
@@ -1252,7 +1253,7 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
   })
   const baseDate = existingTransfer ? existingTransfer.endsAt : new Date()
   const endsAt = new Date(baseDate)
-  endsAt.setDate(endsAt.getDate() + 30)
+  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
 
   const updated = await prisma.membership.update({
     where: { id: membershipId },

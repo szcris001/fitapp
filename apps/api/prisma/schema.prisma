@@ -120,7 +120,7 @@ model Plan {
   description         String?
   priceCents          Int
   currency            String       @default("CLP")
-  durationDays        Int
+  durationDays        Int          @default(30) // siempre 30: ver lib/membership.ts
   maxClasses          Int?
   isActive            Boolean      @default(true)
   createdAt           DateTime     @default(now())

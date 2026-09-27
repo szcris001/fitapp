@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput } from './plans.schema'
 import { handlePrismaError } from '../../lib/prismaError'
+import { MEMBERSHIP_DAYS } from '../../lib/membership'
 
 export async function listPlans(gymId: string) {
   return prisma.plan.findMany({
@@ -11,7 +12,7 @@ export async function listPlans(gymId: string) {
 
 export async function createPlan(gymId: string, data: CreatePlanInput) {
   try {
-    return await prisma.plan.create({ data: { ...data, gymId } })
+    return await prisma.plan.create({ data: { ...data, durationDays: MEMBERSHIP_DAYS, gymId } })
   } catch (err) {
     handlePrismaError(err)
   }
@@ -28,7 +29,6 @@ export async function updatePlan(gymId: string, planId: string, data: UpdatePlan
         ...(data.description !== undefined && { description: data.description }),
         ...(data.priceCents !== undefined && { priceCents: data.priceCents }),
         ...(data.currency !== undefined && { currency: data.currency }),
-        ...(data.durationDays !== undefined && { durationDays: data.durationDays }),
         ...(data.maxClasses !== undefined && { maxClasses: data.maxClasses }),
         ...(data.isTrial !== undefined && { isTrial: data.isTrial }),
       },
@@ -53,7 +53,7 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
 
   const startsAt = new Date(data.startsAt)
   const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + 30)
+  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
 
   await prisma.membership.updateMany({
     where: { userId: data.userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -102,7 +102,7 @@ export async function renewMembership(gymId: string, userId: string) {
 
   const startsAt = new Date()
   const endsAt = new Date()
-  endsAt.setDate(endsAt.getDate() + 30)
+  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
 
   try {
     return await prisma.membership.create({

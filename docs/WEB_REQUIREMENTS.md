@@ -167,7 +167,8 @@ Panel de inicio con indicadores clave del negocio.
 
 **Estado: implementado**
 
-- CRUD de planes: nombre, precio, duración (días), tipo (mensual, trimestral, trial, etc.).
+- CRUD de planes: nombre, precio, máximo de clases por día, trial.
+- **Toda membresía dura 30 días** (decisión de negocio 2026-06-13, confirmada 2026-09-27). No hay planes trimestrales/anuales: la duración no es configurable y la API guarda `durationDays = 30`.
 - Pasarelas de pago habilitadas por plan.
 - Listado de membresías activas y historial.
 - Asignar membresía manualmente a un alumno.
