@@ -154,38 +154,29 @@ En producción, errores 500 devuelven `"Error interno del servidor"` — sin rev
 
 ### 7. Row Level Security (RLS) en PostgreSQL
 
-**Objetivo**: aislamiento a nivel de base de datos — un bug en el código de aplicación no puede filtrar datos entre gyms.
+**Objetivo**: aislamiento a nivel de base de datos — si un service olvida filtrar por `gymId`, un request autenticado igual no puede leer ni escribir datos de otro gym.
 
-**Archivo**: `apps/api/prisma/migrations/20260616000000_enable_rls/migration.sql`
+**Migración**: `apps/api/prisma/migrations/20260927010000_rls_enforced/migration.sql` (reemplaza `20260616000000_enable_rls` y `20260625000000_rls_missing_tables`, que nunca protegieron nada: la app corría como superusuario y las policies tenían `OR pg_has_role(current_user, 'fitapp_superadmin')`, rol otorgado al propio usuario de la app).
 
-**Tablas protegidas** (10 tablas):
-- `BankMovement`, `Benchmark`, `Class`, `ClassType`, `FintocLink`, `GymSkill`, `Plan`, `User`, `Wod`, `WodResult`
+**Rol de la app**: `fitapp_app` — `NOSUPERUSER NOBYPASSRLS`, solo `SELECT/INSERT/UPDATE/DELETE`. La app se conecta con él (`DATABASE_URL`); el usuario admin (`DATABASE_ADMIN_URL`) solo corre migraciones, seeds y `scripts/setup-app-db-role`. En Docker, la API arranca sin las credenciales de admin en su entorno.
 
-**Función de contexto**:
-```sql
-CREATE OR REPLACE FUNCTION current_gym_id() RETURNS text AS $$
-  SELECT current_setting('app.current_gym_id', TRUE)
-$$ LANGUAGE sql STABLE;
-```
+**Tablas protegidas** (25):
+- Con `gymId` propio: `User`, `Plan`, `ClassType`, `Class`, `Wod`, `GymSkill`, `GymSubscription`, `GymSubscriptionPayment`, `BenchmarkResult`, `FintocLink`, `BankMovement`, `WodResult`, `FintocPaymentIntent`, `Benchmark` (los oficiales, `gymId NULL`, visibles para todos).
+- Hijas (visibles si su padre lo es): `Membership`, `RmRecord`, `GymnasticProgress`, `RefreshToken`, `PasswordResetToken` (→ `User`), `Booking` (→ `Class`), `ClassTypeBlock` (→ `ClassType`), `WodBlock` (→ `Wod`), `WodMovement` (→ `WodBlock`), `GymSkillMilestone` (→ `GymSkill`), `BenchmarkMovement` (→ `Benchmark`).
+- Globales, sin RLS: `Gym`, `PlatformSettings`, `PlatformAsset`, `EmailTemplate`, `FitAppPlan`.
 
-**Política por tabla** (ejemplo):
-```sql
-CREATE POLICY user_gym_isolation ON "User"
-USING (
-  "gymId" = current_gym_id()
-  OR current_setting('app.bypass_rls', TRUE) = 'true'
-  OR pg_has_role(current_user, 'fitapp_superadmin', 'member')
-);
-```
+**Policy** (ejemplo): `USING/WITH CHECK (app_rls_bypass() OR "gymId" = current_gym_id())`. En `User` además `OR "id" = current_app_user_id()` (el admin ve su propia fila tras `switch-sede`).
 
-**Escapes del RLS** (diseño intencional):
-1. `fitapp_superadmin` PostgreSQL role — para superadmin y migraciones Prisma
-2. `app.bypass_rls = 'true'` — para operaciones cross-gym autorizadas (cron jobs, seeds)
-3. `Benchmark` con `"gymId" IS NULL` — benchmarks oficiales visibles a todos los gyms
+**Cómo llega el contexto** (`lib/tenant-hook.ts` → `lib/tenant-context.ts` → `lib/prisma.ts`):
+1. `onRequest` abre un contexto de sistema (AsyncLocalStorage); si el JWT es válido y trae `gymId`, `preHandler` lo restringe a ese gym/usuario.
+2. `TenantAwarePool` (subclase de `pg.Pool`) fija `app.current_gym_id`, `app.current_user_id` y `app.bypass_rls` en cada conexión que entrega. Todas las queries de Prisma —sueltas y transacciones— pasan por ahí, así que una conexión reciclada nunca conserva el gym de otro request.
+3. `findUnique` se ejecuta como `findFirst` fuera de transacciones: el dataloader de Prisma agrupa `findUnique` del mismo tick aunque sean de requests distintos.
 
-**Gotcha crítico**: los IDs en Prisma son `text` (no `uuid`) — la función debe retornar `text` para evitar el error `operator does not exist: text = uuid`.
+**Bypass (código de sistema)**: sin contexto — cron, webhooks y callbacks de pago, login/refresh, seeds al arrancar — o SUPER_ADMIN sin gym. Una conexión como `fitapp_app` sin variables (p. ej. `psql`) no ve ninguna fila.
 
-**PENDIENTE — middleware Fastify**: el RLS está activo en la base de datos pero el middleware que llama `SET LOCAL app.current_gym_id = $1` antes de cada query autenticada **no está implementado** aún. Sin ese middleware, el RLS no filtra (usa el valor vacío de `current_setting`). Ver sección de pendientes.
+**Tests**: `src/lib/__tests__/rls.integration.test.ts`. `src/test/tenant-setup.ts` registra el contexto en todo Fastify de los tests, así la suite completa corre bajo RLS cuando `DATABASE_URL` usa `fitapp_app` (también en CI).
+
+**RLS es defensa en profundidad**: el filtro `gymId` explícito en cada query sigue siendo obligatorio (CLAUDE.md).
 
 ---
 
@@ -249,18 +240,9 @@ Bloquea el CI si hay vulnerabilidades High o Critical sin parchear.
 
 ## Pendientes de seguridad
 
-### P1 — Middleware RLS en Fastify (bloqueante para producción multi-tenant segura)
+### ~~P1 — Middleware RLS en Fastify~~ — resuelto (2026-09-27)
 
-Implementar en `apps/api/src/middlewares/auth.middleware.ts` o como decorador Fastify:
-
-```ts
-// Después de validar el JWT, antes de cada handler autenticado:
-await prisma.$executeRaw`SELECT set_config('app.current_gym_id', ${gymId}, TRUE)`
-```
-
-Sin esto, la capa RLS de PostgreSQL no tiene el `gymId` en contexto y las políticas evalúan con string vacío — lo que en la práctica significa que ninguna fila pasa el filtro (error 500 en queries simples) o que el RLS no funciona según cómo esté configurado el rol de la conexión.
-
-**Prioridad**: implementar antes del primer deploy multi-gym en producción.
+Ver sección 7: RLS aplicado con rol `fitapp_app`, contexto por conexión y tests bajo RLS.
 
 ### P2 — CSP con nonces (mejora futura)
 
@@ -296,7 +278,7 @@ La app mobile aún no implementa rotación de refresh tokens — hace logout al 
 | `apps/web/.dockerignore` | Excluye node_modules, .next, .env |
 | `apps/api/.env.example` | Plantilla con 25 variables de entorno documentadas |
 | `apps/web/.env.example` | Plantilla con NEXT_PUBLIC_API_URL |
-| `apps/api/prisma/migrations/20260616000000_enable_rls/migration.sql` | RLS en PostgreSQL |
+| `apps/api/prisma/migrations/20260927010000_rls_enforced/migration.sql` | RLS en PostgreSQL + rol `fitapp_app` |
 | `.claude/agents/security.md` | Agente de seguridad para auditorías futuras |
 
 ---

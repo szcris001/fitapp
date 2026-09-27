@@ -56,10 +56,9 @@ echo "--- [4/5] Aplicando migraciones de Prisma..."
 docker compose -f "$COMPOSE_FILE" up -d postgres redis
 sleep 5  # Dar tiempo al healthcheck de postgres
 
-docker compose -f "$COMPOSE_FILE" run --rm \
-    -e DATABASE_URL="$(grep DATABASE_URL .env.production | cut -d= -f2-)" \
-    api \
-    sh -c "cd /app && npx prisma migrate deploy"
+# DATABASE_ADMIN_URL y APP_DB_PASSWORD vienen del environment del servicio api (compose)
+docker compose -f "$COMPOSE_FILE" run --rm api \
+    sh -c "cd /app && npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js"
 
 echo "Migraciones aplicadas."
 

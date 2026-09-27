@@ -28,6 +28,7 @@ import { skillRoutes } from './modules/gyms/skills.routes'
 import { benchmarkRoutes } from './modules/analytics/benchmark.routes'
 import { startCronJobs } from './lib/cron'
 import { requireActiveGym } from './middlewares/auth.middleware'
+import { registerTenantContext } from './lib/tenant-hook'
 
 dotenv.config()
 
@@ -203,13 +204,12 @@ app.get('/healthz', async (_request, reply) => {
   }
 })
 
-// ── Hook global: verificar JWT + gym activo ───────────────────────────────────
-// NOTA: la propagación de gymId a RLS (AsyncLocalStorage + Prisma Client
-// Extension, ver lib/tenant-context.ts y lib/prisma.ts) está construida pero
-// NO conectada aquí todavía — activarla rompe transacciones explícitas
-// existentes (ver comentario en lib/prisma.ts). RLS queda inerte por ahora;
-// la defensa real de multi-tenancy sigue siendo el filtro `gymId` explícito
-// en cada query de los services (ver CLAUDE.md).
+// ── Contexto de tenant para RLS ───────────────────────────────────────────────
+// Cada request autenticado con gym corre sus queries bajo RLS (lib/tenant-hook.ts);
+// el filtro gymId explícito en los services sigue siendo obligatorio (CLAUDE.md).
+registerTenantContext(app)
+
+// ── Hook global: gym activo ───────────────────────────────────────────────────
 app.addHook('preHandler', async (request, reply) => {
   if (!request.url.startsWith('/api/') || !request.headers.authorization) return
   try {

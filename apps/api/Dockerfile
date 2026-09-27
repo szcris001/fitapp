@@ -35,6 +35,8 @@ ENV NODE_ENV=production
 COPY --from=builder /app/apps/api/dist ./dist
 COPY --from=builder /app/apps/api/src/generated/prisma ./src/generated/prisma
 COPY --from=builder /app/apps/api/prisma ./prisma
+# Prisma 7 toma la URL de migración de prisma.config.ts (DATABASE_ADMIN_URL)
+COPY --from=builder /app/apps/api/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/apps/api/package.json ./package.json
@@ -45,4 +47,6 @@ RUN mkdir -p /app/uploads/avatars /app/uploads/assets
 EXPOSE 3001
 
 # Ejecutar migraciones pendientes y arrancar
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=./prisma/schema.prisma && node dist/index.js"]
+# Migraciones y rol de la app con el usuario admin; la API arranca SIN las credenciales
+# de admin en su entorno (solo DATABASE_URL = rol fitapp_app, sujeto a RLS)
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js && exec env -u DATABASE_ADMIN_URL -u APP_DB_PASSWORD node dist/index.js"]

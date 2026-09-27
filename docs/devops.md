@@ -261,5 +261,5 @@ Para activar deploy automático desde CI:
 - [ ] Crear proyecto en Sentry y obtener DSN
 - [ ] Actualizar URL de API en apps/mobile antes de publicar en stores
 - [ ] Configurar EAS Build para Google Play y App Store
-- [ ] Implementar middleware RLS en Fastify (ver docs/SECURITY.md — P1)
+- [x] RLS aplicado: la API se conecta como `fitapp_app` (`DATABASE_URL`); migraciones con `DATABASE_ADMIN_URL`; `APP_DB_PASSWORD` para `setup-app-db-role` (ver docs/SECURITY.md §7)
 - [ ] Configurar staging: rama `develop` + environment separado en Railway
