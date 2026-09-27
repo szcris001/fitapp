@@ -3,12 +3,6 @@ import { prisma } from '../../lib/prisma'
 import { CreateUserInput, UpdateUserInput } from './users.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 
-/** Elimina passwordHash de cualquier objeto usuario antes de enviarlo al cliente. */
-function sanitizeUser<T extends { passwordHash?: unknown }>(user: T): Omit<T, 'passwordHash'> {
-  const { passwordHash: _removed, ...safeUser } = user
-  return safeUser as Omit<T, 'passwordHash'>
-}
-
 export async function listUsers(gymId: string, status?: string, role?: string) {
   const where: any = { gymId }
 
@@ -35,7 +29,7 @@ export async function listUsers(gymId: string, status?: string, role?: string) {
     ? users.filter(u => u.memberships[0]?.status === status)
     : users
 
-  return filtered.map(sanitizeUser)
+  return filtered // passwordHash lo omite el cliente de Prisma (lib/prisma.ts)
 }
 
 export async function getUserById(gymId: string, userId: string) {
@@ -51,7 +45,7 @@ export async function getUserById(gymId: string, userId: string) {
     },
   })
   if (!user) throw new Error('Usuario no encontrado')
-  return sanitizeUser(user)
+  return user
 }
 
 export async function createUser(gymId: string | null, data: CreateUserInput) {
@@ -90,7 +84,7 @@ export async function createUser(gymId: string | null, data: CreateUserInput) {
         rut: data.rut || null,
       },
     })
-    return sanitizeUser(created)
+    return created
   } catch (err) {
     handlePrismaError(err)
   }
@@ -126,7 +120,7 @@ export async function updateUser(gymId: string | null, userId: string, data: Upd
         ...(data.rut !== undefined && { rut: data.rut || null }),
       },
     })
-    return sanitizeUser(updated)
+    return updated
   } catch (err) {
     handlePrismaError(err)
   }

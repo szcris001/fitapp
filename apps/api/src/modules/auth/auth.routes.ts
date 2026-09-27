@@ -136,7 +136,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
 
     const { name, email, phone, currentPassword, newPassword } = parsed.data
-    const user = await prisma.user.findUnique({ where: { id: userId } })
+    const user = await prisma.user.findUnique({ where: { id: userId }, omit: { passwordHash: false } })
     if (!user) return reply.status(404).send({ error: 'Usuario no encontrado' })
 
     const updateData: any = {}

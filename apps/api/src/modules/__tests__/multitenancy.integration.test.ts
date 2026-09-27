@@ -529,7 +529,7 @@ describe('Multi-tenancy — escritura: Admin A no puede modificar recursos de Gy
 
     expect(response.statusCode).toBe(404)
     // Verificar que el password de Admin B no fue cambiado
-    const userIntact = await prisma.user.findUnique({ where: { id: adminBId } })
+    const userIntact = await prisma.user.findUnique({ where: { id: adminBId }, omit: { passwordHash: false } })
     const passwordStillValid = await bcrypt.compare(TEST_PASSWORD, userIntact!.passwordHash)
     expect(passwordStillValid).toBe(true)
   })

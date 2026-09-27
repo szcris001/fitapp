@@ -798,7 +798,7 @@ describe('Users: POST /api/users/:id/reset-password — reset de contraseña por
   })
 
   it('la nueva contraseña es válida para login (hash correcto)', async () => {
-    const user = await prisma.user.findUnique({ where: { id: targetUserId } })
+    const user = await prisma.user.findUnique({ where: { id: targetUserId }, omit: { passwordHash: false } })
     const valid = await bcrypt.compare('newpassword456', user!.passwordHash)
     expect(valid).toBe(true)
   })
