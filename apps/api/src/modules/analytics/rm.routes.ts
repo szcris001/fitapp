@@ -7,6 +7,7 @@ import {
   getGymnasticProgressByUser, createGymnasticProgress,
 } from './rm.service'
 import { prismaErrorMessage } from '../../lib/prismaError'
+import { safeResolvePath } from '../../lib/safe-path'
 
 export async function rmRoutes(app: FastifyInstance) {
   app.get('/rms/me', { preHandler: authenticate }, async (request, reply) => {
@@ -138,7 +139,13 @@ export async function rmRoutes(app: FastifyInstance) {
       const path = await import('path')
       const uploadsDir = path.join(process.cwd(), 'uploads', 'evidence')
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
-      const ext = path.extname(data.filename) || '.jpg'
+      // Extensión según el MIME declarado, nunca según el nombre que envía el cliente
+      const EVIDENCE_MIME: Record<string, string> = {
+        'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+        'video/mp4': '.mp4', 'video/quicktime': '.mov',
+      }
+      const ext = EVIDENCE_MIME[data.mimetype]
+      if (!ext) return reply.status(400).send({ error: 'Formato no permitido (JPG, PNG, GIF, MP4 o MOV)' })
       const filename = `evidence_${id}_${Date.now()}${ext}`
       const filepath = path.join(uploadsDir, filename)
       await new Promise<void>((resolve, reject) => {
@@ -172,26 +179,24 @@ export async function rmRoutes(app: FastifyInstance) {
     const fs = await import('fs')
     const path = await import('path')
 
-    // Prevenir path traversal
-    if (/[/\\]|\.\.|\0/.test(filename)) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
     const baseDir = path.resolve(process.cwd(), 'uploads', 'evidence')
-    const filepath = path.resolve(baseDir, filename)
-    if (!filepath.startsWith(baseDir + path.sep)) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+    const filepath = safeResolvePath(baseDir, filename)
+    if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+
+    // Solo se sirven archivos evidence_<progressId>_<ts>.<ext>: el dueño de la progresión,
+    // o COACH/ADMIN del mismo gym que el dueño
+    const match = /^evidence_([^_]+)_/.exec(filename)
+    if (!match) return reply.status(403).send({ error: 'Acceso denegado' })
+    const isStaff = ['ADMIN', 'SUPER_ADMIN', 'COACH'].includes(user.role)
+    const progress = await prisma.gymnasticProgress.findFirst({
+      where: isStaff
+        ? { id: match[1], user: { gymId: user.gymId } }
+        : { id: match[1], userId: user.userId },
+      select: { id: true },
+    })
+    if (!progress || (isStaff && !user.gymId)) return reply.status(403).send({ error: 'Acceso denegado' })
 
     if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
-
-    // Verificar que la evidencia pertenece a una progresión del usuario autenticado (o es coach/admin del gym)
-    const progressId = filename.replace(/^evidence_([^_]+)_.*$/, '$1')
-    if (progressId && progressId !== filename) {
-      const isAdminOrCoach = ['ADMIN', 'SUPER_ADMIN', 'COACH'].includes(user.role)
-      if (!isAdminOrCoach) {
-        const progress = await prisma.gymnasticProgress.findFirst({
-          where: { id: progressId, userId: user.userId },
-          select: { id: true },
-        })
-        if (!progress) return reply.status(403).send({ error: 'Acceso denegado' })
-      }
-    }
 
     const ext = path.extname(filename).toLowerCase()
     const mimeTypes: Record<string, string> = {

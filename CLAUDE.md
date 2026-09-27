@@ -152,7 +152,7 @@ if (!coach) return reply.status(403).send({ error: 'No autorizado' })
 
 ### Servir archivos estáticos
 
-Usar siempre la función `safeResolvePath(base, filename)` de `src/index.ts`:
+Usar siempre la función `safeResolvePath(base, filename)` de `src/lib/safe-path.ts`:
 ```typescript
 // ✅ CORRECTO
 const filePath = safeResolvePath(uploadsDir, filename)

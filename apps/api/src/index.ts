@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
+import { safeResolvePath } from './lib/safe-path'
 import dotenv from 'dotenv'
 import path from 'path'
 import fs from 'fs'
@@ -127,17 +128,6 @@ app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) =>
     ...(isProd ? {} : { stack: error.stack }),
   })
 })
-
-// ── Protección path traversal ─────────────────────────────────────────────────
-// Valida que el filepath resuelto no salga del directorio base permitido.
-function safeResolvePath(base: string, filename: string): string | null {
-  // Rechazar filename que contenga separadores de directorio o nulos
-  if (/[/\\]|\.\.|\0/.test(filename)) return null
-  const resolved = path.resolve(base, filename)
-  // La ruta resuelta debe empezar con la base
-  if (!resolved.startsWith(base + path.sep) && resolved !== base) return null
-  return resolved
-}
 
 const serveDirFile = (dir: string) => async (request: any, reply: any) => {
   const { filename } = request.params as any

@@ -148,7 +148,10 @@ export async function gymRoutes(app: FastifyInstance) {
       const uploadsDir = path.join(process.cwd(), 'uploads')
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 
-      const ext = path.extname(data.filename) || '.png'
+      // Extensión según el MIME declarado: nada de SVG/HTML (se servirían desde el origen de la API)
+      const LOGO_MIME: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' }
+      const ext = LOGO_MIME[data.mimetype]
+      if (!ext) return reply.status(400).send({ error: 'Formato no permitido (PNG, JPG o WEBP)' })
       const filename = `logo_${user.gymId}${ext}`
       const filepath = path.join(uploadsDir, filename)
 
