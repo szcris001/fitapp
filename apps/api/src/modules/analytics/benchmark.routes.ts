@@ -194,7 +194,7 @@ export async function benchmarkRoutes(app: FastifyInstance) {
     const result = await prisma.benchmarkResult.create({
       data: {
         benchmarkId: id,
-        userId:      user.id,
+        userId:      user.userId,
         gymId:       user.gymId,
         scoreType:   parsed.data.scoreType,
         scoreValue:  parsed.data.scoreValue,
@@ -213,7 +213,7 @@ export async function benchmarkRoutes(app: FastifyInstance) {
     const { id } = request.params as any
 
     const results = await prisma.benchmarkResult.findMany({
-      where: { benchmarkId: id, userId: user.id },
+      where: { benchmarkId: id, userId: user.userId, gymId: user.gymId },
       orderBy: { recordedAt: 'desc' },
     })
     return reply.send(results)
