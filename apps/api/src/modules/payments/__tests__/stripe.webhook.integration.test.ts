@@ -496,3 +496,31 @@ describe('Stripe Webhook — POST /api/payments/webhook/stripe (ruta alternativa
     expect(response.statusCode).toBe(400)
   })
 })
+
+// ─── Ruta canónica y alias legado: mismo handler ──────────────────────────────
+
+describe('Stripe Webhook — /api/payments/webhook/stripe y alias /api/payments/webhook', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => { app = await buildApp() })
+  afterAll(async () => { await app.close() })
+
+  it.each(['/api/payments/webhook/stripe', '/api/payments/webhook'])('%s: evento firmado → 200', async (url) => {
+    const { payload, header } = makeStripeEvent('payment_intent.succeeded', {
+      id: 'pi_test_alias', amount: 50000, currency: 'clp', status: 'succeeded',
+    })
+    const res = await app.inject({
+      method: 'POST', url,
+      headers: { 'content-type': 'application/json', 'stripe-signature': header },
+      body: payload,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().received).toBe(true)
+  })
+
+  it.each(['/api/payments/webhook/stripe', '/api/payments/webhook'])('%s: sin firma → 400', async (url) => {
+    const res = await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, body: '{}' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Sin firma Stripe/)
+  })
+})

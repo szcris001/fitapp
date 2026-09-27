@@ -1,7 +1,7 @@
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-import { FastifyInstance } from 'fastify'
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
 import { createCheckoutSchema } from './payments.schema'
 import {
@@ -133,8 +133,11 @@ export async function paymentRoutes(app: FastifyInstance) {
     return reply.send(updated)
   })
 
-  // Stripe webhook
-  app.post('/payments/webhook', { config: { rawBody: true } }, async (request, reply) => {
+  // Stripe webhook — un solo handler. Ruta canónica /payments/webhook/stripe (misma
+  // convención que las demás pasarelas); /payments/webhook queda como alias porque no
+  // sabemos cuál está configurada en el dashboard de Stripe. Quitar el alias cuando
+  // el endpoint de Stripe apunte a /api/payments/webhook/stripe.
+  const stripeWebhook = async (request: FastifyRequest, reply: FastifyReply) => {
     const signature = request.headers['stripe-signature'] as string
     if (!signature) return reply.status(400).send({ error: 'Sin firma Stripe' })
     try {
@@ -145,7 +148,9 @@ export async function paymentRoutes(app: FastifyInstance) {
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }
-  })
+  }
+  app.post('/payments/webhook/stripe', stripeWebhook) // rawBody lo guarda el parser JSON de index.ts
+  app.post('/payments/webhook', stripeWebhook) // alias legado
 
   app.get('/payments/history', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
@@ -421,20 +426,6 @@ export async function paymentRoutes(app: FastifyInstance) {
     const { reason } = (request.body as any) || {}
     try {
       return reply.send(await rejectTransfer(admin.gymId, membershipId, reason))
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
-    }
-  })
-
-  // Fix: Stripe webhook con raw body real
-  app.post('/payments/webhook/stripe', { config: { rawBody: true } }, async (request, reply) => {
-    const signature = request.headers['stripe-signature'] as string
-    if (!signature) return reply.status(400).send({ error: 'Sin firma Stripe' })
-    try {
-      const rawBody = (request as any).rawBody as Buffer
-      if (!rawBody) return reply.status(400).send({ error: 'Sin raw body' })
-      const result = await handleStripeWebhook(rawBody, signature)
-      return reply.send(result)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }
