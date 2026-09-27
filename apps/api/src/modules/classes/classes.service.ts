@@ -269,22 +269,37 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     if (!allowed) throw new Error('Tu plan no tiene acceso a esta clase')
   }
 
+  // Reservar de nuevo la MISMA clase → mensaje específico, no la regla de "mismo tipo por día"
+  const existing = await prisma.booking.findUnique({
+    where: { userId_classId: { userId, classId: data.classId } },
+  })
+  if (existing) {
+    if (existing.status === 'CONFIRMED' || existing.status === 'WAITLIST') {
+      throw new Error(existing.status === 'WAITLIST' ? 'Ya estás en lista de espera' : 'Ya tienes reserva en esta clase')
+    }
+    return prisma.booking.update({ where: { id: existing.id }, data: { status: 'CONFIRMED' } })
+  }
+
   // Rango del día de la clase en la timezone del gym
   const gymTz = cls.gym.timezone || 'America/Santiago'
   const dayStart = startOfDayUTC(cls.startsAt, gymTz)
   const dayEnd = new Date(dayStart.getTime() + 86_400_000)
   const activeStatuses: BookingStatus[] = ['CONFIRMED', 'ATTENDED', 'WAITLIST', 'PENDING_CONFIRM']
 
-  // No se puede reservar el mismo tipo de clase dos veces en el mismo día
-  const sameTypeOnDay = await prisma.booking.count({
-    where: {
-      userId,
-      status: { in: activeStatuses },
-      class: { startsAt: { gte: dayStart, lt: dayEnd }, classTypeId: cls.classTypeId },
-    },
-  })
-  if (sameTypeOnDay > 0) {
-    throw new Error(`Ya tienes una clase de ${cls.classType.name} reservada para ese día`)
+  // No se puede reservar el mismo tipo de clase dos veces en el mismo día — regla para
+  // planes sin maxClasses (ilimitados). Los planes con maxClasses (p.ej. trial) tienen su
+  // propio límite por cantidad total de clases, sin importar el tipo (ver check siguiente).
+  if (!activeMembership.plan.maxClasses) {
+    const sameTypeOnDay = await prisma.booking.count({
+      where: {
+        userId,
+        status: { in: activeStatuses },
+        class: { startsAt: { gte: dayStart, lt: dayEnd }, classTypeId: cls.classTypeId },
+      },
+    })
+    if (sameTypeOnDay > 0) {
+      throw new Error(`Ya tienes una clase de ${cls.classType.name} reservada para ese día`)
+    }
   }
 
   // maxClasses: límite de clases distintas por día según el plan
@@ -298,19 +313,11 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     })
     if (classesOnDay >= activeMembership.plan.maxClasses) {
       throw new Error(
-        `Tu plan permite máximo ${activeMembership.plan.maxClasses} clase${activeMembership.plan.maxClasses > 1 ? 's' : ''} por día`
+        activeMembership.plan.isTrial
+          ? 'Has alcanzado el límite de clases de tu plan de prueba'
+          : `Tu plan permite máximo ${activeMembership.plan.maxClasses} clase${activeMembership.plan.maxClasses > 1 ? 's' : ''} por día`
       )
     }
-  }
-
-  const existing = await prisma.booking.findUnique({
-    where: { userId_classId: { userId, classId: data.classId } },
-  })
-  if (existing) {
-    if (existing.status === 'CONFIRMED' || existing.status === 'WAITLIST') {
-      throw new Error(existing.status === 'WAITLIST' ? 'Ya estás en lista de espera' : 'Ya tienes reserva en esta clase')
-    }
-    return prisma.booking.update({ where: { id: existing.id }, data: { status: 'CONFIRMED' } })
   }
 
   const confirmedCount = await prisma.booking.count({

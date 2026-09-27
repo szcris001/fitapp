@@ -741,11 +741,12 @@ describe('Plans: POST /api/memberships — assignMembership', () => {
     // Plan isTrial=true → status forzado a TRIAL, pricePaid=0
     expect(body.status).toBe('TRIAL')
     expect(body.pricePaid).toBe(0)
-    // endsAt = startsAt + 7 días (durationDays del plan trial)
+    // endsAt = startsAt + 30 días — assignMembership fuerza siempre 30 días,
+    // sin importar el durationDays del plan (decisión 2026-06-13, ver STATE.md)
     const endsAt = new Date(body.endsAt)
     const start = new Date(body.startsAt)
     const diffDays = Math.round((endsAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-    expect(diffDays).toBe(7)
+    expect(diffDays).toBe(30)
 
     createdMembershipIds.push(body.id)
   })

@@ -114,6 +114,21 @@ async function createClass(opts: {
 }
 
 /**
+ * Devuelve la fecha de mañana a las `hour`:00 en la timezone del gym (America/Santiago por defecto).
+ * Usar cuando varias clases de un test deben caer el MISMO día: con `Date.now() + N horas`
+ * las clases quedan en días distintos si la suite corre cerca de medianoche (reglas por día).
+ */
+function tomorrowAtGymHour(hour: number, timezone = 'America/Santiago'): Date {
+  const day = new Date(Date.now() + 86_400_000).toLocaleDateString('sv', { timeZone: timezone })
+  const guess = new Date(`${day}T${String(hour).padStart(2, '0')}:00:00Z`)
+  const localHour = Number(
+    new Intl.DateTimeFormat('en', { timeZone: timezone, hour: '2-digit', hourCycle: 'h23' }).format(guess),
+  )
+  const diffHours = ((hour - localHour + 36) % 24) - 12
+  return new Date(guess.getTime() + diffHours * 3_600_000)
+}
+
+/**
  * Crea una membresía ACTIVE para el usuario dado, con vigencia actual.
  */
 async function createActiveMembership(userId: string, planId: string): Promise<string> {
@@ -477,7 +492,7 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
   })
 
   it('membresía TRIAL con cupo disponible → reserva CONFIRMED', async () => {
-    const startsAt = new Date(Date.now() + 4 * 60 * 60 * 1000)
+    const startsAt = tomorrowAtGymHour(10)
     const classId = await createClass({ startsAt })
     trialClassIds.push(classId)
 
@@ -486,7 +501,7 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
   })
 
   it('segunda reserva TRIAL — todavía tiene cupo (1 usado de 2) → CONFIRMED', async () => {
-    const startsAt = new Date(Date.now() + 5 * 60 * 60 * 1000)
+    const startsAt = tomorrowAtGymHour(11)
     const classId = await createClass({ startsAt })
     trialClassIds.push(classId)
 
@@ -495,7 +510,7 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
   })
 
   it('tercera reserva TRIAL — límite agotado (2 de 2) → error de límite trial', async () => {
-    const startsAt = new Date(Date.now() + 6 * 60 * 60 * 1000)
+    const startsAt = tomorrowAtGymHour(12)
     const classId = await createClass({ startsAt })
     trialClassIds.push(classId)
 
@@ -558,8 +573,10 @@ describe('bookClass: doble reserva', () => {
 
   it('alumno en WAITLIST intenta reservar de nuevo → error "Ya estás en lista de espera"', async () => {
     // member2A reserva → como memberA ocupa el único cupo visible, forzamos waitlist
-    // Para eso creamos una clase de capacidad=1
-    const startsAt2 = new Date(Date.now() + 27 * 60 * 60 * 1000)
+    // Para eso creamos una clase de capacidad=1, en OTRO día que el `classId` del beforeAll
+    // (memberA ya tiene una reserva CONFIRMED ahí) — si no, "mismo tipo por día" bloquearía
+    // esta reserva antes de llegar al escenario que el test quiere probar (re-reservar en WAITLIST)
+    const startsAt2 = new Date(Date.now() + 51 * 60 * 60 * 1000)
     const classId2 = await createClass({ startsAt: startsAt2, capacity: 1 })
     createdClassIds.push(classId2)
 
