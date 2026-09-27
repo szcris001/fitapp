@@ -6,6 +6,7 @@ import { emitirDTE, DteInput } from '../../lib/dte'
 import { sendPaymentConfirmation } from '../../lib/email'
 import { MEMBERSHIP_DAYS } from '../../lib/membership'
 import { toMajorUnits } from '../../lib/money'
+import { HttpError } from '../../lib/http-error'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-02-25.clover',
@@ -1405,6 +1406,91 @@ export async function saveFintocLink(
   })
 }
 
+// ─── Fintoc: conexión y sincronización server-side ───────────────────────────
+// Credenciales: paymentGateways.fintoc.{secretKey, publicKey} del gym o, si la cuenta
+// Fintoc es de la plataforma, FINTOC_SECRET_KEY / FINTOC_PUBLIC_KEY.
+const FINTOC_API = 'https://api.fintoc.com/v1'
+
+function fintocKeys(gym: { paymentGateways: unknown }) {
+  const cfg = (gym.paymentGateways as any)?.fintoc ?? {}
+  const secretKey: string | undefined = cfg.secretKey ?? process.env.FINTOC_SECRET_KEY
+  const publicKey: string | undefined = cfg.publicKey ?? process.env.FINTOC_PUBLIC_KEY
+  if (!secretKey || !publicKey) throw new HttpError(400, 'Fintoc no está configurado (secretKey/publicKey)')
+  return { secretKey, publicKey }
+}
+
+async function fintocRequest(secretKey: string, path: string, init: RequestInit = {}): Promise<any> {
+  const res = await fetch(`${FINTOC_API}${path}`, {
+    ...init,
+    headers: { Authorization: secretKey, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+  })
+  if (!res.ok) throw new HttpError(502, `Fintoc respondió ${res.status}`)
+  return res.json()
+}
+
+/** Paso 1 del widget: link intent → widget_token para abrir el widget en la web */
+export async function createFintocLinkIntent(gymId: string) {
+  const { secretKey, publicKey } = fintocKeys(await getGym(gymId))
+  const intent = await fintocRequest(secretKey, '/link_intents', {
+    method: 'POST',
+    body: JSON.stringify({ country: 'cl', holder_type: 'business', product: 'movements' }),
+  })
+  return { widgetToken: intent.widget_token as string, publicKey }
+}
+
+/** Paso 2: exchange_token del widget → link_token + cuenta (se prefiere la cuenta en CLP) */
+export async function exchangeFintocLink(gymId: string, exchangeToken: string) {
+  const { secretKey } = fintocKeys(await getGym(gymId))
+  const link = await fintocRequest(secretKey, `/links/exchange?exchange_token=${encodeURIComponent(exchangeToken)}`)
+  const account = link.accounts?.find((a: any) => a.currency === 'CLP') ?? link.accounts?.[0]
+  if (!link.link_token || !account) throw new HttpError(400, 'La conexión de Fintoc no tiene cuentas')
+  return saveFintocLink(gymId, link.link_token, account.id, {
+    accountNumber: account.number,
+    bankName: link.institution?.name,
+    holderName: account.holder_name,
+    holderRut: account.holder_id,
+  })
+}
+
+/**
+ * Sincroniza abonos desde Fintoc (la API los consulta; el cliente no envía movimientos).
+ * Desde la última sincronización menos 3 días de margen (o 30 días la primera vez).
+ */
+export async function syncFintocMovements(gymId: string) {
+  const link = await prisma.fintocLink.findUnique({ where: { gymId } })
+  if (!link) throw new HttpError(400, 'No hay link Fintoc configurado para este gimnasio')
+  const { secretKey } = fintocKeys(await getGym(gymId))
+
+  const DAY = 86_400_000
+  const since = new Date(link.lastSyncAt ? link.lastSyncAt.getTime() - 3 * DAY : Date.now() - 30 * DAY)
+  const perPage = 300
+  const movements: any[] = []
+  for (let page = 1; page <= 20; page++) {
+    const params = new URLSearchParams({
+      link_token: link.linkToken, per_page: String(perPage), page: String(page), since: since.toISOString(),
+    })
+    const batch = await fintocRequest(secretKey, `/accounts/${encodeURIComponent(link.accountId)}/movements?${params}`)
+    if (!Array.isArray(batch)) break
+    movements.push(...batch)
+    if (batch.length < perPage) break
+  }
+
+  // Solo abonos (Fintoc: montos negativos = egresos), en unidad mínima ISO como en la app
+  const incoming = movements
+    .filter(m => typeof m.amount === 'number' && m.amount > 0)
+    .map(m => ({
+      id: String(m.id),
+      amount: m.amount,
+      currency: m.currency,
+      post_date: m.post_date,
+      description: m.description ?? undefined,
+      sender_rut: m.sender_account?.holder_id ?? undefined,
+      sender_name: m.sender_account?.holder_name ?? undefined,
+      reference_code: m.reference_id ?? undefined,
+    }))
+  return importFintocMovements(gymId, incoming)
+}
+
 export async function getFintocStatus(gymId: string) {
   const link = await prisma.fintocLink.findUnique({ where: { gymId } })
   const pendingCount = link
@@ -1495,6 +1581,12 @@ export async function importFintocMovements(
  * Fase 2 (amount_only): si hay una membresía PENDING_REVIEW con el mismo monto dentro
  *   de ±72h de su createdAt → marcar como MATCHED (requiere revisión manual).
  */
+// RUT comparable: sin puntos, guion ni espacios, dígito verificador en mayúscula
+// (Fintoc envía holder_id sin formato; el alumno puede tener '12.345.678-9')
+function normalizeRut(rut: string): string {
+  return rut.replace(/[.\-\s]/g, '').toUpperCase()
+}
+
 export async function runMatcher(
   gymId: string,
   movementIds: string[],
@@ -1529,7 +1621,7 @@ export async function runMatcher(
     // Fase 1: match exacto por RUT
     if (movement.senderRut) {
       const rutMatch = candidates.find(
-        c => c.user.rut && c.user.rut === movement.senderRut,
+        c => c.user.rut && normalizeRut(c.user.rut) === normalizeRut(movement.senderRut!),
       )
       if (rutMatch) {
         // Confirmar automáticamente

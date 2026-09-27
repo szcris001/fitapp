@@ -15,10 +15,11 @@ import {
   createOpenPayCheckout, handleOpenPayCallback,
   createMachCheckout, handleMachWebhook,
   submitTransferReceipt, getPendingTransfers, confirmTransfer, rejectTransfer,
-  saveFintocLink, getFintocStatus, importFintocMovements, listBankMovements,
+  saveFintocLink, getFintocStatus, listBankMovements,
   confirmBankMovement, rejectBankMovement, handleFintocWebhook,
   createFintocPayCheckout, getFintocPayStatus, handleFintocPayWebhook,
   isValidHmacSha256,
+  createFintocLinkIntent, exchangeFintocLink, syncFintocMovements,
 } from './payments.service'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
@@ -444,32 +445,25 @@ export async function paymentRoutes(app: FastifyInstance) {
     }
   })
 
-  const fintocSyncSchema = z.object({
-    movements: z.array(
-      z.object({
-        id: z.string().min(1),
-        amount: z.number().int(),
-        currency: z.string().optional(),
-        post_date: z.string().min(1),
-        description: z.string().optional(),
-        sender_rut: z.string().optional(),
-        sender_name: z.string().optional(),
-        reference_code: z.string().optional(),
-      }),
-    ).min(1),
+  // POST /payments/fintoc/link-intent — widget_token para abrir el widget de Fintoc
+  app.post('/payments/fintoc/link-intent', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    return reply.send(await createFintocLinkIntent(admin.gymId))
   })
 
-  // POST /payments/fintoc/sync — importa movimientos enviados por el frontend
+  // POST /payments/fintoc/link/exchange — canjea el exchange token del widget y guarda el link
+  const fintocExchangeSchema = z.object({ exchangeToken: z.string().min(1) })
+  app.post('/payments/fintoc/link/exchange', { preHandler: requireAdmin }, async (request, reply) => {
+    const admin = request.user as any
+    const parsed = fintocExchangeSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    return reply.status(201).send(await exchangeFintocLink(admin.gymId, parsed.data.exchangeToken))
+  })
+
+  // POST /payments/fintoc/sync — la API consulta los movimientos a Fintoc (el cliente no los envía)
   app.post('/payments/fintoc/sync', { preHandler: requireAdmin }, async (request, reply) => {
     const admin = request.user as any
-    const parsed = fintocSyncSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
-    try {
-      const result = await importFintocMovements(admin.gymId, parsed.data.movements)
-      return reply.send(result)
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
-    }
+    return reply.send(await syncFintocMovements(admin.gymId))
   })
 
   // GET /payments/fintoc/movements — lista movimientos con filtros opcionales

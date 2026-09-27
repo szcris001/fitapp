@@ -574,6 +574,7 @@ export default function FintocPage() {
   const [loading, setLoading] = useState(true)
   const [movLoading, setMovLoading] = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
+  const [connectLoading, setConnectLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [confirmModal, setConfirmModal] = useState<BankMovement | null>(null)
@@ -626,12 +627,48 @@ export default function FintocPage() {
   const handleSync = async () => {
     setSyncLoading(true)
     try {
-      await api.post('/payments/fintoc/sync', { movements: [] })
+      // La API consulta los movimientos a Fintoc con el link guardado
+      await api.post('/payments/fintoc/sync')
       await Promise.all([fetchStatus(), fetchMovements(tab, offset)])
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error al sincronizar')
     } finally {
       setSyncLoading(false)
+    }
+  }
+
+  // Conectar la cuenta bancaria con el widget de Fintoc (spec §4.8)
+  const handleConnect = async () => {
+    setConnectLoading(true)
+    try {
+      const { data } = await api.post<{ widgetToken: string; publicKey: string }>('/payments/fintoc/link-intent')
+      const { getFintoc } = await import('@fintoc/fintoc-js')
+      const Fintoc = await getFintoc()
+      if (!Fintoc) throw new Error('No se pudo cargar el widget de Fintoc')
+      const widget = Fintoc.create({
+        widgetToken: data.widgetToken,
+        publicKey: data.publicKey,
+        holderType: 'business',
+        product: 'movements',
+        country: 'cl',
+        onSuccess: async (result: { exchangeToken?: string; exchange_token?: string }) => {
+          try {
+            await api.post('/payments/fintoc/link/exchange', {
+              exchangeToken: result.exchangeToken ?? result.exchange_token,
+            })
+            await fetchStatus()
+          } catch (err: any) {
+            alert(err.response?.data?.error || 'No se pudo guardar la conexión con Fintoc')
+          } finally {
+            setConnectLoading(false)
+          }
+        },
+        onExit: () => setConnectLoading(false),
+      })
+      widget.open()
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Error al conectar con Fintoc')
+      setConnectLoading(false)
     }
   }
 
@@ -732,15 +769,26 @@ export default function FintocPage() {
           </div>
         </div>
 
-        {/* Boton Sincronizar */}
-        <button
-          onClick={handleSync}
-          disabled={syncLoading}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 shrink-0"
-          style={{ background: 'var(--gradient-btn)', color: '#fff', boxShadow: 'var(--glow)' }}>
-          <RefreshCw className={`w-4 h-4 ${syncLoading ? 'animate-spin' : ''}`} />
-          {syncLoading ? 'Sincronizando...' : 'Sincronizar'}
-        </button>
+        {/* Sin cuenta: conectar con el widget. Con cuenta: sincronizar movimientos */}
+        {link ? (
+          <button
+            onClick={handleSync}
+            disabled={syncLoading}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 shrink-0"
+            style={{ background: 'var(--gradient-btn)', color: '#fff', boxShadow: 'var(--glow)' }}>
+            <RefreshCw className={`w-4 h-4 ${syncLoading ? 'animate-spin' : ''}`} />
+            {syncLoading ? 'Sincronizando...' : 'Sincronizar'}
+          </button>
+        ) : (
+          <button
+            onClick={handleConnect}
+            disabled={connectLoading}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 shrink-0"
+            style={{ background: 'var(--gradient-btn)', color: '#fff', boxShadow: 'var(--glow)' }}>
+            <Landmark className="w-4 h-4" />
+            {connectLoading ? 'Conectando...' : 'Conectar cuenta bancaria'}
+          </button>
+        )}
       </div>
 
       {/* Stat cards */}
