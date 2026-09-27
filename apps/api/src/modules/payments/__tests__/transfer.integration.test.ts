@@ -93,8 +93,8 @@ function signToken(app: FastifyInstance, payload: object): string {
 
 // ─── Helper: construir un body multipart mínimo con un "archivo" ─────────────
 
-function buildMultipartBody(boundary: string, filename: string, fileContent: Buffer): Buffer {
-  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: image/jpeg\r\n\r\n`
+function buildMultipartBody(boundary: string, filename: string, fileContent: Buffer, contentType = 'image/jpeg'): Buffer {
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`
   const footer = `\r\n--${boundary}--\r\n`
   return Buffer.concat([
     Buffer.from(header),
@@ -215,6 +215,21 @@ describe('Transfer: POST /api/payments/transfer/receipt (multipart upload)', () 
     })
 
     expect(res.statusCode).toBe(401)
+  })
+
+  it('archivo HTML (aunque se llame .jpg) → 400 y no se guarda', async () => {
+    const boundary = 'test-boundary-html'
+    const body = buildMultipartBody(boundary, 'comprobante.jpg', Buffer.from('<script>alert(1)</script>'), 'text/html')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/payments/transfer/receipt?planId=' + planId,
+      headers: { authorization: `Bearer ${memberAToken}`, 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Formato no permitido/)
   })
 
   it('con token MEMBER pero sin planId → 400', async () => {

@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
-import api, { API_BASE } from '../../../lib/api'
+import api, { mediaUrl } from '../../../lib/api'
 import { Wallet, TrendingUp, CreditCard, CheckCircle, Clock, X, ExternalLink } from 'lucide-react'
 
 const METHOD_LABEL: Record<string, string> = {
@@ -205,7 +205,7 @@ export default function PaymentsPage() {
                   {/* Receipt link */}
                   {m.transferReceiptUrl && (
                     <a
-                      href={`${API_BASE}${m.transferReceiptUrl}`}
+                      href={mediaUrl(m.transferReceiptUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
