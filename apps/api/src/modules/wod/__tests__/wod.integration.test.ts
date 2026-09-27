@@ -1398,3 +1398,57 @@ describe('WOD: emparejamiento por día local del gym (America/Santiago)', () => 
     expect(res.json().map((w: any) => w.title)).toContain('WOD nocturno')
   })
 })
+
+// ─── Suite: my-loads — % del RM y peso prescrito por género ───────────────────
+
+describe('WOD: GET /api/wods/class/:classId/my-loads — calculado y recomendado', () => {
+  let app: FastifyInstance
+  let loadsClassId: string
+  const rmIds: string[] = []
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date('2026-12-01T13:00:00Z'), endsAt: new Date('2026-12-01T14:00:00Z'),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    loadsClassId = cls.id
+    const wod = await prisma.wod.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, title: 'WOD cargas por género',
+        date: new Date('2026-12-01T03:00:00Z'), // inicio del 01-dic en Santiago
+        blocks: { create: [{ title: 'Fuerza', order: 0, movements: { create: [
+          { movementName: 'Squat', percentage: 50, order: 0 },
+          { movementName: 'Thruster', weightRxM: 43, weightRxF: 29, order: 1 },
+        ] } }] },
+      },
+    })
+    createdWodIds.push(wod.id)
+    // "Front Squat" contiene "squat" pero no es el mismo movimiento: debe ganar "Squat"
+    for (const [movementName, weightKg] of [['Front Squat', 60], ['Squat', 100]] as const) {
+      rmIds.push((await prisma.rmRecord.create({ data: { userId: memberAId, movementName, weightKg } })).id)
+    }
+    await prisma.user.update({ where: { id: memberAId }, data: { gender: 'F' } })
+  })
+
+  afterAll(async () => {
+    await prisma.user.update({ where: { id: memberAId }, data: { gender: null } })
+    await prisma.rmRecord.deleteMany({ where: { id: { in: rmIds } } })
+    await prisma.class.deleteMany({ where: { id: loadsClassId } })
+    await app.close()
+  })
+
+  it('usa el RM de nombre exacto y, sin %, el peso prescrito para su género', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/wods/class/${loadsClassId}/my-loads`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const byName = Object.fromEntries(res.json().map((m: any) => [m.movementName, m]))
+    expect(byName.Squat).toMatchObject({ rmKg: 100, calculatedKg: 50, recommendedKg: 50 })
+    expect(byName.Thruster).toMatchObject({ calculatedKg: null, recommendedKg: 30 }) // 29 redondeado a 2.5
+  })
+})
