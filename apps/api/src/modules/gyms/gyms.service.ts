@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { UpdateGymInput } from './gyms.schema'
 import { handlePrismaError } from '../../lib/prismaError'
+import { gymDayRangeFromToday, getGymTimezone } from '../../lib/gym-day'
 
 export async function getGym(gymId: string) {
   const gym = await prisma.gym.findUnique({
@@ -189,10 +190,7 @@ export async function getGymStats(gymId: string) {
     prisma.class.count({
       where: {
         gymId,
-        startsAt: {
-          gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          lte: new Date(new Date().setHours(23, 59, 59, 999)),
-        },
+        startsAt: gymDayRangeFromToday(await getGymTimezone(gymId)), // hoy en la zona del gym
       },
     }),
     prisma.user.count({ where: { gymId, role: 'MEMBER', gender: 'M' } }),
