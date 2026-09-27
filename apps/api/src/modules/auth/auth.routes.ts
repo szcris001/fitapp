@@ -16,6 +16,8 @@ import { prismaErrorMessage } from '../../lib/prismaError'
 
 const refreshBodySchema = z.object({
   refreshToken: z.string().min(1),
+  // Sede activa tras /gyms/switch-sede; se revalida contra la DB antes de usarla
+  gymId: z.string().min(1).optional(),
 })
 
 const forgotSchema = z.object({
@@ -61,10 +63,28 @@ export async function authRoutes(app: FastifyInstance) {
       const { userId, newRaw } = await rotateRefreshToken(parsed.data.refreshToken)
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { id: true, gymId: true, role: true },
+        select: { id: true, gymId: true, role: true, email: true },
       })
       if (!user) return reply.status(401).send({ error: 'Sesión inválida' })
-      const payload = { userId: user.id, gymId: user.gymId, role: user.role }
+
+      let payload: { userId: string; gymId: string | null; role: string } =
+        { userId: user.id, gymId: user.gymId, role: user.role }
+
+      // Mantener la sede elegida con switch-sede, solo si el admin sigue siendo su dueño
+      const requestedGymId = parsed.data.gymId
+      if (requestedGymId && requestedGymId !== user.gymId) {
+        const sede = await prisma.gym.findUnique({
+          where: { id: requestedGymId },
+          select: { ownerEmail: true, status: true },
+        })
+        const canAccess = ['ADMIN', 'SUPER_ADMIN'].includes(user.role)
+          && sede?.ownerEmail === user.email
+          && sede.status !== 'SUSPENDED'
+        if (!canAccess) return reply.status(401).send({ error: 'Ya no tienes acceso a esta sede' })
+        // Mismo rol que emite /gyms/switch-sede
+        payload = { userId: user.id, gymId: requestedGymId, role: 'ADMIN' }
+      }
+
       const token = app.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
       return reply.status(200).send({ token, refreshToken: newRaw })
     } catch (err: any) {

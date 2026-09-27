@@ -19,6 +19,7 @@ import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { authRoutes } from '../auth.routes'
+import { createRefreshToken } from '../auth.service'
 import { prisma } from '../../../lib/prisma'
 
 // ─── Constantes de fixtures ───────────────────────────────────────────────────
@@ -636,5 +637,79 @@ describe('Refresh Token — Flujo completo E2E', () => {
       payload: { refreshToken: refreshToken2 },
     })
     expect(postLogoutRefresh.statusCode).toBe(401)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bloque: refresh mantiene la sede activa tras /gyms/switch-sede
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Refresh Token — sede activa (gymId en el body)', () => {
+  const ADMIN_EMAIL = 'qa-refresh-admin@auth-test.local'
+  const SEDE_SLUGS = ['qa-refresh-sede-owned', 'qa-refresh-sede-foreign', 'qa-refresh-sede-suspended']
+  let app: FastifyInstance
+  let adminId: string
+  let ownedSedeId: string
+  let foreignSedeId: string
+  let suspendedSedeId: string
+
+  const refresh = (payload: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/api/auth/refresh', payload })
+
+  beforeAll(async () => {
+    app = await buildApp()
+    await prisma.gym.deleteMany({ where: { slug: { in: SEDE_SLUGS } } })
+    await prisma.user.deleteMany({ where: { gymId, email: ADMIN_EMAIL } })
+
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    adminId = (await prisma.user.create({
+      data: { gymId, name: 'QA Refresh Admin', email: ADMIN_EMAIL, passwordHash, role: 'ADMIN' },
+    })).id
+    ownedSedeId = (await prisma.gym.create({
+      data: { name: 'QA Sede Owned', slug: SEDE_SLUGS[0], status: 'ACTIVE', ownerEmail: ADMIN_EMAIL },
+    })).id
+    foreignSedeId = (await prisma.gym.create({
+      data: { name: 'QA Sede Foreign', slug: SEDE_SLUGS[1], status: 'ACTIVE', ownerEmail: 'otro@auth-test.local' },
+    })).id
+    suspendedSedeId = (await prisma.gym.create({
+      data: { name: 'QA Sede Suspended', slug: SEDE_SLUGS[2], status: 'SUSPENDED', ownerEmail: ADMIN_EMAIL },
+    })).id
+  })
+
+  afterAll(async () => {
+    await prisma.user.deleteMany({ where: { id: adminId } })
+    await prisma.gym.deleteMany({ where: { slug: { in: SEDE_SLUGS } } })
+    await app.close()
+  })
+
+  it('sin gymId → token con el gym propio del usuario', async () => {
+    const res = await refresh({ refreshToken: await createRefreshToken(adminId) })
+    expect(res.statusCode).toBe(200)
+    const decoded = app.jwt.decode(res.json().token) as any
+    expect(decoded.gymId).toBe(gymId)
+    expect(decoded.role).toBe('ADMIN')
+  })
+
+  it('gymId de una sede propia → token con esa sede', async () => {
+    const res = await refresh({ refreshToken: await createRefreshToken(adminId), gymId: ownedSedeId })
+    expect(res.statusCode).toBe(200)
+    const decoded = app.jwt.decode(res.json().token) as any
+    expect(decoded.gymId).toBe(ownedSedeId)
+    expect(decoded.userId).toBe(adminId)
+  })
+
+  it('gymId de una sede ajena → 401', async () => {
+    const res = await refresh({ refreshToken: await createRefreshToken(adminId), gymId: foreignSedeId })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('gymId de una sede propia suspendida → 401', async () => {
+    const res = await refresh({ refreshToken: await createRefreshToken(adminId), gymId: suspendedSedeId })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('MEMBER no puede usar gymId para cambiar de gym → 401', async () => {
+    const res = await refresh({ refreshToken: await createRefreshToken(userId), gymId: ownedSedeId })
+    expect(res.statusCode).toBe(401)
   })
 })
