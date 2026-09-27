@@ -647,14 +647,14 @@ describe('AI: GET /api/ai/athlete-projection/:userId', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('userId de otro gym → error "Usuario no encontrado" → 500', async () => {
+  it('userId de otro gym → 404 "Usuario no encontrado"', async () => {
     // adminA intenta pedir proyección de memberBId (gym B)
     const res = await app.inject({
       method: 'GET',
       url: `/api/ai/athlete-projection/${memberBId}`,
       headers: { authorization: `Bearer ${adminAToken}` },
     })
-    expect(res.statusCode).toBe(500)
+    expect(res.statusCode).toBe(404)
     const body = res.json()
     expect(body.error).toBe('Usuario no encontrado')
     // No debe haberse llamado a Anthropic

@@ -168,7 +168,7 @@ export async function rmRoutes(app: FastifyInstance) {
       }
       return reply.send(updated)
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 

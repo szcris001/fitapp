@@ -191,7 +191,7 @@ export async function userRoutes(app: FastifyInstance) {
       await prisma.user.update({ where: { id: user.userId }, data: { avatarUrl } })
       return reply.send({ avatarUrl })
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
@@ -217,7 +217,7 @@ export async function userRoutes(app: FastifyInstance) {
       }
       return reply.send({ avatarUrl })
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 }

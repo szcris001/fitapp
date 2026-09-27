@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from '../../lib/prisma'
+import { HttpError } from '../../lib/http-error'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -143,7 +144,7 @@ Responde en formato JSON con esta estructura exacta:
 
 export async function getAthleteProjection(gymId: string, userId: string) {
   const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
-  if (!user) throw new Error('Usuario no encontrado')
+  if (!user) throw new HttpError(404, 'Usuario no encontrado')
 
   const [rmRecords, gymnasticProgress, attendanceCount] = await Promise.all([
     prisma.rmRecord.findMany({

@@ -9,7 +9,7 @@ export async function aiRoutes(app: FastifyInstance) {
     try {
       return reply.send(await getRetentionAlerts(user.gymId))
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
@@ -18,7 +18,7 @@ export async function aiRoutes(app: FastifyInstance) {
     try {
       return reply.send(await getAiInsights(user.gymId))
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
@@ -36,7 +36,7 @@ export async function aiRoutes(app: FastifyInstance) {
     try {
       return reply.send(await getAthleteProjection(user.gymId, targetUserId))
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 }

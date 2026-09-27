@@ -1,4 +1,5 @@
 import { Prisma } from '../generated/prisma'
+import { HttpError } from './http-error'
 
 const FIELD_LABELS: Record<string, string> = {
   email: 'El email',
@@ -41,10 +42,21 @@ export function prismaErrorMessage(err: any): string | null {
   return null
 }
 
-/** Lanza un Error con mensaje legible, útil en servicios */
+// Status HTTP de los errores de Prisma que son culpa de la request, no del servidor
+const PRISMA_STATUS: Record<string, number> = {
+  P2002: 409, // único duplicado
+  P2003: 409, P2014: 409, // relación
+  P2025: 404, P2016: 404, // no existe
+}
+
+/**
+ * Lanza un HttpError con mensaje legible: 4xx para errores conocidos de la request
+ * (el cliente ve el mensaje), 500 para el resto (se oculta en producción).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function handlePrismaError(err: any): never {
   const msg = prismaErrorMessage(err)
-  if (msg) throw new Error(msg)
-  throw err
+  if (!msg) throw err
+  const status = err instanceof Prisma.PrismaClientValidationError ? 400 : PRISMA_STATUS[err.code] ?? 500
+  throw new HttpError(status, msg)
 }

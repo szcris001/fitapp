@@ -31,6 +31,7 @@ import { startCronJobs } from './lib/cron'
 import { requireActiveGym } from './middlewares/auth.middleware'
 import { mediaRoutes } from './modules/media/media.routes'
 import { registerTenantContext } from './lib/tenant-hook'
+import { registerErrorHandler } from './lib/http-error'
 
 dotenv.config()
 
@@ -120,16 +121,7 @@ app.addContentTypeParser(
 )
 
 // ── Error handler seguro (sin stack traces en producción) ────────────────────
-app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
-  const isProd = process.env.NODE_ENV === 'production'
-  const status = error.statusCode ?? 500
-  app.log.error({ err: error, status }, error.message)
-  reply.status(status).send({
-    statusCode: status,
-    error: isProd && status >= 500 ? 'Error interno del servidor' : error.message,
-    ...(isProd ? {} : { stack: error.stack }),
-  })
-})
+registerErrorHandler(app)
 
 app.register(mediaRoutes)
 
