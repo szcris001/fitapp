@@ -669,7 +669,7 @@ export default function ImportWodsPage() {
                     <span className="font-semibold text-sm" style={{ color: ct?.color || 'var(--brand-accent)' }}>
                       {ct?.name}
                     </span>
-                    {w.title && <span className="text-sm" style={{ color: 'var(--text-2)' }}>"{w.title}"</span>}
+                    {w.title && <span className="text-sm" style={{ color: 'var(--text-2)' }}>&ldquo;{w.title}&rdquo;</span>}
                     <div className="flex items-center gap-2 ml-auto flex-wrap">
                       <span className="text-xs px-2 py-0.5 rounded-full"
                         style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-4)' }}>

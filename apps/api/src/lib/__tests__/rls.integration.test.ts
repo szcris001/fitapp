@@ -46,7 +46,8 @@ beforeAll(async () => {
     data: { userId: ids.userB, planId: ids.planB, status: 'ACTIVE', startsAt: new Date(), endsAt: new Date(Date.now() + 86_400_000), pricePaid: 100, currency: 'CLP' },
   })).id
   ids.officialBenchmark = (await prisma.benchmark.create({
-    data: { nombre: 'QA RLS Oficial', categoria: 'GIRL', formato: 'For time', isOfficial: true },
+    // isOfficial false: solo importa gymId null, y no interfiere con el conteo de seedBenchmarks
+    data: { nombre: 'QA RLS Oficial', categoria: 'GIRL', formato: 'For time', isOfficial: false },
   })).id
 })
 

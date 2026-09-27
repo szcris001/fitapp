@@ -26,7 +26,9 @@ export default function NewClassPage() {
   const [error, setError]           = useState('')
   const [success, setSuccess]       = useState('')
 
-  const inTwoMonths = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  // Date.now() fijo por montaje: React exige render puro
+  const [now] = useState(() => Date.now())
+  const inTwoMonths = new Date(now + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
 
@@ -90,7 +92,7 @@ export default function NewClassPage() {
     setForm(f => ({ ...f, timeBlocks: f.timeBlocks.map((b, idx) => idx === i ? { ...b, [key]: val } : b) }))
 
   const weeksUntil = Math.max(1, Math.ceil(
-    (new Date(form.recurringUntil).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)
+    (new Date(form.recurringUntil).getTime() - now) / (7 * 24 * 60 * 60 * 1000)
   ))
   const totalClasses = form.recurringDays.length * form.timeBlocks.length * weeksUntil
 

@@ -58,7 +58,8 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
   }
 
   useEffect(() => {
-    fetchNotifications()
+    // Carga asíncrona: el setState ocurre después del await, no durante el effect
+    void Promise.resolve().then(fetchNotifications)
     const interval = setInterval(fetchNotifications, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])

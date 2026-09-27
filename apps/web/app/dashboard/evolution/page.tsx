@@ -57,12 +57,10 @@ function DonutChart({ data }: { data: { label: string; value: number; color: str
   if (total === 0) return null
   const radius = 54, cx = 70, cy = 70, strokeW = 18
   const circumference = 2 * Math.PI * radius
-  let cumulative = 0
-  const slices = data.map(d => {
+  const slices = data.map((d, i) => {
     const pct = d.value / total
-    const offset = circumference * (1 - cumulative)
-    cumulative += pct
-    return { ...d, pct, dasharray: `${pct * circumference} ${circumference}`, dashoffset: offset }
+    const before = data.slice(0, i).reduce((sum, prev) => sum + prev.value / total, 0)
+    return { ...d, pct, dasharray: `${pct * circumference} ${circumference}`, dashoffset: circumference * (1 - before) }
   })
   return (
     <svg width={140} height={140} viewBox="0 0 140 140">
