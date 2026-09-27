@@ -87,7 +87,7 @@ stripe login
 
 # Iniciar forwarding de webhooks a tu API local
 # IMPORTANTE: deja esto corriendo en una terminal separada
-stripe listen --forward-to localhost:3001/v1/webhooks/stripe
+stripe listen --forward-to localhost:3001/api/payments/webhook/stripe
 ```
 
 Cuando ejecutes `stripe listen`, te muestra algo como:
@@ -133,7 +133,7 @@ Si todo está bien, en la terminal de `stripe listen` ves:
 
 ```
   --> payment_intent.succeeded [evt_xxxxx]
-  <-- [200] POST http://localhost:3001/v1/webhooks/stripe
+  <-- [200] POST http://localhost:3001/api/payments/webhook/stripe
 ```
 
 Si tu API no está corriendo, verás un error de conexión — eso está bien por ahora. Lo importante es que Stripe CLI mandó el evento.
@@ -208,7 +208,7 @@ Esto es lo que hace diferente a Mercado Pago. Necesitas usuarios ficticios.
 
 1. En la aplicación del vendedor de prueba, ve a **Webhooks**
 2. Configurar:
-   - URL: tu URL pública (ngrok o similar) + `/v1/webhooks/mercadopago`
+   - URL: tu URL pública (ngrok o similar) + `/api/payments/webhook/mercadopago`
    - Eventos: `payment`, `plan`, `subscription`, `invoice`
 3. Para desarrollo local, usa ngrok:
 
@@ -217,7 +217,7 @@ Esto es lo que hace diferente a Mercado Pago. Necesitas usuarios ficticios.
 # Ir a https://ngrok.com/download y seguir instrucciones para Linux
 ngrok http 3001
 # Te da una URL como https://abc123.ngrok-free.app
-# Usa esa URL + /v1/webhooks/mercadopago como webhook URL
+# Usa esa URL + /api/payments/webhook/mercadopago como webhook URL
 ```
 
 ### Paso 2.6 — Guardar credenciales

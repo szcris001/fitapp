@@ -380,7 +380,7 @@ describe('Stripe sandbox - checklist completo', () => {
   skipIfNotSandbox('4. Webhook con firma inválida → 401', async () => {
     const res = await callOurApi(
       'POST',
-      '/v1/webhooks/stripe',
+      '/api/payments/webhook/stripe',
       validPayload,
       { 'stripe-signature': 'invalid_signature' },
     );
