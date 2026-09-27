@@ -207,6 +207,7 @@
 **Membresías siempre 30 días** (2026-06-13):
 - `plans.service.ts`: `assignMembership` y `renewMembership` — `plan.durationDays` → `30`.
 - `payments.service.ts`: 10 ocurrencias `endsAt.setDate(... + durationDays)` → `+ 30` (activateMembership, autoRenew trigger, 6 gateways email, manual, transfer). Línea 1823 (`fitPlan.durationDays`) es suscripción de plataforma FitApp — no tocada.
+- 2026-09-27: confirmada. Constante `MEMBERSHIP_DAYS` en `apps/api/src/lib/membership.ts`; `durationDays` sale del input de planes (se guarda siempre 30, migración `20260927000000_plan_duration_always_30` normaliza los existentes); descripciones de cobro usan 30; se quitó el selector de duración en web (planes, onboarding) y mobile (admin/PlansScreen).
 
 **Restricción de planes por clase** (2026-06-13):
 - `prisma/schema.prisma`: many-to-many `ClassAllowedPlans` entre `Class` y `Plan`. Migración `20260613071332_add_class_allowed_plans`. `prisma generate` ejecutado.

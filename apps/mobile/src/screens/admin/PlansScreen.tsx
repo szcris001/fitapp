@@ -12,7 +12,7 @@ export default function PlansScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: '', description: '', priceCents: '', currency: 'CLP', durationDays: '30', maxClasses: '' })
+  const [form, setForm] = useState({ name: '', description: '', priceCents: '', currency: 'CLP', maxClasses: '' })
   const [saving, setSaving] = useState(false)
 
   const fetchPlans = async () => {
@@ -29,7 +29,7 @@ export default function PlansScreen({ navigation }: any) {
 
   const openCreate = () => {
     setEditId(null)
-    setForm({ name: '', description: '', priceCents: '', currency: 'CLP', durationDays: '30', maxClasses: '' })
+    setForm({ name: '', description: '', priceCents: '', currency: 'CLP', maxClasses: '' })
     setShowForm(true)
   }
 
@@ -37,7 +37,7 @@ export default function PlansScreen({ navigation }: any) {
     setEditId(plan.id)
     setForm({
       name: plan.name, description: plan.description || '', priceCents: plan.priceCents.toString(),
-      currency: plan.currency || 'CLP', durationDays: plan.durationDays.toString(), maxClasses: plan.maxClasses?.toString() || '',
+      currency: plan.currency || 'CLP', maxClasses: plan.maxClasses?.toString() || '',
     })
     setShowForm(true)
   }
@@ -47,7 +47,6 @@ export default function PlansScreen({ navigation }: any) {
     const body = {
       name: form.name, description: form.description || undefined,
       priceCents: parseInt(form.priceCents) || 0, currency: form.currency,
-      durationDays: parseInt(form.durationDays) || 30,
       maxClasses: form.maxClasses ? parseInt(form.maxClasses) : undefined,
     }
     setSaving(true)
@@ -115,8 +114,9 @@ export default function PlansScreen({ navigation }: any) {
           </View>
           <View style={s.rowForm}>
             <View style={{ flex: 1 }}>
-              <Text style={s.label}>Duración (días)</Text>
-              <TextInput style={s.input} placeholder="30" placeholderTextColor="#4b5563" value={form.durationDays} onChangeText={v => set('durationDays', v)} keyboardType="numeric" />
+              <Text style={s.label}>Duración</Text>
+              {/* Regla de negocio: toda membresía dura 30 días */}
+              <Text style={[s.input, { color: '#9ca3af' }]}>30 días</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={s.label}>Máx. clases</Text>

@@ -302,14 +302,25 @@ describe('Plans: POST /api/plans — crear plan', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('body inválido (durationDays < 1) → 400', async () => {
+  it('durationDays enviado se ignora → el plan siempre dura 30 días', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/plans',
       headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { name: 'Plan Inválido', priceCents: 10000, durationDays: 0 },
+      payload: { name: 'Plan Trimestral QA', priceCents: 10000, durationDays: 90 },
     })
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(201)
+    expect(res.json().durationDays).toBe(30)
+    createdPlanIds.push(res.json().id)
+
+    const upd = await app.inject({
+      method: 'PUT',
+      url: `/api/plans/${res.json().id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { durationDays: 365 },
+    })
+    expect(upd.statusCode).toBe(200)
+    expect(upd.json().durationDays).toBe(30)
   })
 
   it('admin crea plan válido → 201 con gymId del token', async () => {

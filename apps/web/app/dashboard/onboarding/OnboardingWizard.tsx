@@ -388,7 +388,6 @@ function Step2({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
 function Step3({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   const [name, setName] = useState('')
   const [price, setPrice] = useState('')
-  const [durationDays, setDurationDays] = useState('30')
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [created, setCreated] = useState<string | null>(null)
@@ -398,8 +397,6 @@ function Step3({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
     if (name.trim().length < 2) errs.name = 'El nombre debe tener al menos 2 caracteres.'
     const priceNum = parseFloat(price)
     if (isNaN(priceNum) || priceNum < 0) errs.price = 'Ingresa un precio valido (0 o mayor).'
-    const days = parseInt(durationDays, 10)
-    if (isNaN(days) || days < 1) errs.durationDays = 'La duracion debe ser al menos 1 dia.'
     return errs
   }
 
@@ -414,7 +411,6 @@ function Step3({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
       await api.post('/plans', {
         name: name.trim(),
         priceCents,
-        durationDays: parseInt(durationDays, 10),
       })
       setCreated(name.trim())
     } catch (err: any) {
@@ -423,7 +419,6 @@ function Step3({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
         const fe: Record<string, string> = {}
         if (raw.fieldErrors.name?.[0]) fe.name = raw.fieldErrors.name[0]
         if (raw.fieldErrors.priceCents?.[0]) fe.price = raw.fieldErrors.priceCents[0]
-        if (raw.fieldErrors.durationDays?.[0]) fe.durationDays = raw.fieldErrors.durationDays[0]
         setErrors(fe)
       } else {
         setErrors({ name: typeof raw === 'string' ? raw : 'Error al crear el plan.' })
@@ -538,33 +533,9 @@ function Step3({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
               )}
             </div>
             <div>
-              <label style={labelStyle}>Duracion (dias)</label>
-              <input
-                type="number"
-                placeholder="30"
-                min={1}
-                value={durationDays}
-                onChange={e => {
-                  setDurationDays(e.target.value)
-                  setErrors(p => ({ ...p, durationDays: '' }))
-                }}
-                disabled={loading}
-                style={inputStyle('durationDays')}
-                onFocus={e =>
-                  (e.currentTarget.style.borderColor =
-                    'color-mix(in srgb, var(--brand-primary, #6366f1) 60%, transparent)')
-                }
-                onBlur={e =>
-                  (e.currentTarget.style.borderColor = errors.durationDays
-                    ? '#ef4444'
-                    : 'var(--border-1)')
-                }
-              />
-              {errors.durationDays && (
-                <p style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>
-                  {errors.durationDays}
-                </p>
-              )}
+              <label style={labelStyle}>Duracion</label>
+              {/* Regla de negocio: toda membresía dura 30 días */}
+              <p style={{ fontSize: 14, color: 'var(--text-2)', padding: '10px 0' }}>30 dias</p>
             </div>
           </div>
 

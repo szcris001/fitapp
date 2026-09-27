@@ -8,20 +8,8 @@ import {
   Search, FlaskConical, Infinity, Calendar, Layers,
 } from 'lucide-react'
 
-// ─── Duration helpers ────────────────────────────────────────────
-const durationOptions = [
-  { label: '1 día',      days: 1   },
-  { label: '3 días',     days: 3   },
-  { label: '7 días',     days: 7   },
-  { label: '15 días',    days: 15  },
-  { label: 'Mensual',    days: 30  },
-  { label: 'Bimestral',  days: 60  },
-  { label: 'Trimestral', days: 90  },
-  { label: 'Semestral',  days: 180 },
-  { label: 'Anual',      days: 365 },
-]
-const durationLabel = (days: number) =>
-  durationOptions.find(o => o.days === days)?.label ?? `${days} días`
+// Toda membresía dura 30 días (regla de negocio; la API ignora cualquier otra duración)
+const MEMBERSHIP_DAYS = 30
 
 const currencies = ['CLP', 'ARS', 'COP', 'MXN', 'PEN', 'BRL', 'USD']
 
@@ -43,14 +31,13 @@ type FormShape = {
   description: string
   priceCents: string
   currency: string
-  durationDays: string
   maxClasses: string
   isTrial: boolean
 }
 
 const emptyForm = (): FormShape => ({
   name: '', description: '', priceCents: '', currency: 'CLP',
-  durationDays: '30', maxClasses: '', isTrial: false,
+  maxClasses: '', isTrial: false,
 })
 
 // ─── Skeleton card ───────────────────────────────────────────────
@@ -100,8 +87,6 @@ function PlanCard({
   onEdit: (plan: Plan) => void
   onDelete: (id: string) => void
 }) {
-  const isPopular = plan.durationDays === 30
-
   const priceDisplay =
     plan.isTrial
       ? 'Gratis'
@@ -118,24 +103,9 @@ function PlanCard({
         display: 'flex',
         flexDirection: 'column',
         gap: 18,
-        border: isPopular
-          ? '1px solid var(--primary)'
-          : '1px solid var(--border-1)',
+        border: '1px solid var(--border-1)',
       }}
     >
-      {/* Popular badge */}
-      {isPopular && (
-        <div style={{
-          position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
-          padding: '4px 16px', borderRadius: 20,
-          background: 'var(--gradient-btn)',
-          color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
-          whiteSpace: 'nowrap', boxShadow: 'var(--glow)',
-        }}>
-          MAS POPULAR
-        </div>
-      )}
-
       {/* Header */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -194,7 +164,7 @@ function PlanCard({
               {priceDisplay}
             </span>
             <span style={{ fontSize: 13, color: 'var(--text-4)', fontWeight: 500 }}>
-              {plan.currency} / {durationLabel(plan.durationDays)}
+              {plan.currency} / mes
             </span>
           </>
         )}
@@ -204,7 +174,7 @@ function PlanCard({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}>
         <FeatureRow
           icon={<Calendar style={{ width: 14, height: 14 }} />}
-          text={`${plan.durationDays} días de vigencia (${durationLabel(plan.durationDays)})`}
+          text={`${MEMBERSHIP_DAYS} días de vigencia`}
         />
         <FeatureRow
           icon={<Layers style={{ width: 14, height: 14 }} />}
@@ -274,7 +244,6 @@ function EditCard({
     description: plan.description || '',
     priceCents: String(plan.priceCents),
     currency: plan.currency,
-    durationDays: String(plan.durationDays),
     maxClasses: plan.maxClasses != null ? String(plan.maxClasses) : '',
     isTrial: plan.isTrial ?? false,
   })
@@ -438,21 +407,6 @@ function PlanFormFields({
         </>
       )}
 
-      {/* Duration */}
-      <div>
-        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-3)', marginBottom: 6 }}>
-          Duracion *
-        </label>
-        <select
-          value={form.durationDays}
-          onChange={e => setForm(f => ({ ...f, durationDays: e.target.value }))}
-          required
-          className="input"
-        >
-          {durationOptions.map(o => <option key={o.days} value={o.days}>{o.label}</option>)}
-        </select>
-      </div>
-
       {/* Max classes */}
       <div>
         <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-3)', marginBottom: 6 }}>
@@ -520,7 +474,6 @@ export default function PlansPage() {
         description: createForm.description || undefined,
         priceCents: createForm.isTrial ? 0 : Number(createForm.priceCents),
         currency: createForm.currency,
-        durationDays: Number(createForm.durationDays),
         maxClasses: createForm.maxClasses ? Number(createForm.maxClasses) : undefined,
         isTrial: createForm.isTrial,
       })
@@ -544,7 +497,6 @@ export default function PlansPage() {
         description: form.description || undefined,
         priceCents: form.isTrial ? 0 : Number(form.priceCents),
         currency: form.currency,
-        durationDays: Number(form.durationDays),
         maxClasses: form.maxClasses ? Number(form.maxClasses) : null,
         isTrial: form.isTrial,
       })
