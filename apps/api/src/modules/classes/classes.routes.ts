@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { createClassTypeSchema, createClassSchema, bookingSchema, updateClassAllowedPlansSchema } from './classes.schema'
-import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin } from './classes.service'
+import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin, assertPlansBelongToGym } from './classes.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 
@@ -91,6 +91,7 @@ export async function classRoutes(app: FastifyInstance) {
     const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
     if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
     try {
+      await assertPlansBelongToGym(user.gymId, parsed.data.allowedPlanIds)
       const updated = await prisma.class.update({
         where: { id },
         data: { allowedPlans: { set: parsed.data.allowedPlanIds.map(planId => ({ id: planId })) } },
@@ -204,6 +205,14 @@ export async function classRoutes(app: FastifyInstance) {
         select: { id: true },
       })
       if (!ct) return reply.status(400).send({ error: 'El tipo de clase no pertenece a este gimnasio' })
+    }
+
+    if (body.allowedPlanIds !== undefined) {
+      try {
+        await assertPlansBelongToGym(user.gymId, body.allowedPlanIds as string[])
+      } catch (err: any) {
+        return reply.status(400).send({ error: err.message })
+      }
     }
 
     try {
