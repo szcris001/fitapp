@@ -135,3 +135,58 @@ describe('Token de medios fuera de /uploads', () => {
     expect(res.statusCode).toBe(401)
   })
 })
+
+describe('Comprobantes de transferencia', () => {
+  let receiptFile: string
+  let adminAId: string
+  let adminBId: string
+  let planId: string
+
+  beforeAll(async () => {
+    adminAId = (await prisma.user.create({ data: { gymId: ids.gymA, name: 'Admin A', email: 'qa-media-admin-a@test.local', passwordHash: 'x', role: 'ADMIN' } })).id
+    adminBId = (await prisma.user.create({ data: { gymId: ids.gymB, name: 'Admin B', email: 'qa-media-admin-b@test.local', passwordHash: 'x', role: 'ADMIN' } })).id
+    planId = (await prisma.plan.create({ data: { gymId: ids.gymA, name: 'QA Plan Recibo', priceCents: 1000, durationDays: 30 } })).id
+    receiptFile = `${ids.memberA}-${Date.now()}.pdf`
+    writeFile(`receipts/${receiptFile}`)
+    await prisma.membership.create({
+      data: {
+        userId: ids.memberA, planId, status: 'INACTIVE', transferStatus: 'PENDING_REVIEW', startsAt: new Date(), endsAt: new Date(Date.now() + 86_400_000),
+        pricePaid: 1000, currency: 'CLP', transferReceiptUrl: `/uploads/receipts/${receiptFile}`,
+      },
+    })
+  })
+
+  afterAll(async () => {
+    await prisma.membership.deleteMany({ where: { planId } })
+    await prisma.plan.deleteMany({ where: { id: planId } })
+  })
+
+  const url = () => `/uploads/receipts/${receiptFile}`
+
+  it('sin token → 401', async () => {
+    expect((await get(url())).statusCode).toBe(401)
+  })
+
+  it('el alumno dueño → 200 como PDF', async () => {
+    const res = await get(`${url()}?t=${media(ids.memberA, ids.gymA)}`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+  })
+
+  it('ADMIN del mismo gym → 200', async () => {
+    expect((await get(`${url()}?t=${media(adminAId, ids.gymA, 'ADMIN')}`)).statusCode).toBe(200)
+  })
+
+  it('otro alumno del mismo gym → 404', async () => {
+    expect((await get(`${url()}?t=${media(ids.memberA2, ids.gymA)}`)).statusCode).toBe(404)
+  })
+
+  it('ADMIN de otro gym → 404', async () => {
+    expect((await get(`${url()}?t=${media(adminBId, ids.gymB, 'ADMIN')}`)).statusCode).toBe(404)
+  })
+
+  it('archivo sin membresía asociada → 404', async () => {
+    writeFile('receipts/huerfano.pdf')
+    expect((await get(`/uploads/receipts/huerfano.pdf?t=${media(adminAId, ids.gymA, 'ADMIN')}`)).statusCode).toBe(404)
+  })
+})

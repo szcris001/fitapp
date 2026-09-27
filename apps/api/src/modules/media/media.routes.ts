@@ -41,6 +41,33 @@ export async function mediaRoutes(app: FastifyInstance) {
   app.get('/uploads/assets/:filename', serveDirFile('assets'))
 
   // Logos de gym: requieren sesión (superadmin y selector de sedes muestran logos de varios gyms)
+  // Comprobantes de transferencia (datos bancarios): solo el alumno dueño de la
+  // membresía o ADMIN/SUPER_ADMIN del gym de ese alumno
+  const RECEIPT_MIME: Record<string, string> = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.pdf': 'application/pdf',
+  }
+  app.get('/uploads/receipts/:filename', { preHandler: authenticateMedia }, async (request, reply) => {
+    const user = request.user as { userId: string; gymId: string | null; role: string }
+    const { filename } = request.params as { filename: string }
+    const filepath = safeResolvePath(path.resolve(process.cwd(), 'uploads', 'receipts'), filename)
+    if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+
+    const membership = await prisma.membership.findFirst({
+      where: { transferReceiptUrl: `/uploads/receipts/${filename}` },
+      select: { userId: true, user: { select: { gymId: true } } },
+    })
+    const isOwner = membership?.userId === user.userId
+    const isGymAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !!user.gymId
+      && membership?.user.gymId === user.gymId
+    if (!membership || !(isOwner || isGymAdmin)) return reply.status(404).send({ error: 'Archivo no encontrado' })
+
+    const mime = RECEIPT_MIME[path.extname(filename).toLowerCase()]
+    if (!mime || !fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
+    reply.header('Content-Type', mime)
+    reply.header('Cache-Control', 'private, no-store')
+    return reply.send(fs.createReadStream(filepath))
+  })
+
   app.get('/uploads/:filename', { preHandler: authenticateMedia }, async (request, reply) => {
     const { filename } = request.params as any
     const baseDir = path.resolve(process.cwd(), 'uploads')

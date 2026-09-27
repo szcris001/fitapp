@@ -355,7 +355,15 @@ export async function paymentRoutes(app: FastifyInstance) {
     try {
       const uploadsDir = path.join(process.cwd(), 'uploads', 'receipts')
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
-      const ext = path.extname(data.filename) || '.jpg'
+      // Extensión según el MIME declarado, nunca según el nombre del cliente
+      const RECEIPT_EXT: Record<string, string> = {
+        'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf',
+      }
+      const ext = RECEIPT_EXT[data.mimetype]
+      if (!ext) {
+        data.file.resume()
+        return reply.status(400).send({ error: 'Formato no permitido (JPG, PNG, WEBP o PDF)' })
+      }
       const filename = `${user.userId}-${Date.now()}${ext}`
       const filepath = path.join(uploadsDir, filename)
       await fs.promises.writeFile(filepath, await data.toBuffer())
