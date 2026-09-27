@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { authenticate, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
+import { calculateLoad } from './wod.utils'
+import { includeBlocks } from './wod.service'
 
 interface AuthUser {
   id: string
@@ -55,13 +57,6 @@ function sanitizeBlocks(blocks: any[]) {
       create: (b.movements as any[]).map((m: any, mi: number) => sanitizeMovement(m, mi)),
     },
   }))
-}
-
-const includeBlocks = {
-  blocks: {
-    orderBy: { order: 'asc' as const },
-    include: { movements: { orderBy: { order: 'asc' as const } } },
-  },
 }
 
 /** Normaliza una fecha a medianoche local (sin hora) para comparar por día */
@@ -142,20 +137,26 @@ export async function wodRoutes(app: FastifyInstance) {
     })
     if (!wod) return reply.send([])
     const allMovements = wod.blocks.flatMap(b => b.movements)
-    const gym = await prisma.gym.findUnique({ where: { id: user.gymId }, select: { weightRounding: true } })
+    // Una sola consulta de RMs (más recientes primero) en vez de una por movimiento;
+    // el match sigue siendo "contiene, sin distinguir mayúsculas"
+    const [gym, rms] = await Promise.all([
+      prisma.gym.findUnique({ where: { id: user.gymId }, select: { weightRounding: true } }),
+      prisma.rmRecord.findMany({
+        where: { userId: user.userId },
+        orderBy: { recordedAt: 'desc' },
+        select: { movementName: true, weightKg: true },
+      }),
+    ])
     const rounding = gym?.weightRounding ?? 2.5
 
-    const { calculateLoad } = await import('./wod.utils')
-    const loads = await Promise.all(allMovements.map(async (m) => {
-      const rm = await prisma.rmRecord.findFirst({
-        where: { userId: user.userId, movementName: { contains: m.movementName, mode: 'insensitive' } },
-        orderBy: { recordedAt: 'desc' },
-      })
+    const loads = allMovements.map((m) => {
+      const name = m.movementName.toLowerCase()
+      const rm = rms.find(r => r.movementName.toLowerCase().includes(name))
       const calculatedKg = (rm && m.percentage)
         ? calculateLoad(rm.weightKg, m.percentage, rounding)
         : null
       return { ...m, calculatedKg, rmKg: rm?.weightKg || null }
-    }))
+    })
     return reply.send(loads)
   })
 

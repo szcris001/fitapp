@@ -19,10 +19,10 @@ const LOGIN_LOCKOUT_SECS = 15 * 60 // 15 minutos
 
 async function checkLoginLockout(key: string): Promise<void> {
   try {
-    const locked = await redis.get(`lockout:${key}`)
-    if (locked) {
-      const ttl = await redis.ttl(`lockout:${key}`)
-      const mins = Math.ceil(ttl / 60)
+    // TTL devuelve -2 si la clave no existe: un solo viaje a Redis en vez de GET + TTL
+    const ttl = await redis.ttl(`lockout:${key}`)
+    if (ttl !== -2) {
+      const mins = Math.max(1, Math.ceil(ttl / 60))
       throw new Error(`Cuenta bloqueada temporalmente. Intenta en ${mins} minuto${mins !== 1 ? 's' : ''}.`)
     }
   } catch (err: any) {

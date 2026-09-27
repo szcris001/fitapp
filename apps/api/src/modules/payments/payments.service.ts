@@ -1458,20 +1458,25 @@ export async function importFintocMovements(
   const link = await prisma.fintocLink.findUnique({ where: { gymId } })
   if (!link) throw new Error('No hay link Fintoc configurado para este gimnasio')
 
+  // Una query para detectar existentes + un createMany (antes: 2 queries por movimiento).
+  // Un id repetido dentro del mismo lote cuenta como skipped, igual que antes.
+  const existing = await prisma.bankMovement.findMany({
+    where: { fintocMovementId: { in: rawMovements.map(m => m.id) } },
+    select: { fintocMovementId: true },
+  })
+  const seen = new Set(existing.map(m => m.fintocMovementId))
   const imported: string[] = []
   const skipped: string[] = []
+  const toCreate = rawMovements.filter(raw => {
+    if (seen.has(raw.id)) { skipped.push(raw.id); return false }
+    seen.add(raw.id)
+    imported.push(raw.id)
+    return true
+  })
 
-  for (const raw of rawMovements) {
-    const existing = await prisma.bankMovement.findUnique({
-      where: { fintocMovementId: raw.id },
-    })
-    if (existing) {
-      skipped.push(raw.id)
-      continue
-    }
-
-    await prisma.bankMovement.create({
-      data: {
+  if (toCreate.length) {
+    await prisma.bankMovement.createMany({
+      data: toCreate.map(raw => ({
         gymId,
         fintocLinkId: link.id,
         fintocMovementId: raw.id,
@@ -1482,10 +1487,10 @@ export async function importFintocMovements(
         senderRut: raw.sender_rut ?? null,
         senderName: raw.sender_name ?? null,
         referenceCode: raw.reference_code ?? null,
-        reconciliationStatus: 'PENDING',
-      },
+        reconciliationStatus: 'PENDING' as const,
+      })),
+      skipDuplicates: true, // carrera con otro import concurrente
     })
-    imported.push(raw.id)
   }
 
   // Update lastSyncAt
@@ -1708,7 +1713,7 @@ export async function createFintocPayCheckout(gymId: string, planId: string, use
 
   const data = await res.json() as any
 
-  await (prisma as any).fintocPaymentIntent.create({
+  await prisma.fintocPaymentIntent.create({
     data: {
       gymId,
       userId,
@@ -1725,7 +1730,7 @@ export async function createFintocPayCheckout(gymId: string, planId: string, use
 }
 
 export async function getFintocPayStatus(paymentIntentId: string, userId: string) {
-  const record = await (prisma as any).fintocPaymentIntent.findUnique({
+  const record = await prisma.fintocPaymentIntent.findUnique({
     where: { fintocIntentId: paymentIntentId },
   })
   if (!record || record.userId !== userId) return null
@@ -1748,7 +1753,7 @@ export async function handleFintocPayWebhook(body: any, rawBody: Buffer | string
 
   if (body.type === 'payment_intent.succeeded') {
     const fintocIntentId: string = body.data.id
-    const intent = await (prisma as any).fintocPaymentIntent.findUnique({
+    const intent = await prisma.fintocPaymentIntent.findUnique({
       where: { fintocIntentId },
     })
     if (!intent) return { received: true }
@@ -1760,7 +1765,7 @@ export async function handleFintocPayWebhook(body: any, rawBody: Buffer | string
       paymentNotes: `fintoc_pay:${fintocIntentId}`,
     })
 
-    await (prisma as any).fintocPaymentIntent.update({
+    await prisma.fintocPaymentIntent.update({
       where: { fintocIntentId },
       data: { status: 'SUCCEEDED', membershipId: membership.id },
     })
@@ -1777,7 +1782,7 @@ export async function handleFintocPayWebhook(body: any, rawBody: Buffer | string
 
   if (body.type === 'payment_intent.failed') {
     const fintocIntentId: string = body.data.id
-    await (prisma as any).fintocPaymentIntent.updateMany({
+    await prisma.fintocPaymentIntent.updateMany({
       where: { fintocIntentId },
       data: { status: 'FAILED' },
     })
