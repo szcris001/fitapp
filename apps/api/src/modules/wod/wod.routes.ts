@@ -3,8 +3,7 @@ import { z } from 'zod'
 import { authenticate, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
-import { calculateLoad } from './wod.utils'
-import { includeBlocks } from './wod.service'
+import { includeBlocks, getMyLoads } from './wod.service'
 import { gymDayRange, gymDayStart, getGymTimezone } from '../../lib/gym-day'
 
 // Payload del JWT: { userId, gymId, role }
@@ -122,38 +121,7 @@ export async function wodRoutes(app: FastifyInstance) {
   app.get('/wods/class/:classId/my-loads', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { classId } = request.params as any
-    const cls = await prisma.class.findFirst({
-      where: { id: classId, gymId: user.gymId },
-      select: { classTypeId: true, startsAt: true },
-    })
-    if (!cls) return reply.send([])
-    const wod = await prisma.wod.findFirst({
-      where: { gymId: user.gymId, classTypeId: cls.classTypeId, date: gymDayRange(cls.startsAt, await getGymTimezone(user.gymId)) },
-      include: includeBlocks,
-    })
-    if (!wod) return reply.send([])
-    const allMovements = wod.blocks.flatMap(b => b.movements)
-    // Una sola consulta de RMs (más recientes primero) en vez de una por movimiento;
-    // el match sigue siendo "contiene, sin distinguir mayúsculas"
-    const [gym, rms] = await Promise.all([
-      prisma.gym.findUnique({ where: { id: user.gymId }, select: { weightRounding: true } }),
-      prisma.rmRecord.findMany({
-        where: { userId: user.userId },
-        orderBy: { recordedAt: 'desc' },
-        select: { movementName: true, weightKg: true },
-      }),
-    ])
-    const rounding = gym?.weightRounding ?? 2.5
-
-    const loads = allMovements.map((m) => {
-      const name = m.movementName.toLowerCase()
-      const rm = rms.find(r => r.movementName.toLowerCase().includes(name))
-      const calculatedKg = (rm && m.percentage)
-        ? calculateLoad(rm.weightKg, m.percentage, rounding)
-        : null
-      return { ...m, calculatedKg, rmKg: rm?.weightKg || null }
-    })
-    return reply.send(loads)
+    return reply.send(await getMyLoads(user.gymId, classId, user.userId))
   })
 
   // ─── LIST ALL (calendar) ─────────────────────────────────────────────────────
