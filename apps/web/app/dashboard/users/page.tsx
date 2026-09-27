@@ -586,7 +586,7 @@ export default function UsersPage() {
           <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: 'var(--border-1)' }}>
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-3)' }}>
               {filtered.length} alumno{filtered.length !== 1 ? 's' : ''}
-              {search && <span style={{ opacity: 0.7 }}> — "{search}"</span>}
+              {search && <span style={{ opacity: 0.7 }}> — &ldquo;{search}&rdquo;</span>}
             </span>
           </div>
           <div className="overflow-x-auto">

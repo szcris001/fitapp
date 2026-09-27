@@ -21,6 +21,7 @@
  *   cd /home/cristiansilva/fitapp/apps/api && pnpm test src/__tests__/seedBenchmarks.test.ts
  */
 
+import path from 'path'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { prisma } from '../lib/prisma'
 import { BenchmarkCategory } from '../generated/prisma'
@@ -85,7 +86,7 @@ async function runSeedLogic(): Promise<{ created: number; updated: number }> {
   const { execSync } = await import('child_process')
 
   execSync('npx tsx prisma/seed.ts', {
-    cwd: '/home/cristiansilva/fitapp/apps/api',
+    cwd: path.resolve(__dirname, '../..'), // apps/api (antes una ruta absoluta local: rompía en CI)
     env: { ...process.env },
     stdio: 'pipe', // silencia stdout del seed en la salida de tests
   })

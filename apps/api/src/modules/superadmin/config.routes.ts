@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
 import { requireSuperAdmin } from '../../middlewares/auth.middleware'
-import nodemailer from 'nodemailer'
+import nodemailer, { type Transporter } from 'nodemailer'
 
 
 const SETTINGS_ID = 'system'
@@ -73,7 +73,7 @@ export async function platformConfigRoutes(app: FastifyInstance) {
 
     let previewUrl: string | undefined
 
-    let transporter: nodemailer.Transporter
+    let transporter: Transporter
     if (!user || !pass) {
       const testAccount = await nodemailer.createTestAccount()
       transporter = nodemailer.createTransport({

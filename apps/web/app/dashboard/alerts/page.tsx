@@ -324,7 +324,7 @@ export default function AlertsPage() {
               <div className="text-center py-6">
                 <Sparkles className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--text-4)' }} />
                 <p className="text-sm" style={{ color: 'var(--text-4)' }}>
-                  Haz clic en "Generar insights" para obtener recomendaciones personalizadas
+                  Haz clic en &ldquo;Generar insights&rdquo; para obtener recomendaciones personalizadas
                 </p>
               </div>
             )}
