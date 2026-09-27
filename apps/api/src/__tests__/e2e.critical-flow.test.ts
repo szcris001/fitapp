@@ -36,6 +36,7 @@ import { paymentRoutes } from '../modules/payments/payments.routes'
 import { gymRoutes } from '../modules/gyms/gyms.routes'
 import { rmRoutes } from '../modules/analytics/rm.routes'
 import { submitTransferReceipt, confirmTransfer } from '../modules/payments/payments.service'
+import { gymDayStart, DEFAULT_GYM_TIMEZONE } from '../lib/gym-day'
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -284,15 +285,12 @@ describe('E2E: Flujo crítico del alumno', () => {
   })
 
   it('Paso 3: Admin crea WOD para esa clase con movimiento al 70% RM → WOD creado en DB', async () => {
-    // El WOD se crea directamente via Prisma usando new Date() para la fecha.
-    // Esto garantiza que la fecha queda en medianoche LOCAL (UTC-4 en el servidor),
-    // lo cual es lo que dayRange() espera al buscar WODs por clase.
-    // Contexto: POST /wods recibe "YYYY-MM-DD" como string → new Date("YYYY-MM-DD")
-    // resulta en UTC medianoche, que en UTC-4 es el día anterior → dayRange falla.
-    // El test de integración wod.integration.test.ts también usa new Date() directo.
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    tomorrow.setHours(0, 0, 0, 0) // medianoche local = lo que dayRange busca
+    // Wod.date = inicio del día local del gym en que cae la clase (lib/gym-day.ts),
+    // igual que lo guarda POST /wods. Independiente de la zona horaria del proceso.
+    const classStart = new Date()
+    classStart.setDate(classStart.getDate() + 1)
+    classStart.setHours(9, 0, 0, 0) // mismo instante que la clase del Paso 2
+    const tomorrow = gymDayStart(classStart, DEFAULT_GYM_TIMEZONE)
 
     const wod = await prisma.wod.create({
       data: {
