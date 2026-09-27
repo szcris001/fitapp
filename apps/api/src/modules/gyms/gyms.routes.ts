@@ -18,14 +18,22 @@ const createSedeSchema = z.object({
   address: z.string().optional(),
 })
 
+// El JWT solo lleva { userId, gymId, role }: email y nombre se leen de la DB.
+// Tras un switch-sede el gymId del JWT puede no ser el del usuario, por eso se busca por id.
+async function getRequester(userId: string) {
+  return prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } })
+}
+
 export async function gymRoutes(app: FastifyInstance) {
   // ─── Multi-sede ────────────────────────────────────────────────────────────
 
   // Listar todas las sedes del admin autenticado
   app.get('/gyms/my-sedes', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
+    const requester = await getRequester(user.userId)
+    if (!requester) return reply.status(401).send({ error: 'Sesión inválida' })
     const sedes = await prisma.gym.findMany({
-      where: { ownerEmail: user.email },
+      where: { ownerEmail: requester.email },
       select: {
         id: true, name: true, slug: true, logoUrl: true, status: true,
         address: true, createdAt: true,
@@ -43,13 +51,15 @@ export async function gymRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
 
     const { name, slug, address } = parsed.data
+    const requester = await getRequester(user.userId)
+    if (!requester) return reply.status(401).send({ error: 'Sesión inválida' })
 
     const existing = await prisma.gym.findUnique({ where: { slug } })
     if (existing) return reply.status(409).send({ error: 'El slug ya está en uso' })
 
     try {
       const sede = await prisma.gym.create({
-        data: { name, slug, address, ownerEmail: user.email },
+        data: { name, slug, address, ownerEmail: requester.email },
       })
       return reply.status(201).send(sede)
     } catch (err: any) {
@@ -67,7 +77,10 @@ export async function gymRoutes(app: FastifyInstance) {
     const gym = await prisma.gym.findUnique({ where: { id: targetGymId } })
     if (!gym) return reply.status(404).send({ error: 'Sede no encontrada' })
 
-    if (gym.ownerEmail !== user.email) {
+    const requester = await getRequester(user.userId)
+    if (!requester) return reply.status(401).send({ error: 'Sesión inválida' })
+
+    if (gym.ownerEmail !== requester.email) {
       return reply.status(403).send({ error: 'No tienes acceso a esta sede' })
     }
 
@@ -78,15 +91,13 @@ export async function gymRoutes(app: FastifyInstance) {
     const newToken = app.jwt.sign({
       userId: user.userId,
       gymId: gym.id,
-      email: user.email,
-      name: user.name,
       role: 'ADMIN',
     }, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
 
     return reply.send({
       token: newToken,
       mediaToken: signMediaToken(app, { userId: user.userId, gymId: gym.id, role: 'ADMIN' }),
-      user: { userId: user.userId, gymId: gym.id, email: user.email, name: user.name, role: 'ADMIN' },
+      user: { userId: user.userId, gymId: gym.id, email: requester.email, name: requester.name, role: 'ADMIN' },
       gym: { id: gym.id, name: gym.name, slug: gym.slug, logoUrl: gym.logoUrl },
     })
   })

@@ -43,7 +43,11 @@ export async function authRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
       const user = await loginUser(parsed.data)
-      const token = app.jwt.sign(user, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
+      // El JWT solo lleva { userId, gymId, role }; el perfil completo va en `user`
+      const token = app.jwt.sign(
+        { userId: user.userId, gymId: user.gymId, role: user.role },
+        { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' },
+      )
       const refreshToken = await createRefreshToken(user.userId)
       const mediaToken = signMediaToken(app, user)
       return reply.status(200).send({ token, refreshToken, mediaToken, user })
@@ -59,18 +63,10 @@ export async function authRoutes(app: FastifyInstance) {
       const { userId, newRaw } = await rotateRefreshToken(parsed.data.refreshToken)
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { id: true, gymId: true, email: true, name: true, role: true, avatarUrl: true, mustChangePassword: true },
+        select: { id: true, gymId: true, role: true },
       })
       if (!user) return reply.status(401).send({ error: 'Sesión inválida' })
-      const payload = {
-        userId: user.id,
-        gymId: user.gymId,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        avatarUrl: user.avatarUrl ?? null,
-        mustChangePassword: user.mustChangePassword,
-      }
+      const payload = { userId: user.id, gymId: user.gymId, role: user.role }
       const token = app.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
       return reply.status(200).send({ token, refreshToken: newRaw, mediaToken: signMediaToken(app, payload) })
     } catch (err: any) {
