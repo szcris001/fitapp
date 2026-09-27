@@ -1284,3 +1284,55 @@ describe('WOD: Estructura jerárquica blocks y movements', () => {
     expect(body.blocks[0].timecap).toBeNull()
   })
 })
+
+// ─── Suite: Resultados — el userId sale del JWT (claim `userId`, no `id`) ────
+
+describe('WOD: resultados usan el userId del JWT', () => {
+  let app: FastifyInstance
+  let wodId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const wod = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId: classTypeAId, title: 'WOD resultados', date: new Date() },
+    })
+    wodId = wod.id
+    createdWodIds.push(wodId)
+  })
+
+  afterAll(async () => {
+    await prisma.wodResult.deleteMany({ where: { wodId } })
+    await app.close()
+  })
+
+  it('POST /wods/:id/results/me → 201 y guarda el resultado del miembro', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 120, rx: true },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    expect(body.userId).toBe(memberAId)
+    expect(body.recordedBy).toBe(memberAId)
+  })
+
+  it('GET /wods/:id/results/me → devuelve el resultado propio', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().userId).toBe(memberAId)
+  })
+
+  it('POST /wods/:id/results (coach) → recordedBy es el coach', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results`,
+      headers: { authorization: `Bearer ${coachAToken}` },
+      payload: { userId: memberAId, score: 150, rx: false },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().recordedBy).toBe(coachAId)
+  })
+})

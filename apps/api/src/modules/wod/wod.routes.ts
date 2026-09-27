@@ -4,8 +4,9 @@ import { authenticate, requireCoachOrAdmin } from '../../middlewares/auth.middle
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 
+// Payload del JWT: { userId, gymId, role }
 interface AuthUser {
-  id: string
+  userId: string
   gymId: string
   role: string
 }
@@ -252,14 +253,14 @@ export async function wodRoutes(app: FastifyInstance) {
           scoreText: body.scoreText ?? null,
           rx: body.rx,
           notes: body.notes ?? null,
-          recordedBy: user.id,
+          recordedBy: user.userId,
         },
         update: {
           score: body.score,
           scoreText: body.scoreText ?? null,
           rx: body.rx,
           notes: body.notes ?? null,
-          recordedBy: user.id,
+          recordedBy: user.userId,
         },
         include: {
           user: { select: { id: true, name: true, avatarUrl: true } },
@@ -339,7 +340,7 @@ export async function wodRoutes(app: FastifyInstance) {
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
 
     const result = await prisma.wodResult.findUnique({
-      where: { wodId_userId: { wodId, userId: user.id } },
+      where: { wodId_userId: { wodId, userId: user.userId } },
     })
 
     if (!result) return reply.status(200).send(null)
@@ -370,16 +371,16 @@ export async function wodRoutes(app: FastifyInstance) {
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
 
     const result = await prisma.wodResult.upsert({
-      where: { wodId_userId: { wodId, userId: user.id } },
+      where: { wodId_userId: { wodId, userId: user.userId } },
       create: {
         gymId: user.gymId,
         wodId,
-        userId: user.id,
+        userId: user.userId,
         score: body.score,
         scoreText: body.scoreText ?? null,
         rx: body.rx,
         notes: body.notes ?? null,
-        recordedBy: user.id,
+        recordedBy: user.userId,
       },
       update: {
         score: body.score,
@@ -423,7 +424,7 @@ export async function wodRoutes(app: FastifyInstance) {
           ...(body.scoreText !== undefined ? { scoreText: body.scoreText } : {}),
           ...(body.rx !== undefined ? { rx: body.rx } : {}),
           ...(body.notes !== undefined ? { notes: body.notes } : {}),
-          recordedBy: user.id,
+          recordedBy: user.userId,
         },
         include: {
           user: { select: { id: true, name: true, avatarUrl: true } },
