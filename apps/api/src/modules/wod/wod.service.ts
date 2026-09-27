@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { calculateLoad } from './wod.utils'
 
-const includeBlocks = {
+export const includeBlocks = {
   blocks: {
     orderBy: { order: 'asc' as const },
     include: { movements: { orderBy: { order: 'asc' as const } } },

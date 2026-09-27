@@ -8,6 +8,31 @@ import { prismaErrorMessage } from '../../lib/prismaError'
 import path from 'path'
 import fs from 'fs'
 
+const AVATAR_MIME: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+}
+
+// Guarda uploads/avatars/avatar_<userId>.<ext> y devuelve su URL; null si el tipo no está permitido
+async function saveAvatarFile(data: MultipartFile, userId: string): Promise<string | null> {
+  const ext = AVATAR_MIME[data.mimetype]
+  if (!ext) {
+    data.file.resume()
+    return null
+  }
+  const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars')
+  await fs.promises.mkdir(uploadsDir, { recursive: true })
+  const filename = `avatar_${userId}${ext}`
+  await new Promise<void>((resolve, reject) => {
+    const writeStream = fs.createWriteStream(path.join(uploadsDir, filename))
+    data.file.pipe(writeStream)
+    writeStream.on('finish', resolve)
+    writeStream.on('error', reject)
+  })
+  return `/uploads/avatars/${filename}`
+}
+
 export async function userRoutes(app: FastifyInstance) {
   app.get('/users', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
@@ -159,31 +184,10 @@ export async function userRoutes(app: FastifyInstance) {
       const data = await (request as any).file() as MultipartFile
       if (!data) return reply.status(400).send({ error: 'No se recibió archivo' })
 
-      const ALLOWED_MIME: Record<string, string> = {
-        'image/jpeg': '.jpg',
-        'image/png': '.png',
-        'image/webp': '.webp',
-      }
-      const ext = ALLOWED_MIME[data.mimetype]
-      if (!ext) {
-        data.file.resume()
+      const avatarUrl = await saveAvatarFile(data, user.userId)
+      if (!avatarUrl) {
         return reply.status(400).send({ error: 'Tipo de archivo no permitido. Solo se aceptan JPG, PNG o WebP.' })
       }
-
-      const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars')
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
-
-      const filename = `avatar_${user.userId}${ext}`
-      const filepath = path.join(uploadsDir, filename)
-
-      await new Promise<void>((resolve, reject) => {
-        const writeStream = fs.createWriteStream(filepath)
-        data.file.pipe(writeStream)
-        writeStream.on('finish', resolve)
-        writeStream.on('error', reject)
-      })
-
-      const avatarUrl = `/uploads/avatars/${filename}`
       await prisma.user.update({ where: { id: user.userId }, data: { avatarUrl } })
       return reply.send({ avatarUrl })
     } catch (err: any) {
@@ -201,31 +205,10 @@ export async function userRoutes(app: FastifyInstance) {
       const data = await (request as any).file() as MultipartFile
       if (!data) return reply.status(400).send({ error: 'No se recibió archivo' })
 
-      const ALLOWED_MIME: Record<string, string> = {
-        'image/jpeg': '.jpg',
-        'image/png': '.png',
-        'image/webp': '.webp',
-      }
-      const ext = ALLOWED_MIME[data.mimetype]
-      if (!ext) {
-        data.file.resume()
+      const avatarUrl = await saveAvatarFile(data, id)
+      if (!avatarUrl) {
         return reply.status(400).send({ error: 'Tipo de archivo no permitido. Solo se aceptan JPG, PNG o WebP.' })
       }
-
-      const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars')
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
-
-      const filename = `avatar_${id}${ext}`
-      const filepath = path.join(uploadsDir, filename)
-
-      await new Promise<void>((resolve, reject) => {
-        const writeStream = fs.createWriteStream(filepath)
-        data.file.pipe(writeStream)
-        writeStream.on('finish', resolve)
-        writeStream.on('error', reject)
-      })
-
-      const avatarUrl = `/uploads/avatars/${filename}`
       try {
         await prisma.user.update({ where: { id }, data: { avatarUrl } })
       } catch (err) {
