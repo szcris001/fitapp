@@ -361,6 +361,8 @@ describe('Mercado Pago: POST /api/payments/checkout/mercadopago', () => {
 
     expect(capturedBody).toBeDefined()
     expect(capturedBody.external_reference).toBe(`${gymAId}|${planAId}|${memberAId}`)
+    // El webhook sabrá qué credenciales usar sin recorrer todos los gyms
+    expect(capturedBody.notification_url).toMatch(new RegExp(`/api/payments/webhook/mercadopago\\?gymId=${gymAId}$`))
   })
 })
 
@@ -628,5 +630,43 @@ describe('Mercado Pago: POST /api/payments/webhook/mercadopago', () => {
     expect(membership!.status).toBe('ACTIVE')
 
     createdMembershipIds.push(membership!.id)
+  })
+})
+
+// ─── Suite: el webhook con gymId consulta solo ese gym ─────────────────────────
+
+describe('Mercado Pago: webhook con ?gymId= consulta solo las credenciales de ese gym', () => {
+  let app: FastifyInstance
+  let otherGymId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    // Otro gym con MP habilitado: sin ?gymId el webhook también lo consultaría
+    otherGymId = (await prisma.gym.create({
+      data: {
+        name: 'QA MP Otro Gym', slug: `qa-mp-otro-${Date.now()}`, status: 'ACTIVE',
+        paymentGateways: { mercadopago: { enabled: true, accessToken: 'TEST-otro-gym-token' } } as any,
+      },
+    })).id
+  })
+
+  afterAll(async () => {
+    await prisma.gym.deleteMany({ where: { id: otherGymId } })
+    await app.close()
+  })
+
+  it('una sola consulta a MP, con el token del gym de la URL', async () => {
+    mockPaymentGet.mockReset()
+    mockPaymentGet.mockResolvedValue({ status: 'pending', external_reference: `${gymAId}|${planAId}|${memberAId}` })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/payments/webhook/mercadopago?gymId=${gymAId}`,
+      payload: { action: 'payment.updated', data: { id: 'pay_scoped_1' } },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(mockPaymentGet).toHaveBeenCalledTimes(1)
+    expect(mockPaymentGet.mock.calls[0][0]).toBe(MP_ACCESS_TOKEN)
   })
 })

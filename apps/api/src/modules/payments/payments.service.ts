@@ -344,7 +344,9 @@ export async function createMercadoPagoCheckout(gymId: string, planId: string, u
   const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
   const cfg = gatewayConfig(gym, 'mercadopago')
 
-  const notificationUrl = `${process.env.BACKEND_URL || process.env.PUBLIC_API_URL || 'http://localhost:3001'}/api/payments/webhook/mercadopago`
+  // gymId en la URL: el webhook consulta solo las credenciales de este gym (el pago se
+  // valida igual contra MP y external_reference, así que un gymId falso no sirve)
+  const notificationUrl = `${process.env.BACKEND_URL || process.env.PUBLIC_API_URL || 'http://localhost:3001'}/api/payments/webhook/mercadopago?gymId=${gymId}`
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
   const isLocalhost = frontendUrl.includes('localhost')
 
@@ -429,6 +431,14 @@ export async function handleMercadoPagoWebhook(
   // Old (IPN): query params topic=payment&id=<paymentId> or topic=merchant_order&id=<orderId>
   let paymentId: string | undefined
 
+  // Gyms cuyas credenciales se prueban: solo el de la notification_url si viene gymId;
+  // notificaciones de checkouts anteriores (sin gymId) recorren todos los gyms con MP
+  const gymFilter = typeof query?.gymId === 'string' && query.gymId ? { id: query.gymId } : {}
+  const candidates = (await prisma.gym.findMany({
+    where: { ...gymFilter, paymentGateways: { not: {} } },
+    select: { id: true, paymentGateways: true },
+  })).filter(g => (g.paymentGateways as any)?.mercadopago?.enabled && (g.paymentGateways as any)?.mercadopago?.accessToken)
+
   if (body.action === 'payment.created' || body.action === 'payment.updated') {
     paymentId = body.data?.id
   } else if (query?.topic === 'payment' && query?.id) {
@@ -436,13 +446,8 @@ export async function handleMercadoPagoWebhook(
   } else if (query?.topic === 'merchant_order' && query?.id) {
     // Fetch the merchant order to get the payment IDs
     try {
-      const gyms = await prisma.gym.findMany({
-        where: { paymentGateways: { not: {} } },
-        select: { id: true, paymentGateways: true },
-      })
-      for (const gym of gyms) {
-        const cfg = (gym.paymentGateways as any)?.mercadopago
-        if (!cfg?.enabled || !cfg?.accessToken) continue
+      for (const gym of candidates) {
+        const cfg = (gym.paymentGateways as any).mercadopago
         const res = await fetch(`https://api.mercadopago.com/merchant_orders/${query.id}`, {
           headers: { 'Authorization': `Bearer ${cfg.accessToken}` },
         })
@@ -472,14 +477,8 @@ export async function handleMercadoPagoWebhook(
   try {
     // We get the payment details from the notification URL gymId param
     // The external_reference format is "gymId|planId|userId"
-    const gyms = await prisma.gym.findMany({
-      where: { paymentGateways: { not: {} } },
-      select: { id: true, paymentGateways: true },
-    })
-
-    for (const gym of gyms) {
-      const cfg = (gym.paymentGateways as any)?.mercadopago
-      if (!cfg?.enabled || !cfg?.accessToken) continue
+    for (const gym of candidates) {
+      const cfg = (gym.paymentGateways as any).mercadopago
 
       // Validar firma con el webhookSecret por gym si está configurado
       if (!globalMpSecret && cfg.webhookSecret && xSignature) {
