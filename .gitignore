@@ -40,3 +40,6 @@ npm-debug.log*
 coverage/
 _tmp_*
 apps/web/public/videos/
+playwright/.auth/
+playwright-report/
+test-results/
