@@ -126,9 +126,25 @@ export async function getClassById(gymId: string, classId: string) {
   return { ...cls, wods: wod ? [wod] : [] }
 }
 
+// Los planes llegan como IDs en el body: verificar que TODOS sean del gym del token
+export async function assertPlansBelongToGym(gymId: string, planIds: string[]) {
+  const uniqueIds = [...new Set(planIds)]
+  if (!uniqueIds.length) return
+  const count = await prisma.plan.count({ where: { gymId, id: { in: uniqueIds } } })
+  if (count !== uniqueIds.length) throw new Error('Uno o más planes no pertenecen a este gimnasio')
+}
+
 export async function createClass(gymId: string, data: CreateClassInput & { allowedPlanIds?: string[] }) {
   const classType = await prisma.classType.findFirst({ where: { id: data.classTypeId, gymId } })
   if (!classType) throw new Error('Tipo de clase no encontrado')
+
+  const coach = await prisma.user.findFirst({
+    where: { id: data.coachId, gymId, role: { in: ['COACH', 'ADMIN'] } },
+    select: { id: true },
+  })
+  if (!coach) throw new Error('El coach no pertenece a este gimnasio')
+
+  await assertPlansBelongToGym(gymId, data.allowedPlanIds ?? [])
 
   if (data.frequency === 'ONCE' || !data.recurringDays?.length) {
     const startsAt = new Date(data.startsAt)

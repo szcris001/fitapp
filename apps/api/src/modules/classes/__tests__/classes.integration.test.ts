@@ -1359,3 +1359,114 @@ describe('Class: POST /api/classes — clases recurrentes', () => {
     expect(res2.json().error).toMatch(/todas las clases del período ya existen/i)
   })
 })
+
+// ─── Suite: IDs del body deben pertenecer al gym del token ───────────────────
+
+describe('Class: allowedPlanIds y coachId de otro gym → rechazados', () => {
+  let app: FastifyInstance
+  let planAId: string
+  let planBId: string
+  let classId: string
+
+  function futureDate(daysAhead: number, hour = 8): string {
+    const d = new Date()
+    d.setDate(d.getDate() + daysAhead)
+    d.setUTCHours(hour, 0, 0, 0)
+    return d.toISOString()
+  }
+
+  const auth = () => ({ authorization: `Bearer ${adminAToken}` })
+
+  beforeAll(async () => {
+    app = await buildApp()
+    planAId = (await prisma.plan.create({ data: { gymId: gymAId, name: 'QA Plan A', priceCents: 1000, durationDays: 30 } })).id
+    planBId = (await prisma.plan.create({ data: { gymId: gymBId, name: 'QA Plan B', priceCents: 1000, durationDays: 30 } })).id
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: baseClassTypeAId, coachId: coachAId,
+        startsAt: new Date(futureDate(20)), endsAt: new Date(futureDate(20, 9)), capacity: 10, frequency: 'ONCE',
+      },
+    })
+    classId = cls.id
+    createdClassIds.push(classId)
+  })
+
+  afterAll(async () => {
+    await prisma.class.deleteMany({ where: { id: { in: createdClassIds } } })
+    await prisma.plan.deleteMany({ where: { id: { in: [planAId, planBId] } } })
+    await app.close()
+  })
+
+  const allowedPlanIdsOf = async (id: string) =>
+    (await prisma.class.findUnique({ where: { id }, include: { allowedPlans: true } }))!.allowedPlans.map(p => p.id)
+
+  it('POST /classes con plan de otro gym → 400 y no crea la clase', async () => {
+    const startsAt = futureDate(21)
+    const res = await app.inject({
+      method: 'POST', url: '/api/classes', headers: auth(),
+      payload: { classTypeId: baseClassTypeAId, coachId: coachAId, startsAt, endsAt: futureDate(21, 9), capacity: 10, allowedPlanIds: [planBId] },
+    })
+    expect(res.statusCode).toBe(400)
+    const created = await prisma.class.findFirst({ where: { gymId: gymAId, startsAt: new Date(startsAt) } })
+    if (created) createdClassIds.push(created.id)
+    expect(created).toBeNull()
+  })
+
+  it('POST /classes recurrente con plan de otro gym → 400', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/classes', headers: auth(),
+      payload: {
+        classTypeId: baseClassTypeAId, coachId: coachAId, startsAt: futureDate(22), endsAt: futureDate(22, 9),
+        capacity: 10, frequency: 'RECURRING', recurringDays: [1], recurringUntil: futureDate(40), allowedPlanIds: [planBId],
+      },
+    })
+    expect(res.statusCode).toBe(400)
+    const connected = await prisma.class.count({ where: { gymId: gymAId, allowedPlans: { some: { id: planBId } } } })
+    expect(connected).toBe(0)
+  })
+
+  it('POST /classes con coach de otro gym → 400', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/classes', headers: auth(),
+      payload: { classTypeId: baseClassTypeAId, coachId: adminBId, startsAt: futureDate(23), endsAt: futureDate(23, 9), capacity: 10 },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('POST /classes con plan propio → 201 y lo conecta', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/classes', headers: auth(),
+      payload: { classTypeId: baseClassTypeAId, coachId: coachAId, startsAt: futureDate(24), endsAt: futureDate(24, 9), capacity: 10, allowedPlanIds: [planAId] },
+    })
+    expect(res.statusCode).toBe(201)
+    createdClassIds.push(res.json().id)
+    expect(await allowedPlanIdsOf(res.json().id)).toEqual([planAId])
+  })
+
+  it('PUT /classes/:id/allowed-plans con plan de otro gym → 400 y no lo conecta', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: `/api/classes/${classId}/allowed-plans`, headers: auth(),
+      payload: { allowedPlanIds: [planAId, planBId] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(await allowedPlanIdsOf(classId)).not.toContain(planBId)
+  })
+
+  it('PATCH /classes/:id con plan de otro gym → 400 y no lo conecta', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: `/api/classes/${classId}`, headers: auth(),
+      payload: { allowedPlanIds: [planBId] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(await allowedPlanIdsOf(classId)).not.toContain(planBId)
+  })
+
+  it('PUT /classes/:id/allowed-plans con plan propio → 200', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: `/api/classes/${classId}/allowed-plans`, headers: auth(),
+      payload: { allowedPlanIds: [planAId] },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(await allowedPlanIdsOf(classId)).toEqual([planAId])
+  })
+})
