@@ -1732,6 +1732,13 @@ export async function getFintocPayStatus(paymentIntentId: string, userId: string
   return { status: record.status, membershipId: record.membershipId }
 }
 
+// Compara una firma HMAC-SHA256 hex en tiempo constante (evita timing attacks)
+export function isValidHmacSha256(body: string, secret: string, signature: string): boolean {
+  const expected = Buffer.from(crypto.createHmac('sha256', secret).update(body).digest('hex'))
+  const received = Buffer.from(signature)
+  return expected.length === received.length && crypto.timingSafeEqual(expected, received)
+}
+
 export async function handleFintocPayWebhook(body: any, rawBody: Buffer | string, fintocSignatureHeader: string | undefined) {
   const gymId: string | undefined = body?.data?.metadata?.gymId
   if (!gymId) throw new Error('gymId no encontrado en metadata del webhook')
@@ -1743,8 +1750,7 @@ export async function handleFintocPayWebhook(body: any, rawBody: Buffer | string
   // Validar firma HMAC-SHA256 igual que validateKhipuSignature
   if (!fintocSignatureHeader) throw new Error('Firma inválida')
   const bodyStr = Buffer.isBuffer(rawBody) ? rawBody.toString() : rawBody
-  const expected = crypto.createHmac('sha256', cfg.webhookSecret).update(bodyStr).digest('hex')
-  if (fintocSignatureHeader !== expected) throw new Error('Firma inválida')
+  if (!isValidHmacSha256(bodyStr, cfg.webhookSecret, fintocSignatureHeader)) throw new Error('Firma inválida')
 
   if (body.type === 'payment_intent.succeeded') {
     const fintocIntentId: string = body.data.id

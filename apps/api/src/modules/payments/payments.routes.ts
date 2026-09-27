@@ -1,6 +1,5 @@
 import path from 'path'
 import fs from 'fs'
-import crypto from 'crypto'
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
 import { createCheckoutSchema } from './payments.schema'
@@ -19,6 +18,7 @@ import {
   saveFintocLink, getFintocStatus, importFintocMovements, listBankMovements,
   confirmBankMovement, rejectBankMovement, handleFintocWebhook,
   createFintocPayCheckout, getFintocPayStatus, handleFintocPayWebhook,
+  isValidHmacSha256,
 } from './payments.service'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
@@ -604,29 +604,18 @@ export async function paymentRoutes(app: FastifyInstance) {
     const gymId: string | undefined = body?.gymId ?? body?.metadata?.gymId
     if (!gymId) return reply.status(400).send({ error: 'gymId requerido en payload' })
 
-    // Validar firma HMAC-SHA256 con FINTOC_WEBHOOK_SECRET del gym
-    if (signature) {
-      try {
-        const gym = await prisma.gym.findUnique({ where: { id: gymId } })
-        const gateways = (gym?.paymentGateways as Record<string, any>) || {}
-        const webhookSecret: string | undefined = gateways?.fintoc?.webhookSecret
-          ?? process.env.FINTOC_SECRET_KEY
+    // Firma obligatoria con el webhookSecret del gym: el gymId viene del body, así que
+    // solo es confiable si el payload está firmado con el secret de ESE gym
+    if (!signature) return reply.status(401).send({ error: 'Firma Fintoc requerida' })
 
-        if (webhookSecret) {
-          const rawBody = (request as any).rawBody as Buffer | undefined
-          const bodyStr = rawBody ? rawBody.toString() : JSON.stringify(body)
-          const expected = crypto
-            .createHmac('sha256', webhookSecret)
-            .update(bodyStr)
-            .digest('hex')
+    const gym = await prisma.gym.findUnique({ where: { id: gymId }, select: { paymentGateways: true } })
+    const webhookSecret: string | undefined = (gym?.paymentGateways as any)?.fintoc?.webhookSecret
+    if (!webhookSecret) return reply.status(401).send({ error: 'Webhook Fintoc no configurado para este gimnasio' })
 
-          if (signature !== expected) {
-            return reply.status(401).send({ error: 'Firma Fintoc inválida' })
-          }
-        }
-      } catch {
-        return reply.status(401).send({ error: 'Error validando firma Fintoc' })
-      }
+    const rawBody = (request as any).rawBody as Buffer | undefined
+    const bodyStr = rawBody ? rawBody.toString() : JSON.stringify(body)
+    if (!isValidHmacSha256(bodyStr, webhookSecret, signature)) {
+      return reply.status(401).send({ error: 'Firma Fintoc inválida' })
     }
 
     try {

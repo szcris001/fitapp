@@ -25,8 +25,9 @@
  *   - El matcher Fase 2 (amount_only) solo pone MATCHED, no confirma la membresía.
  *   - rejectBankMovement añade prefix "[RECHAZADO] " a la description si se pasa reason.
  *   - El webhook NO requiere JWT. gymId viene en body.gymId o body.metadata.gymId.
- *   - La firma HMAC se valida solo si el header fintoc-signature está presente.
- *     Si NO hay firma → pasa (modo sin secret). Si hay firma + secret → debe coincidir.
+ *   - La firma HMAC-SHA256 (header fintoc-signature) es obligatoria y se valida con el
+ *     webhookSecret del gym (paymentGateways.fintoc.webhookSecret). Sin firma o sin
+ *     secret configurado → 401: el gymId del body solo es confiable si viene firmado.
  */
 
 import crypto from 'crypto'
@@ -1362,14 +1363,36 @@ describe('Fintoc: PATCH /api/payments/fintoc/movements/:id/reject', () => {
 
 describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempotencia', () => {
   let app: FastifyInstance
+  const WEBHOOK_SECRET = 'test-fintoc-webhook-secret'
+
+  // Envía el payload firmado con HMAC-SHA256 (mismo string que se firma y se envía)
+  const postSigned = (payload: unknown, secret = WEBHOOK_SECRET) => {
+    const bodyStr = JSON.stringify(payload)
+    return app.inject({
+      method: 'POST',
+      url: '/api/payments/webhook/fintoc',
+      headers: {
+        'content-type': 'application/json',
+        'fintoc-signature': crypto.createHmac('sha256', secret).update(bodyStr).digest('hex'),
+      },
+      payload: bodyStr,
+    })
+  }
 
   beforeAll(async () => {
     app = await buildApp()
     // Asegurar FintocLink en gymA para que el webhook pueda importar movimientos
     await ensureFintocLink(gymAId)
+    await prisma.gym.update({
+      where: { id: gymAId },
+      data: { paymentGateways: { fintoc: { webhookSecret: WEBHOOK_SECRET } } as any },
+    })
   })
 
-  afterAll(async () => { await app.close() })
+  afterAll(async () => {
+    await prisma.gym.update({ where: { id: gymAId }, data: { paymentGateways: {} } })
+    await app.close()
+  })
 
   it('body sin gymId → 400 "gymId requerido en payload"', async () => {
     const res = await app.inject({
@@ -1384,13 +1407,9 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
 
   it('gymId en body.gymId → 200 (procesa correctamente)', async () => {
     const ts = Date.now()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/webhook/fintoc',
-      payload: {
-        gymId: gymAId,
-        movements: [{ id: `mv_webhook_direct_${ts}`, amount: 5000, post_date: '2026-05-05' }],
-      },
+    const res = await postSigned({
+      gymId: gymAId,
+      movements: [{ id: `mv_webhook_direct_${ts}`, amount: 5000, post_date: '2026-05-05' }],
     })
 
     expect(res.statusCode).toBe(200)
@@ -1404,13 +1423,9 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
 
   it('gymId en body.metadata.gymId → 200', async () => {
     const ts = Date.now()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/webhook/fintoc',
-      payload: {
-        metadata: { gymId: gymAId },
-        movements: [{ id: `mv_webhook_meta_${ts}`, amount: 6000, post_date: '2026-05-05' }],
-      },
+    const res = await postSigned({
+      metadata: { gymId: gymAId },
+      movements: [{ id: `mv_webhook_meta_${ts}`, amount: 6000, post_date: '2026-05-05' }],
     })
 
     expect(res.statusCode).toBe(200)
@@ -1421,7 +1436,7 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
     if (mv) createdBankMovementIds.push(mv.id)
   })
 
-  it('sin header fintoc-signature → pasa sin error (modo sin secret)', async () => {
+  it('sin header fintoc-signature → 401 y no importa movimientos', async () => {
     const ts = Date.now()
     const res = await app.inject({
       method: 'POST',
@@ -1432,11 +1447,26 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
       },
     })
 
-    // Sin firma, sin secret configurado → pasa
-    expect(res.statusCode).toBe(200)
-
+    expect(res.statusCode).toBe(401)
     const mv = await prisma.bankMovement.findUnique({ where: { fintocMovementId: `mv_webhook_nosig_${ts}` } })
-    if (mv) createdBankMovementIds.push(mv.id)
+    expect(mv).toBeNull()
+  })
+
+  it('gym sin webhookSecret configurado → 401 aunque venga firmado', async () => {
+    await prisma.gym.update({ where: { id: gymAId }, data: { paymentGateways: {} } })
+    const ts = Date.now()
+    const res = await postSigned({
+      gymId: gymAId,
+      movements: [{ id: `mv_webhook_nosecret_${ts}`, amount: 7500, post_date: '2026-05-05' }],
+    })
+    await prisma.gym.update({
+      where: { id: gymAId },
+      data: { paymentGateways: { fintoc: { webhookSecret: WEBHOOK_SECRET } } as any },
+    })
+
+    expect(res.statusCode).toBe(401)
+    const mv = await prisma.bankMovement.findUnique({ where: { fintocMovementId: `mv_webhook_nosecret_${ts}` } })
+    expect(mv).toBeNull()
   })
 
   it('firma HMAC-SHA256 válida + gym con webhookSecret → 200', async () => {
@@ -1471,8 +1501,10 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
     const mv = await prisma.bankMovement.findUnique({ where: { fintocMovementId: `mv_webhook_valid_sig_${ts}` } })
     if (mv) createdBankMovementIds.push(mv.id)
 
-    // Limpiar configuración del gym
-    await prisma.gym.update({ where: { id: gymAId }, data: { paymentGateways: {} } })
+    await prisma.gym.update({
+      where: { id: gymAId },
+      data: { paymentGateways: { fintoc: { webhookSecret: WEBHOOK_SECRET } } as any },
+    })
   })
 
   it('firma HMAC-SHA256 inválida + gym con webhookSecret → 401', async () => {
@@ -1499,8 +1531,10 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
     expect(res.statusCode).toBe(401)
     expect(res.json().error).toMatch(/firma fintoc inválida/i)
 
-    // Limpiar
-    await prisma.gym.update({ where: { id: gymAId }, data: { paymentGateways: {} } })
+    await prisma.gym.update({
+      where: { id: gymAId },
+      data: { paymentGateways: { fintoc: { webhookSecret: WEBHOOK_SECRET } } as any },
+    })
   })
 
   it('idempotencia: mismo movimiento enviado dos veces por webhook → imported:1 la primera, imported:0 la segunda', async () => {
@@ -1512,17 +1546,8 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
       movements: [{ id: movementId, amount: 9000, post_date: '2026-05-05' }],
     }
 
-    const res1 = await app.inject({
-      method: 'POST',
-      url: '/api/payments/webhook/fintoc',
-      payload,
-    })
-
-    const res2 = await app.inject({
-      method: 'POST',
-      url: '/api/payments/webhook/fintoc',
-      payload,
-    })
+    const res1 = await postSigned(payload)
+    const res2 = await postSigned(payload)
 
     expect(res1.statusCode).toBe(200)
     expect(res1.json().imported).toBe(1)
@@ -1539,32 +1564,28 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
     if (mv) createdBankMovementIds.push(mv.id)
   })
 
-  it('gymId inexistente (gym no encontrado) → 400 (FintocLink no existe)', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/webhook/fintoc',
-      payload: {
-        gymId: '00000000-0000-0000-0000-000000000000',
-        movements: [{ id: `mv_webhook_nogym_${Date.now()}`, amount: 1000, post_date: '2026-05-05' }],
-      },
+  it('gymId inexistente → 401 (no hay secret con qué validar la firma)', async () => {
+    const res = await postSigned({
+      gymId: '00000000-0000-0000-0000-000000000000',
+      movements: [{ id: `mv_webhook_nogym_${Date.now()}`, amount: 1000, post_date: '2026-05-05' }],
     })
 
-    // importFintocMovements lanza "No hay link Fintoc configurado" → 400
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('payload firmado para otro gym no sirve para gymA (firma con otro secret) → 401', async () => {
+    const res = await postSigned(
+      { gymId: gymAId, movements: [{ id: `mv_webhook_othersecret_${Date.now()}`, amount: 1000, post_date: '2026-05-05' }] },
+      'secret-de-otro-gym',
+    )
+    expect(res.statusCode).toBe(401)
   })
 
   it('webhook con movements vacíos → 200 (importFintocMovements con array vacío)', async () => {
     // El handler llama a handleFintocWebhook que llama a importFintocMovements con []
     // importFintocMovements necesita el FintocLink pero con [] no itera
     // OJO: importFintocMovements igual hace la verificación del link primero
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/webhook/fintoc',
-      payload: {
-        gymId: gymAId,
-        movements: [],
-      },
-    })
+    const res = await postSigned({ gymId: gymAId, movements: [] })
 
     // Con gymAId que tiene link → 200, imported: 0, skipped: 0
     expect(res.statusCode).toBe(200)
