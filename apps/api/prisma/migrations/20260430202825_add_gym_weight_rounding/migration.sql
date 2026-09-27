@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Gym" ADD COLUMN     "weightRounding" DOUBLE PRECISION NOT NULL DEFAULT 2.5;

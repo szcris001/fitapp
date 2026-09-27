@@ -2,7 +2,10 @@ import { prisma } from '../../lib/prisma'
 import { CreateRmInput, CreateGymnasticProgressInput } from './rm.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 
-export async function getRmsByUser(userId: string) {
+export async function getRmsByUser(userId: string, gymId: string) {
+  const targetUser = await prisma.user.findFirst({ where: { id: userId, gymId }, select: { id: true } })
+  if (!targetUser) return null
+
   const records = await prisma.rmRecord.findMany({
     where: { userId },
     orderBy: { recordedAt: 'desc' },
@@ -30,7 +33,7 @@ export async function getRmsByUser(userId: string) {
 }
 
 export async function createRm(userId: string, gymId: string, data: CreateRmInput) {
-  const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
+  const user = await prisma.user.findFirst({ where: { id: userId, gymId }, select: { id: true } })
   if (!user) throw new Error('Usuario no encontrado')
 
   try {
@@ -75,7 +78,10 @@ export async function getGymRmEvolution(gymId: string) {
   }))
 }
 
-export async function getGymnasticProgressByUser(userId: string) {
+export async function getGymnasticProgressByUser(userId: string, gymId: string) {
+  const targetUser = await prisma.user.findFirst({ where: { id: userId, gymId }, select: { id: true } })
+  if (!targetUser) return null
+
   const records = await prisma.gymnasticProgress.findMany({
     where: { userId },
     orderBy: { achievedAt: 'desc' },
@@ -101,7 +107,7 @@ export async function createGymnasticProgress(
   gymId: string,
   data: CreateGymnasticProgressInput,
 ) {
-  const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
+  const user = await prisma.user.findFirst({ where: { id: userId, gymId }, select: { id: true } })
   if (!user) throw new Error('Usuario no encontrado')
 
   try {

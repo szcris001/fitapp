@@ -7,16 +7,20 @@ import {
   getGymnasticProgressByUser, createGymnasticProgress,
 } from './rm.service'
 import { prismaErrorMessage } from '../../lib/prismaError'
+import { safeResolvePath } from '../../lib/safe-path'
 
 export async function rmRoutes(app: FastifyInstance) {
   app.get('/rms/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
-    return reply.send(await getRmsByUser(user.userId))
+    return reply.send(await getRmsByUser(user.userId, user.gymId))
   })
 
   app.get('/rms/user/:userId', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
     const { userId } = request.params as any
-    return reply.send(await getRmsByUser(userId))
+    const result = await getRmsByUser(userId, user.gymId)
+    if (result === null) return reply.status(404).send({ error: 'Usuario no encontrado' })
+    return reply.send(result)
   })
 
   app.post('/rms/me', { preHandler: authenticate }, async (request, reply) => {
@@ -98,12 +102,15 @@ export async function rmRoutes(app: FastifyInstance) {
 
   app.get('/gymnastic-progress/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
-    return reply.send(await getGymnasticProgressByUser(user.userId))
+    return reply.send(await getGymnasticProgressByUser(user.userId, user.gymId))
   })
 
   app.get('/gymnastic-progress/user/:userId', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
     const { userId } = request.params as any
-    return reply.send(await getGymnasticProgressByUser(userId))
+    const result = await getGymnasticProgressByUser(userId, user.gymId)
+    if (result === null) return reply.status(404).send({ error: 'Usuario no encontrado' })
+    return reply.send(result)
   })
 
   app.post('/gymnastic-progress/me', { preHandler: authenticate }, async (request, reply) => {
@@ -132,7 +139,13 @@ export async function rmRoutes(app: FastifyInstance) {
       const path = await import('path')
       const uploadsDir = path.join(process.cwd(), 'uploads', 'evidence')
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
-      const ext = path.extname(data.filename) || '.jpg'
+      // Extensión según el MIME declarado, nunca según el nombre que envía el cliente
+      const EVIDENCE_MIME: Record<string, string> = {
+        'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+        'video/mp4': '.mp4', 'video/quicktime': '.mov',
+      }
+      const ext = EVIDENCE_MIME[data.mimetype]
+      if (!ext) return reply.status(400).send({ error: 'Formato no permitido (JPG, PNG, GIF, MP4 o MOV)' })
       const filename = `evidence_${id}_${Date.now()}${ext}`
       const filepath = path.join(uploadsDir, filename)
       await new Promise<void>((resolve, reject) => {
@@ -159,12 +172,32 @@ export async function rmRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/uploads/evidence/:filename', async (request, reply) => {
+  // Las evidencias son privadas: requieren autenticación y pertenencia al userId
+  app.get('/uploads/evidence/:filename', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
     const { filename } = request.params as any
     const fs = await import('fs')
     const path = await import('path')
-    const filepath = path.join(process.cwd(), 'uploads', 'evidence', filename)
+
+    const baseDir = path.resolve(process.cwd(), 'uploads', 'evidence')
+    const filepath = safeResolvePath(baseDir, filename)
+    if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+
+    // Solo se sirven archivos evidence_<progressId>_<ts>.<ext>: el dueño de la progresión,
+    // o COACH/ADMIN del mismo gym que el dueño
+    const match = /^evidence_([^_]+)_/.exec(filename)
+    if (!match) return reply.status(403).send({ error: 'Acceso denegado' })
+    const isStaff = ['ADMIN', 'SUPER_ADMIN', 'COACH'].includes(user.role)
+    const progress = await prisma.gymnasticProgress.findFirst({
+      where: isStaff
+        ? { id: match[1], user: { gymId: user.gymId } }
+        : { id: match[1], userId: user.userId },
+      select: { id: true },
+    })
+    if (!progress || (isStaff && !user.gymId)) return reply.status(403).send({ error: 'Acceso denegado' })
+
     if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
+
     const ext = path.extname(filename).toLowerCase()
     const mimeTypes: Record<string, string> = {
       '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',

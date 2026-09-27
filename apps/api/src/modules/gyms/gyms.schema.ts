@@ -58,6 +58,8 @@ export const updateGymSchema = z.object({
   dteDireccion: z.string().optional(),
   dteComuna: z.string().optional(),
   dteCiudad: z.string().optional(),
+  // Configuración de pesos
+  weightRounding: z.number().positive().optional(),
   // Asistencia
   attendanceMode: z.enum(['manual', 'auto', 'qr', 'geo']).optional(),
   gymLat: z.number().optional().nullable(),

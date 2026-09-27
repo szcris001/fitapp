@@ -7,3 +7,41 @@ allowBuilds:
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+
+# Parches de seguridad en dependencias transitivas (pnpm audit). Solo versiones
+# patch/minor dentro del mismo major; revisar y quitar cuando los paquetes padre
+# las incluyan.
+overrides:
+  undici@7: ">=7.29.0 <8"
+  undici@6: ">=6.27.0 <7"
+  postcss@8: ">=8.5.18 <9"
+  picomatch@2: ">=2.3.2 <3"
+  picomatch@4: ">=4.0.4 <5"
+  brace-expansion@1: ">=1.1.16 <2"
+  brace-expansion@2: ">=2.1.2 <3"
+  brace-expansion@5: ">=5.0.9 <6"
+  fast-uri@3: ">=3.1.6 <4"
+  lodash@4: ">=4.18.0 <5"
+  shell-quote@1: ">=1.9.0 <2"
+  tar@7: ">=7.5.21 <8"
+  ws@8: ">=8.21.0 <9"
+  ws@7: ">=7.5.11 <8"
+  ws@6: ">=6.2.4 <7"
+  nanoid@3: ">=3.3.18 <4"
+  js-yaml@4: ">=4.3.0 <5"
+  js-yaml@3: ">=3.15.1 <4"
+  form-data@4: ">=4.0.6 <5"
+  "@xmldom/xmldom@0.8": ">=0.8.13 <0.9"
+  browserslist@4: ">=4.28.7 <5"
+  mysql2@3: ">=3.22.0 <4"
+
+# Excepciones de pnpm audit (revisar en cada actualización de prisma/expo):
+# - GHSA-ggr8-5vv4-36mx deepmerge-ts: solo lo usa el CLI de Prisma al leer
+#   prisma.config.ts (archivo propio); el fix requiere deepmerge-ts 8 y prisma 7 usa 7.
+# - GHSA-5p2g-fcmc-qvqq / GHSA-w3rx-r6r6-pgpr image-size: lo usa metro (bundler de
+#   mobile) sobre los assets del propio repo; el fix requiere image-size 2.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-ggr8-5vv4-36mx
+    - GHSA-5p2g-fcmc-qvqq
+    - GHSA-w3rx-r6r6-pgpr

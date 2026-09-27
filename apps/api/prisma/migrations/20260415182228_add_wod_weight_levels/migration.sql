@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "WodMovement" ADD COLUMN     "weightRookieF" DOUBLE PRECISION,
+ADD COLUMN     "weightRookieM" DOUBLE PRECISION,
+ADD COLUMN     "weightScaleF" DOUBLE PRECISION,
+ADD COLUMN     "weightScaleM" DOUBLE PRECISION;

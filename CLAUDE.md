@@ -97,11 +97,101 @@ PostgreSQL 16 managed by Prisma. Key models: `Gym`, `User`, `Plan`, `Membership`
 
 Migrations live in `apps/api/prisma/migrations/`. Always run `prisma migrate dev` from `apps/api/`.
 
-## Environment Variables
+## Reglas de Seguridad Obligatorias
+
+Estas reglas aplican a **todos los agentes** que toquen código de la API. Violarlas es un bug de seguridad, no un bug de negocio.
+
+### Multi-tenancy — REGLA NÚMERO 1
+
+**Toda query Prisma en `apps/api/src/modules/` DEBE incluir `gymId` en el `where`.**
+
+```typescript
+// ✅ CORRECTO
+prisma.user.findMany({ where: { gymId: user.gymId, ... } })
+
+// ❌ INCORRECTO — expone datos de todos los gyms
+prisma.user.findMany({ where: { email } })
+```
+
+Excepción: `auth/`, `superadmin/`, y tablas globales (`Gym`, `Movement`).
+
+Verificar antes de cada PR:
+```bash
+grep -rn "prisma\.\(findMany\|findFirst\|update\|delete\)" apps/api/src/modules/ | grep -v "gymId\|userId\|superadmin\|auth"
+```
+Cualquier resultado es un bug de seguridad.
+
+### Row Level Security — defensa en profundidad
+
+RLS está aplicado en PostgreSQL (detalle: `docs/SECURITY.md` §7). No reemplaza la regla anterior.
+- La app se conecta como `fitapp_app` (sin superusuario ni BYPASSRLS). Migraciones, seeds y scripts de admin usan `DATABASE_ADMIN_URL`.
+- Cada request autenticado con gym corre sus queries con ese gym (`lib/tenant-hook.ts` + `TenantAwarePool` en `lib/prisma.ts`). Código de sistema sin request (cron, webhooks, callbacks, login) corre en bypass.
+- **Tabla nueva con datos de un gym** → en la misma migración: `ENABLE`/`FORCE ROW LEVEL SECURITY` + `CREATE POLICY tenant_isolation` (ver `20260927010000_rls_enforced`) + caso en `src/lib/__tests__/rls.integration.test.ts`.
+- Las queries de Prisma son perezosas: si se arma una query fuera del request y se ejecuta después, corre con el contexto del `await`, no con el de su creación.
+
+Setup local tras `docker-compose up`: `pnpm prisma migrate deploy` y `npx ts-node src/scripts/setup-app-db-role.ts` (en `apps/api`).
+
+### Autenticación en endpoints
+
+- **Todo endpoint** de negocio debe tener `{ preHandler: authenticate }` o un middleware más restrictivo.
+- **Archivos estáticos** (`/uploads/`, evidencias, avatares) **no son públicos** — deben validar JWT.
+  - Para `<img src>` (no envía headers) usar el **token de medios**: `authenticateMedia` en la API y `mediaUrl(path)` en web/mobile. Ese token (`scope: 'media'`) solo sirve para `/uploads`; `authenticate` lo rechaza.
+  - Única excepción pública: `/uploads/assets/` (assets de plataforma, se ven antes del login).
+- Nunca asumir que una URL de archivo es secreta por ser larga o aleatoria.
+
+### Parámetros del body vs JWT
+
+**Nunca usar `gymId` o `userId` que vengan del body/params del cliente para autorizar acceso.**
+
+```typescript
+// ✅ CORRECTO — gymId del JWT, no del cliente
+const gymId = request.user.gymId
+
+// ❌ INCORRECTO — el cliente controla a qué gym accede
+const gymId = request.body.gymId
+```
+
+Si el body incluye `coachId`, `classTypeId`, `planId` u otros IDs de recursos, **siempre verificar** que pertenecen al mismo `gymId`:
+```typescript
+const coach = await prisma.user.findFirst({ where: { id: body.coachId, gymId: user.gymId } })
+if (!coach) return reply.status(403).send({ error: 'No autorizado' })
+```
+
+### JWT
+
+- Todo `jwt.sign()` **DEBE incluir `expiresIn`**. Sin expiración = token eterno = riesgo crítico.
+- El token solo lleva: `{ userId, gymId, role }`. Sin datos sensibles.
+
+### Servir archivos estáticos
+
+Usar siempre la función `safeResolvePath(base, filename)` de `src/lib/safe-path.ts`:
+```typescript
+// ✅ CORRECTO
+const filePath = safeResolvePath(uploadsDir, filename)
+
+// ❌ INCORRECTO — path traversal: ../../.env
+const filePath = path.join(uploadsDir, filename)
+```
+
+### SUPER_ADMIN
+
+- `requireAdmin` acepta SUPER_ADMIN pero **solo cuando tiene `gymId` en el JWT** (post switch-sede).
+- SUPER_ADMIN con `gymId: null` solo puede acceder a rutas `/superadmin/*`.
+- Nunca usar `user.gymId` de un SUPER_ADMIN sin verificar que no es `null`.
+
+### Rate limiting en auth
+
+Los endpoints `POST /auth/login`, `POST /auth/register`, `POST /auth/refresh` deben tener `authRateLimit` aplicado. No agregar nuevos endpoints de auth sin rate limit.
+
+---
+
+
 
 **`apps/api/.env`**
 ```
-DATABASE_URL="postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"
+DATABASE_ADMIN_URL="postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"   # migraciones, seeds
+DATABASE_URL="postgresql://fitapp_app:<APP_DB_PASSWORD>@localhost:5432/fitapp_dev" # la app (sujeta a RLS)
+APP_DB_PASSWORD="..."
 JWT_SECRET="..."
 PORT=3001
 STRIPE_SECRET_KEY="sk_test_..."

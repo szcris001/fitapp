@@ -1,0 +1,21 @@
+# MEMORY.md
+
+- [testing_auth_gotchas.md](testing_auth_gotchas.md) — Gotchas y patrones al testear auth con fastify.inject() en FitHub
+- [buildapp_pattern.md](buildapp_pattern.md) — Patrón buildApp() validado para integration tests de Fastify en FitHub
+- [multitenancy_findings.md](multitenancy_findings.md) — Hallazgos multi-tenancy: 24 tests, 0 vulns, patrones de protección confirmados
+- [seed_benchmarks_findings.md](seed_benchmarks_findings.md) — Seed idempotente confirmado, gotcha Prisma OR+null en no-nullable, estrategia execSync para scripts auto-ejecutables
+- [transfer_flow_findings.md](transfer_flow_findings.md) — Transfer bancaria: 23 tests verdes, gotcha multipart vs inject(), estrategia service-directo para file upload, cross-gym protection confirmada
+- [fintoc_pay_findings.md](fintoc_pay_findings.md) — Fintoc Pay by Bank: gotcha Prisma client no regenerado post-migración, patrón vi.spyOn fetch, firma HMAC siempre requerida en webhook, UUID todos-ceros para "plan no existe"
+- [flow_chile_findings.md](flow_chile_findings.md) — Flow Chile: bug seguridad callback no valida userId cross-gym, mockImplementationOnce para capturar body form-urlencoded, patrón verificación firma HMAC
+- [khipu_findings.md](khipu_findings.md) — Khipu: bug khipuSign lanza con secret=undefined, enabled:true siempre requerido, firma en header Authorization (no campo body), rawBody incluye gymId+planId+userId
+- [mercadopago_findings.md](mercadopago_findings.md) — Mercado Pago: arquitectura multi-gym en webhook, ruta devuelve {ok:true} ignorando return service, firma global vs per-gym, idempotencia mp:{paymentId}
+- [mach_findings.md](mach_findings.md) — MACH Business: external_id por prefix (sin tabla de intents), Bearer token en webhook, early return antes de validar token si status != PAID/COMPLETED, no mockear fetch en webhook
+- [payu_findings.md](payu_findings.md) — PayU LATAM: checkout sin fetch externo (único entre pasarelas), transactionState string '4', gymId/planId/userId en query string del callback, 2 bugs seguridad (sign opcional, userId cross-gym)
+- [openpay_findings.md](openpay_findings.md) — OpenPay: callback GET redirect (no POST, sin firma), Basic Auth base64(privateKey:), idempotencia por charge.id, array vs objeto en getStatus, 0 bugs
+- [kushki_findings.md](kushki_findings.md) — Kushki: bug cross-gym sin pasarela activa no lanza error, mapeo 401 incompleto para "no tiene formato JWT", makeKushkiToken sintético, params en query no body, status ausente activa membresía
+- [e2e_critical_flow_findings.md](e2e_critical_flow_findings.md) — E2E flujo crítico: gotcha timezone dayRange vs POST /wods string date, getGym() no incluye status en select, buildApp() necesita todos los módulos del flujo
+- [email_module_findings.md](email_module_findings.md) — Email module: gotcha hoisting vi.mock() impide referenciar vars del scope, patrón currentSendMail por beforeEach, vi.restoreAllMocks() no afecta vi.mock(), subject sendExpiryReminder no incluye planName
+- [push_module_findings.md](push_module_findings.md) — Push notifications: vi.hoisted() obligatorio cuando cliente se instancia en top-level del módulo, MockExpo con static isExpoPushToken + instance methods, swallow silencioso, múltiples chunks con mockReturnValueOnce
+- [superadmin_findings.md](superadmin_findings.md) — Superadmin: SUPER_ADMIN sin DB (solo JWT), mock payments.service para evitar Stripe, orden cleanup gymSubscription antes de gym, PATCH status→400 (no 404) en gym inexistente
+- [ai_retention_findings.md](ai_retention_findings.md) — IA retención: vi.hoisted() obligatorio para Anthropic top-level, beforeEach por suite para defaults distintos (insights vs projection), daysLeft tolerancia ±1 día, getOrCreatePlan cache, inactive basta con no crear membresía
+- [e2e_web_playwright_findings.md](e2e_web_playwright_findings.md) — E2E Playwright web: Zustand race condition en Next.js App Router, solución loginUI+SPA navigation, sidebar=<button> no <a>, labels sin htmlFor=getByPlaceholder, strict mode violation getByText, .env.e2e manual

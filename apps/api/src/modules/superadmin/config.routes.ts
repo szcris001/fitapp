@@ -1,16 +1,9 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
-import { authenticate } from '../../middlewares/auth.middleware'
-import nodemailer from 'nodemailer'
+import { requireSuperAdmin } from '../../middlewares/auth.middleware'
+import nodemailer, { type Transporter } from 'nodemailer'
 
-
-async function requireSuperAdmin(request: any, reply: any) {
-  await authenticate(request, reply)
-  if ((request.user as any).role !== 'SUPER_ADMIN') {
-    return reply.status(403).send({ error: 'Acceso solo para super administrador' })
-  }
-}
 
 const SETTINGS_ID = 'system'
 
@@ -80,7 +73,7 @@ export async function platformConfigRoutes(app: FastifyInstance) {
 
     let previewUrl: string | undefined
 
-    let transporter: nodemailer.Transporter
+    let transporter: Transporter
     if (!user || !pass) {
       const testAccount = await nodemailer.createTestAccount()
       transporter = nodemailer.createTransport({

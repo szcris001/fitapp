@@ -1,7 +1,10 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
+import rateLimit from '@fastify/rate-limit'
 import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
+import { safeResolvePath } from './lib/safe-path'
 import dotenv from 'dotenv'
 import path from 'path'
 import fs from 'fs'
@@ -26,55 +29,116 @@ import { skillRoutes } from './modules/gyms/skills.routes'
 import { benchmarkRoutes } from './modules/analytics/benchmark.routes'
 import { startCronJobs } from './lib/cron'
 import { requireActiveGym } from './middlewares/auth.middleware'
+import { mediaRoutes } from './modules/media/media.routes'
+import { registerTenantContext } from './lib/tenant-hook'
 
 dotenv.config()
 
-const app = Fastify({ logger: true })
-
-app.register(cors, {
-  origin: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-})
-app.register(jwt, { secret: process.env.JWT_SECRET || 'fallback_secret' })
-app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
-
-const serveDirFile = (dir: string) => async (request: any, reply: any) => {
-  const { filename } = request.params as any
-  const filepath = path.join(process.cwd(), 'uploads', dir, filename)
-  if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
-  const ext = path.extname(filename).toLowerCase()
-  const mimeTypes: Record<string, string> = {
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
-    '.html': 'text/html',
-  }
-  reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream')
-  reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
-  return reply.send(fs.createReadStream(filepath))
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET no configurado. La API no puede iniciar sin un secreto seguro.')
+  process.exit(1)
 }
 
-app.get('/uploads/avatars/:filename', serveDirFile('avatars'))
-app.get('/uploads/assets/:filename', serveDirFile('assets'))
+const app = Fastify({ logger: true })
 
-app.get('/uploads/:filename', async (request, reply) => {
-  const { filename } = request.params as any
-  const filepath = path.join(process.cwd(), 'uploads', filename)
-  if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
-  const ext = path.extname(filename).toLowerCase()
-  const mimeTypes: Record<string, string> = {
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
-  }
-  reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream')
-  reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
-  return reply.send(fs.createReadStream(filepath))
+// ── Cabeceras de seguridad HTTP ───────────────────────────────────────────────
+app.register(helmet, {
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  // Permite que browsers carguen imágenes y assets desde otro origen (web→API)
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
 })
 
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// origin: true en producción abre la API a cualquier dominio → CRÍTICO.
+// En producción sólo se acepta FRONTEND_URL; en dev se permiten localhost/*.
+app.register(cors, {
+  origin: (origin, callback) => {
+    const frontendUrl = process.env.FRONTEND_URL
+
+    // Requests sin origin = app móvil nativa, curl, servidor a servidor → permitir
+    if (!origin) return callback(null, true)
+
+    // En desarrollo: permitir localhost Y cualquier IP de red local (WebViews en Expo)
+    if (process.env.NODE_ENV !== 'production') {
+      if (/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+        return callback(null, true)
+      }
+    }
+
+    // En producción: solo el dominio de frontend configurado
+    if (frontendUrl && origin === frontendUrl) return callback(null, true)
+
+    callback(new Error(`CORS: origen no permitido — ${origin}`), false)
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  maxAge: 86400,
+})
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+app.register(rateLimit, {
+  global: true,
+  max: 120,
+  timeWindow: '1 minute',
+  keyGenerator: (req) => req.ip,
+  errorResponseBuilder: () => ({
+    statusCode: 429,
+    error: 'Too Many Requests',
+    message: 'Demasiadas solicitudes. Espera un momento e intenta de nuevo.',
+  }),
+})
+
+app.register(jwt, { secret: process.env.JWT_SECRET })
+app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
+
+// ─── rawBody support para webhooks de Stripe ─────────────────────────────────
+// stripe.webhooks.constructEvent() requiere el payload original como Buffer.
+// Fastify lo parsea a JSON antes de que llegue al handler, perdiendo los bytes
+// originales. Sobrescribimos el parser de application/json para preservar
+// el rawBody en request.rawBody antes de parsear.
+// IMPORTANTE: si @fastify/rawbody existiera en npm, se usaría ese plugin.
+// Como no existe, usamos addContentTypeParser directamente.
+app.addContentTypeParser(
+  'application/json',
+  { parseAs: 'buffer' },
+  function (req: any, body: Buffer, done: (err: Error | null, body?: unknown) => void) {
+    req.rawBody = body
+    if (!body || body.length === 0) {
+      done(null, null)
+      return
+    }
+    try {
+      done(null, JSON.parse(body.toString()))
+    } catch (err: any) {
+      // JSON inválido — dejar pasar como null (la ruta/handler lo manejará)
+      done(null, null)
+    }
+  },
+)
+
+// ── Error handler seguro (sin stack traces en producción) ────────────────────
+app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
+  const isProd = process.env.NODE_ENV === 'production'
+  const status = error.statusCode ?? 500
+  app.log.error({ err: error, status }, error.message)
+  reply.status(status).send({
+    statusCode: status,
+    error: isProd && status >= 500 ? 'Error interno del servidor' : error.message,
+    ...(isProd ? {} : { stack: error.stack }),
+  })
+})
+
+app.register(mediaRoutes)
 
 app.get('/movements/:filename', async (request, reply) => {
   const { filename } = request.params as any
-  const filepath = path.join(process.cwd(), 'public', 'movements', filename)
+  const baseDir = path.resolve(process.cwd(), 'public', 'movements')
+  const resolvedFilepath = safeResolvePath(baseDir, filename)
+  if (!resolvedFilepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+  const filepath = resolvedFilepath
   if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Movimiento no encontrado' })
   reply.header('Content-Type', 'image/gif')
   reply.header('Cache-Control', 'public, max-age=86400')
@@ -83,9 +147,26 @@ app.get('/movements/:filename', async (request, reply) => {
 
 app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 
-// Bloquear gimnasios con suscripción vencida en todas las rutas autenticadas
+// /healthz — health check para reverse proxy y monitoreo de plataforma.
+// Valida que Postgres responda antes de reportar healthy.
+app.get('/healthz', async (_request, reply) => {
+  try {
+    const { prisma } = await import('./lib/prisma')
+    await prisma.$queryRaw`SELECT 1`
+    return reply.status(200).send({ status: 'ok', db: 'ok', timestamp: new Date().toISOString() })
+  } catch (err) {
+    app.log.error({ err }, 'healthz: db check failed')
+    return reply.status(503).send({ status: 'error', db: 'unreachable', timestamp: new Date().toISOString() })
+  }
+})
+
+// ── Contexto de tenant para RLS ───────────────────────────────────────────────
+// Cada request autenticado con gym corre sus queries bajo RLS (lib/tenant-hook.ts);
+// el filtro gymId explícito en los services sigue siendo obligatorio (CLAUDE.md).
+registerTenantContext(app)
+
+// ── Hook global: gym activo ───────────────────────────────────────────────────
 app.addHook('preHandler', async (request, reply) => {
-  // Solo aplica a rutas /api/ con token JWT presente
   if (!request.url.startsWith('/api/') || !request.headers.authorization) return
   try {
     await request.jwtVerify()

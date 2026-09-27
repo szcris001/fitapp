@@ -1,11 +1,25 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { loginSchema } from './auth.schema'
-import { loginUser, forgotPassword, resetPassword } from './auth.service'
+import {
+  loginUser,
+  forgotPassword,
+  resetPassword,
+  createRefreshToken,
+  rotateRefreshToken,
+  revokeRefreshToken,
+} from './auth.service'
 import { authenticate } from '../../middlewares/auth.middleware'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
+import { signMediaToken } from '../../lib/media-token'
+
+const refreshBodySchema = z.object({
+  refreshToken: z.string().min(1),
+  // Sede activa tras /gyms/switch-sede; se revalida contra la DB antes de usarla
+  gymId: z.string().min(1).optional(),
+})
 
 const forgotSchema = z.object({
   email: z.string().email(),
@@ -18,19 +32,77 @@ const resetSchema = z.object({
 })
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post('/auth/login', async (request, reply) => {
+  // Rate limit en rutas sensibles: más permisivo en dev para no bloquear pruebas
+  const isDev = process.env.NODE_ENV !== 'production'
+  const authRateLimit = {
+    config: {
+      rateLimit: { max: isDev ? 50 : 10, timeWindow: '15 minutes' },
+    },
+  }
+
+  app.post('/auth/login', { ...authRateLimit }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
       const user = await loginUser(parsed.data)
-      const token = app.jwt.sign(user)
-      return reply.status(200).send({ token, user })
+      // El JWT solo lleva { userId, gymId, role }; el perfil completo va en `user`
+      const token = app.jwt.sign(
+        { userId: user.userId, gymId: user.gymId, role: user.role },
+        { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' },
+      )
+      const refreshToken = await createRefreshToken(user.userId)
+      const mediaToken = signMediaToken(app, user)
+      return reply.status(200).send({ token, refreshToken, mediaToken, user })
     } catch (err: any) {
       return reply.status(401).send({ error: err.message })
     }
   })
 
-  app.post('/auth/forgot-password', async (request, reply) => {
+  app.post('/auth/refresh', { ...authRateLimit }, async (request, reply) => {
+    const parsed = refreshBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      const { userId, newRaw } = await rotateRefreshToken(parsed.data.refreshToken)
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, gymId: true, role: true, email: true },
+      })
+      if (!user) return reply.status(401).send({ error: 'Sesión inválida' })
+
+      let payload: { userId: string; gymId: string | null; role: string } =
+        { userId: user.id, gymId: user.gymId, role: user.role }
+
+      // Mantener la sede elegida con switch-sede, solo si el admin sigue siendo su dueño
+      const requestedGymId = parsed.data.gymId
+      if (requestedGymId && requestedGymId !== user.gymId) {
+        const sede = await prisma.gym.findUnique({
+          where: { id: requestedGymId },
+          select: { ownerEmail: true, status: true },
+        })
+        const canAccess = ['ADMIN', 'SUPER_ADMIN'].includes(user.role)
+          && sede?.ownerEmail === user.email
+          && sede.status !== 'SUSPENDED'
+        if (!canAccess) return reply.status(401).send({ error: 'Ya no tienes acceso a esta sede' })
+        // Mismo rol que emite /gyms/switch-sede
+        payload = { userId: user.id, gymId: requestedGymId, role: 'ADMIN' }
+      }
+
+      const token = app.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
+      return reply.status(200).send({ token, refreshToken: newRaw, mediaToken: signMediaToken(app, payload) })
+    } catch (err: any) {
+      return reply.status(401).send({ error: err.message })
+    }
+  })
+
+  app.post('/auth/logout', { preHandler: authenticate }, async (request, reply) => {
+    const parsed = refreshBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    const { userId } = request.user as any
+    await revokeRefreshToken(userId, parsed.data.refreshToken)
+    return reply.status(200).send({ message: 'Sesión cerrada correctamente' })
+  })
+
+  app.post('/auth/forgot-password', { ...authRateLimit }, async (request, reply) => {
     const parsed = forgotSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     // Always return 200 to avoid email enumeration
@@ -72,7 +144,11 @@ export async function authRoutes(app: FastifyInstance) {
     if (phone !== undefined) updateData.phone = phone
 
     if (email && email !== user.email) {
-      const existing = await prisma.user.findFirst({ where: { email, NOT: { id: userId } } })
+      // Verificar unicidad solo dentro del mismo gimnasio (multi-tenancy)
+      // El email puede existir en otro gym — eso es válido por diseño
+      const existing = await prisma.user.findFirst({
+        where: { email, gymId: user.gymId ?? null, NOT: { id: userId } },
+      })
       if (existing) return reply.status(400).send({ error: 'El email ya está en uso' })
       updateData.email = email
     }
@@ -99,7 +175,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send(updated)
   })
 
-  app.post('/auth/reset-password', async (request, reply) => {
+  app.post('/auth/reset-password', { ...authRateLimit }, async (request, reply) => {
     const parsed = resetSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {

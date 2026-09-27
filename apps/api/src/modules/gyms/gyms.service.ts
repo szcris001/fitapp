@@ -44,6 +44,16 @@ export async function getGym(gymId: string) {
       dteDireccion: true,
       dteComuna: true,
       dteCiudad: true,
+      // Configuración de pesos
+      weightRounding: true,
+      status: true,
+      attendanceMode: true,
+      bankAccount: true,
+      movementLibrary: true,
+      timezone: true,
+      waitlistConfirmEnabled: true,
+      waitlistConfirmMins: true,
+      sportTheme: true,
     },
   })
   if (!gym) throw new Error('Gimnasio no encontrado')

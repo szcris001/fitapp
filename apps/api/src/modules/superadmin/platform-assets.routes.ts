@@ -1,15 +1,9 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { MultipartFile } from '@fastify/multipart'
-import { authenticate } from '../../middlewares/auth.middleware'
+import { requireSuperAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
 import path from 'path'
 import fs from 'fs'
-
-async function requireSuperAdmin(request: any, reply: any) {
-  await authenticate(request, reply)
-  if ((request.user as any).role !== 'SUPER_ADMIN')
-    return reply.status(403).send({ error: 'Acceso solo para super administrador' })
-}
 
 // Slots configurables — cada uno describe dónde se usa y el tamaño recomendado
 export const ASSET_SLOTS = [
@@ -47,6 +41,21 @@ export async function platformAssetsRoutes(app: FastifyInstance) {
     const assets = await prisma.platformAsset.findMany()
     const map: Record<string, string> = {}
     for (const a of assets) map[a.key] = `${a.url}?v=${new Date(a.updatedAt).getTime()}`
+
+    // Complementar con archivos en disco que no tienen registro en DB
+    const EXTS = ['.png', '.webp', '.svg', '.jpg', '.jpeg', '.html']
+    for (const slot of ASSET_SLOTS) {
+      if (map[slot.key]) continue
+      for (const ext of EXTS) {
+        const fp = path.join(uploadsDir, `${slot.key}${ext}`)
+        if (fs.existsSync(fp)) {
+          const stat = fs.statSync(fp)
+          map[slot.key] = `/uploads/assets/${slot.key}${ext}?v=${stat.mtimeMs}`
+          break
+        }
+      }
+    }
+
     return reply.send({ assets: map, slots: ASSET_SLOTS })
   })
 

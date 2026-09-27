@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Auditoría de dependencias (CVEs High/Critical) ─────────────────────────
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4  # versión: packageManager del package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high
+
+  # ─── Lint (raíz, aplica a toda la monorepo) ──────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4  # versión: packageManager del package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run lint
+        run: pnpm lint
+
+  # ─── Tests de API (PostgreSQL + Redis reales; la app corre como fitapp_app, bajo RLS) ─
+  test-api:
+    name: Test API
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fitapp
+          POSTGRES_PASSWORD: fitapp123
+          POSTGRES_DB: fitapp_dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fitapp -d fitapp_dev"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      # Admin: migraciones y seeds. App: rol fitapp_app sin superusuario (RLS efectivo)
+      DATABASE_ADMIN_URL: "postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"
+      DATABASE_URL: "postgresql://fitapp_app:ci-app-password@localhost:5432/fitapp_dev"
+      APP_DB_PASSWORD: "ci-app-password"
+      REDIS_URL: "redis://localhost:6379"
+      JWT_SECRET: "ci-test-secret-do-not-use-in-prod"
+      NODE_ENV: test
+      PORT: 3001
+      # Claves de pago ficticias para los tests con mocks
+      STRIPE_SECRET_KEY: "sk_test_placeholder"
+      STRIPE_WEBHOOK_SECRET: "whsec_placeholder"
+      ANTHROPIC_API_KEY: "sk-ant-placeholder"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4  # versión: packageManager del package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: pnpm prisma generate
+
+      - name: Migrate DB and enable app role
+        working-directory: apps/api
+        run: |
+          pnpm prisma migrate deploy
+          pnpm exec ts-node src/scripts/setup-app-db-role.ts
+
+      - name: Run tests
+        working-directory: apps/api
+        run: pnpm test
+
+  # ─── Build API ────────────────────────────────────────────────────────────────
+  build-api:
+    name: Build API
+    runs-on: ubuntu-latest
+    needs: [test-api]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4  # versión: packageManager del package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: pnpm prisma generate
+
+      - name: Build
+        working-directory: apps/api
+        run: pnpm build
+
+  # ─── Build Web ────────────────────────────────────────────────────────────────
+  build-web:
+    name: Build Web
+    runs-on: ubuntu-latest
+    env:
+      # Next.js necesita la URL de la API en build time aunque sea placeholder
+      NEXT_PUBLIC_API_URL: "https://api.fithub.app/api"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4  # versión: packageManager del package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web
+        working-directory: apps/web
+        run: pnpm build

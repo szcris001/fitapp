@@ -3,39 +3,52 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').cpSync('src/generated', 'dist/generated', { recursive: true })\"",
     "start": "node dist/index.js",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
-    "@fastify/cors": "latest",
-    "@fastify/jwt": "latest",
-    "@fastify/multipart": "latest",
-    "@fastify/static": "^9.0.0",
-    "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "latest",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/jwt": "^10.2.2",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/rate-limit": "^11.2.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "@prisma/client-runtime-utils": "7.5.0",
+    "@sentry/node": "^8.0.0",
     "@stripe/stripe-js": "^8.11.0",
     "@types/node-cron": "^3.0.11",
-    "@types/nodemailer": "^7.0.11",
-    "bcryptjs": "latest",
-    "dotenv": "latest",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.3.1",
     "expo-server-sdk": "^6.1.0",
-    "fastify": "latest",
+    "fastify": "^5.12.5",
+    "ioredis": "^5.11.1",
+    "mercadopago": "^3.0.0",
     "node-cron": "^4.2.1",
-    "nodemailer": "^8.0.4",
+    "nodemailer": "^10.0.11",
+    "pg": "8.20.0",
     "stripe": "^20.4.1",
-    "zod": "latest"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "nodemon": "latest",
-    "prisma": "latest",
-    "ts-node": "latest",
-    "typescript": "latest"
+    "@types/node": "^25.5.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "nodemon": "^3.1.14",
+    "prisma": "^7.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1",
+    "vitest": "^4.1.5"
   },
   "packageManager": "pnpm@10.32.1"
 }
