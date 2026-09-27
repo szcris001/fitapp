@@ -584,31 +584,55 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
     expect(res.json().error).toMatch(/no habilitada/i)
   })
 
-  it('transactionStatus ausente (body solo con ticketNumber) → activa membresía (status undefined !== APPROVAL es falsy)', async () => {
-    // El service: if (transactionStatus && transactionStatus !== 'APPROVAL') throw ...
-    // Si transactionStatus es undefined → condición es falsa → no lanza → activa membresía
+  it('transactionStatus ausente → 400 y no activa membresía', async () => {
     const ticketNumber = 'tk_no_status_004'
     await createKushkiCheckoutRecord(ticketNumber, memberAId, planAId, gymAId)
-    const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
 
     const res = await app.inject({
       method: 'POST',
       url: '/api/payments/callback/kushki',
-      headers: { 'x-kushki-token': validToken },
-      payload: { ticketNumber },
-      // transactionStatus no enviado
+      headers: { 'x-kushki-token': makeKushkiToken(PRIVATE_MERCHANT_ID) },
+      payload: { ticketNumber }, // sin transactionStatus
     })
 
-    // Sin transactionStatus → la condición `transactionStatus && ... !== APPROVAL` es falsa → 200
-    expect(res.statusCode).toBe(200)
-    expect(res.json().ok).toBe(true)
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/no aprobado \(sin estado\)/)
+    expect(await prisma.membership.findFirst({ where: { paymentNotes: `kushki:${ticketNumber}` } })).toBeNull()
+  })
 
-    // Verificar membresía creada
-    const membership = await prisma.membership.findFirst({
-      where: { userId: memberAId, paymentNotes: `kushki:${ticketNumber}` },
+  it('monto informado distinto al del checkout → 400', async () => {
+    const ticketNumber = 'tk_amount_005'
+    await createKushkiCheckoutRecord(ticketNumber, memberAId, planAId, gymAId)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/payments/callback/kushki',
+      headers: { 'x-kushki-token': makeKushkiToken(PRIVATE_MERCHANT_ID) },
+      payload: { ticketNumber, transactionStatus: 'APPROVAL', amount: { subtotalIva0: 1 } },
     })
-    if (membership) createdMembershipIds.push(membership.id)
-    expect(membership).not.toBeNull()
-    expect(membership!.status).toBe('ACTIVE')
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/monto pagado no coincide/i)
+  })
+
+  it('gym con Kushki habilitado pero sin privateMerchantId → rechaza el callback', async () => {
+    const gym = await prisma.gym.findUniqueOrThrow({ where: { id: gymAId } })
+    const original = gym.paymentGateways
+    await prisma.gym.update({
+      where: { id: gymAId },
+      data: { paymentGateways: { ...(original as any), kushki: { enabled: true } } },
+    })
+    const ticketNumber = 'tk_no_merchant_006'
+    await createKushkiCheckoutRecord(ticketNumber, memberAId, planAId, gymAId)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/payments/callback/kushki',
+      payload: { ticketNumber, transactionStatus: 'APPROVAL' },
+    })
+    await prisma.gym.update({ where: { id: gymAId }, data: { paymentGateways: original as any } })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/sin privateMerchantId/)
   })
 })
