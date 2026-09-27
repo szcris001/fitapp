@@ -1,0 +1,19 @@
+# Contexto = raíz del monorepo (docker build -f apps/web/Dockerfile .)
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+.git
+*.AppImage
+*.flatpakrepo
+apps/web/playwright-report
+apps/web/test-results
+apps/web/playwright
+# De api y mobile solo se necesita el package.json (el lockfile los incluye)
+apps/api/*
+!apps/api/package.json
+apps/mobile/*
+!apps/mobile/package.json

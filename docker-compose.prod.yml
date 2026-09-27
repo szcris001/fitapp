@@ -1,4 +1,3 @@
-version: "3.9"
 
 # Docker Compose para producción (VPS / servidor propio).
 # Si usas Railway, Render o Vercel, NO necesitas este archivo —
@@ -7,7 +6,8 @@ version: "3.9"
 # Uso:
 #   cp .env.production.example .env.production
 #   # editar .env.production con valores reales
-#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+#   (--env-file es necesario: las ${VARIABLES} de este archivo salen de .env.production)
 #
 # Dominios — editar nginx/nginx.conf antes de levantar.
 
@@ -52,8 +52,9 @@ services:
   # ─── API (Fastify) ──────────────────────────────────────────────────────────
   api:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      # Contexto = raíz del monorepo (workspace + lockfile)
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: fithub_api_prod
     restart: unless-stopped
     env_file: .env.production
@@ -73,9 +74,10 @@ services:
       - "3001"
     volumes:
       # Uploads persistentes (comprobantes, avatares)
-      - uploads_data:/app/uploads
+      - uploads_data:/app/apps/api/uploads
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      # node:alpine no trae curl; wget viene en busybox
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -84,11 +86,15 @@ services:
   # ─── Web (Next.js) ──────────────────────────────────────────────────────────
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Next la incrusta en el bundle del navegador en tiempo de build
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     container_name: fithub_web_prod
     restart: unless-stopped
-    env_file: .env.production
+    # Sin env_file: la web solo usa NEXT_PUBLIC_API_URL (build arg) y no debe
+    # recibir secretos del backend (DB, JWT, pasarelas)
     environment:
       NODE_ENV: production
     depends_on:

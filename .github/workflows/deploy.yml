@@ -65,7 +65,7 @@ jobs:
       #     script: |
       #       cd /opt/fithub
       #       git pull origin master
-      #       docker compose -f docker-compose.prod.yml up -d --build api
+      #       bash scripts/deploy.sh   # usa --env-file .env.production y migra como admin
 
       - name: Deploy API (placeholder)
         run: |
