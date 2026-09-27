@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
 import api from '../../lib/api'
+import { isCoachAllowedPath } from '../../lib/coach-access'
 import OnboardingWizard from './onboarding/OnboardingWizard'
 import CommandPalette from './components/CommandPalette'
 
@@ -106,6 +107,11 @@ const allNavItems: NavItem[] = [
     ],
   },
 ]
+
+const coachAllowedHrefs = allNavItems
+  .flatMap(item => [item, ...(item.children ?? [])])
+  .filter(item => item.coachAllowed)
+  .map(item => item.href)
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loadFromStorage, logout, switchSede } = useAuthStore()
@@ -269,19 +275,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       children: item.children?.filter(child => isAdmin || child.coachAllowed),
     }))
 
+  // COACH: lista de permitidos. Antes era una lista de prohibidos armada desde el menú,
+  // y las páginas fuera del menú (/dashboard/payments, /dashboard/evolution…) quedaban abiertas.
   useEffect(() => {
     if (!user || !isCoach) return
-    // Verificar items top-level restringidos
-    const restrictedTopLevel = allNavItems.find(
-      item => !item.coachAllowed && item.href !== '/dashboard' && pathname.startsWith(item.href)
-    )
-    if (restrictedTopLevel) { router.push('/dashboard'); return }
-    // Verificar children restringidos
-    const allChildren = allNavItems.flatMap(i => i.children ?? [])
-    const restrictedChild = allChildren.find(
-      c => pathname.startsWith(c.href) && c.href !== '/dashboard' && !c.coachAllowed
-    )
-    if (restrictedChild) router.push('/dashboard')
+    if (!isCoachAllowedPath(pathname, coachAllowedHrefs)) router.push('/dashboard')
   }, [pathname, user])
 
   const toggleCollapsed = () => {
