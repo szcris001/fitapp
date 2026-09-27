@@ -1,13 +1,16 @@
+# Build desde la raíz del monorepo:
+#   docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=... .
+
 # ── Stage 1: dependencias ─────────────────────────────────────────────────────
 FROM node:20-alpine AS deps
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/web/package.json ./apps/web/
-RUN mkdir -p apps/api apps/mobile && \
-    echo '{"name":"@fitapp/api","version":"0.0.0"}' > apps/api/package.json && \
-    echo '{"name":"@fitapp/mobile","version":"0.0.0"}' > apps/mobile/package.json
+# Manifiestos reales del resto del workspace: el lockfile los incluye
+COPY apps/api/package.json ./apps/api/
+COPY apps/mobile/package.json ./apps/mobile/
 
 RUN pnpm install --frozen-lockfile --filter @fitapp/web...
 

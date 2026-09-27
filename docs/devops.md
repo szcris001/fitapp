@@ -63,8 +63,8 @@ Archivo: `docker-compose.prod.yml`
 Servicios:
 - `postgres` — PostgreSQL 16, volumen persistente, no expuesto al exterior
 - `redis` — Redis 7 con password, volumen persistente, no expuesto al exterior
-- `api` — Fastify, imagen construida desde `apps/api/Dockerfile`
-- `web` — Next.js, imagen construida desde `apps/web/Dockerfile`
+- `api` — Fastify, imagen desde `apps/api/Dockerfile` (contexto: raíz del monorepo). Corre como `node`; al arrancar migra con `DATABASE_ADMIN_URL`, habilita `fitapp_app` y lanza la API sin las credenciales de admin. Uploads en el volumen `/app/apps/api/uploads`.
+- `web` — Next.js standalone, imagen desde `apps/web/Dockerfile` (contexto: raíz). `NEXT_PUBLIC_API_URL` se pasa como build arg; el contenedor no recibe secretos del backend.
 - `nginx` — Reverse proxy, SSL con Let's Encrypt
 - `certbot` — Renovacion automatica de certificados
 
@@ -72,14 +72,18 @@ Comandos:
 ```bash
 # Primera vez
 cp .env.production.example .env.production
-# editar .env.production
-docker compose -f docker-compose.prod.yml up -d
+# editar .env.production (no se versiona: está en .gitignore)
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 
 # Deploy manual
 bash scripts/deploy.sh
 
 # Ver logs
-docker compose -f docker-compose.prod.yml logs -f api
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f api
+
+# Build de una imagen suelta (siempre desde la raíz)
+docker build -f apps/api/Dockerfile -t fitapp-api .
+docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=https://api.dominio.com/api -t fitapp-web .
 ```
 
 **IMPORTANTE:** Editar `nginx/nginx.conf` y reemplazar `dominio.com` con el dominio real antes del primer deploy.

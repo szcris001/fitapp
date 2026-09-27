@@ -44,3 +44,6 @@ apps/web/public/videos/*
 **/playwright/.auth/
 **/playwright-report/
 **/test-results/
+
+# Secretos de producción
+.env.production

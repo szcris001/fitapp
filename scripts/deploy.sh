@@ -17,6 +17,8 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/fithub}"
 COMPOSE_FILE="docker-compose.prod.yml"
+# --env-file: las ${VARIABLES} del compose (DB_USER, APP_DB_PASSWORD, NEXT_PUBLIC_API_URL…)
+COMPOSE="docker compose --env-file .env.production -f $COMPOSE_FILE"
 SKIP_BUILD="${1:-}"
 
 echo "=== FitHub Deploy ==="
@@ -35,14 +37,14 @@ echo "Commit actual: $(git rev-parse --short HEAD)"
 # ─── 2. Instalar dependencias ────────────────────────────────────────────────
 echo ""
 echo "--- [2/5] Instalando dependencias..."
-# pnpm debe estar instalado en el host. Si no: npm install -g pnpm@9
+# pnpm debe estar en el host (versión de "packageManager": corepack enable)
 pnpm install --frozen-lockfile
 
 # ─── 3. Build de imágenes Docker ─────────────────────────────────────────────
 if [ "$SKIP_BUILD" != "--skip-build" ]; then
     echo ""
     echo "--- [3/5] Construyendo imagenes Docker..."
-    docker compose -f "$COMPOSE_FILE" build --no-cache api web
+    $COMPOSE build --no-cache api web
 else
     echo ""
     echo "--- [3/5] Build omitido (--skip-build)"
@@ -53,19 +55,19 @@ echo ""
 echo "--- [4/5] Aplicando migraciones de Prisma..."
 # Correr las migraciones dentro del contenedor de API antes de reiniciarlo.
 # Si la DB no está up todavía, levantar solo postgres primero.
-docker compose -f "$COMPOSE_FILE" up -d postgres redis
+$COMPOSE up -d postgres redis
 sleep 5  # Dar tiempo al healthcheck de postgres
 
 # DATABASE_ADMIN_URL y APP_DB_PASSWORD vienen del environment del servicio api (compose)
-docker compose -f "$COMPOSE_FILE" run --rm api \
-    sh -c "cd /app && npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js"
+$COMPOSE run --rm api \
+    sh -c "npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js"
 
 echo "Migraciones aplicadas."
 
 # ─── 5. Reiniciar servicios ───────────────────────────────────────────────────
 echo ""
 echo "--- [5/5] Reiniciando servicios..."
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+$COMPOSE up -d --remove-orphans
 
 echo ""
 echo "=== Deploy completado ==="
