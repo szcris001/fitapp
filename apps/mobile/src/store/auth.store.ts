@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
-import api from '../lib/api'
+import api, { loadMediaToken, setMediaToken } from '../lib/api'
 
 interface User {
   userId: string
@@ -62,6 +62,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const token = await AsyncStorage.getItem('fitapp_token')
     const refreshToken = await AsyncStorage.getItem('fitapp_refresh_token')
     const userStr = await AsyncStorage.getItem('fitapp_user')
+    await loadMediaToken()
     if (token && userStr) {
       set({ token, refreshToken: refreshToken ?? null, user: JSON.parse(userStr) })
     }
@@ -101,6 +102,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })
     }
     await AsyncStorage.multiRemove(['fitapp_token', 'fitapp_refresh_token', 'fitapp_user'])
+    await setMediaToken(null)
     set({ user: null, token: null, refreshToken: null })
   },
 }))

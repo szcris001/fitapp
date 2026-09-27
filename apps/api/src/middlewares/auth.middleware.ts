@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../lib/prisma'
+import { MEDIA_SCOPE } from '../lib/media-token'
 
 // Rutas permitidas aunque el gym esté suspendido (pago + lectura básica de suscripción)
 const ALLOWED_SUSPENDED_PATHS = [
@@ -16,6 +17,29 @@ function isSuspendedAllowed(url: string) {
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   try {
     await request.jwtVerify()
+  } catch {
+    return reply.status(401).send({ error: 'Token inválido o expirado' })
+  }
+  // Un token de medios (?t= en URLs de imágenes) solo sirve para leer /uploads
+  if ((request.user as any)?.scope === MEDIA_SCOPE) {
+    return reply.status(401).send({ error: 'Token inválido o expirado' })
+  }
+}
+
+/**
+ * Acceso a archivos de /uploads desde <img src> (que no puede enviar headers):
+ * acepta el token de medios en `?t=` o el JWT normal en Authorization.
+ */
+export async function authenticateMedia(request: FastifyRequest, reply: FastifyReply) {
+  const t = (request.query as { t?: string } | undefined)?.t
+  try {
+    if (t) {
+      const payload = request.server.jwt.verify<{ scope?: string }>(t)
+      if (payload.scope !== MEDIA_SCOPE) throw new Error('scope')
+      request.user = payload as any
+    } else {
+      await request.jwtVerify()
+    }
   } catch {
     return reply.status(401).send({ error: 'Token inválido o expirado' })
   }

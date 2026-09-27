@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
-import api, { API_BASE } from '../../../../lib/api'
+import api, { mediaUrl } from '../../../../lib/api'
 import { CF_MOVEMENTS } from '../../../../lib/movements'
 import {
   ChevronLeft, ChevronRight,
@@ -1321,7 +1321,7 @@ export function ClassPanel({
                   <div className="w-px self-stretch shrink-0 ml-auto" style={{ backgroundColor: 'var(--border-1)' }} />
                   <div className="flex items-center gap-2 shrink-0">
                     {cls.coach.avatarUrl ? (
-                      <img src={`${API_BASE}${cls.coach.avatarUrl}`} alt={cls.coach.name}
+                      <img src={mediaUrl(cls.coach.avatarUrl)} alt={cls.coach.name}
                         className="w-7 h-7 rounded-full object-cover shrink-0"
                         onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement)?.style.setProperty('display', 'flex') }} />
                     ) : null}
@@ -1572,7 +1572,7 @@ export function ClassPanel({
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
                       style={{ backgroundColor: b.status === 'ATTENDED' ? '#dcfce740' : 'transparent' }}>
                       {b.user?.avatarUrl ? (
-                        <img src={`${API_BASE}${b.user.avatarUrl}`} alt={b.user.name}
+                        <img src={mediaUrl(b.user.avatarUrl)} alt={b.user.name}
                           className="w-8 h-8 rounded-full object-cover shrink-0"
                           onError={e => { const el = e.currentTarget; el.style.display = 'none'; (el.nextElementSibling as HTMLElement)?.style.setProperty('display', 'flex') }} />
                       ) : null}

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { API_BASE } from '../lib/api'
+import { API_BASE, mediaUrl } from '../lib/api'
 import { useAuthStore } from '../store/auth.store'
 
 interface PlatformAssets {
@@ -56,7 +56,7 @@ export function PlatformAssetsProvider({ children }: { children: React.ReactNode
     })
       .then(r => r.json())
       .then(data => ({
-        gymLogoUrl: data.logoUrl ? `${API_BASE}${data.logoUrl}` : null,
+        gymLogoUrl: data.logoUrl ? mediaUrl(data.logoUrl) : null,
         gymName: data.name ?? null,
       }))
       .then(gymData => { if (!cancelled) setAssets(prev => ({ ...prev, ...gymData })) })

@@ -29,6 +29,7 @@ import { skillRoutes } from './modules/gyms/skills.routes'
 import { benchmarkRoutes } from './modules/analytics/benchmark.routes'
 import { startCronJobs } from './lib/cron'
 import { requireActiveGym } from './middlewares/auth.middleware'
+import { mediaRoutes } from './modules/media/media.routes'
 
 dotenv.config()
 
@@ -129,42 +130,7 @@ app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) =>
   })
 })
 
-const serveDirFile = (dir: string) => async (request: any, reply: any) => {
-  const { filename } = request.params as any
-  const baseDir = path.resolve(process.cwd(), 'uploads', dir)
-  const filepath = safeResolvePath(baseDir, filename)
-  if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
-  if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
-  const ext = path.extname(filename).toLowerCase()
-  const mimeTypes: Record<string, string> = {
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
-    '.html': 'text/html',
-  }
-  reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream')
-  reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
-  return reply.send(fs.createReadStream(filepath))
-}
-
-app.get('/uploads/avatars/:filename', serveDirFile('avatars'))
-app.get('/uploads/assets/:filename', serveDirFile('assets'))
-
-app.get('/uploads/:filename', async (request, reply) => {
-  const { filename } = request.params as any
-  const baseDir = path.resolve(process.cwd(), 'uploads')
-  const filepath = safeResolvePath(baseDir, filename)
-  if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
-  if (!fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
-  const ext = path.extname(filename).toLowerCase()
-  const mimeTypes: Record<string, string> = {
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
-  }
-  reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream')
-  reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
-  return reply.send(fs.createReadStream(filepath))
-})
-
+app.register(mediaRoutes)
 
 app.get('/movements/:filename', async (request, reply) => {
   const { filename } = request.params as any

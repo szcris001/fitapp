@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
-import api, { API_BASE } from '../../../lib/api'
+import api, { mediaUrl } from '../../../lib/api'
 import {
   Building2, Plus, ArrowRight, CheckCircle, AlertCircle,
   MapPin, Users, X,
@@ -218,7 +218,7 @@ export default function SedesPage() {
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
                       style={{ background: 'var(--gradient-btn)' }}>
                       {sede.logoUrl
-                        ? <img src={`${API_BASE}${sede.logoUrl}`} alt="" className="w-full h-full object-cover" />
+                        ? <img src={mediaUrl(sede.logoUrl)} alt="" className="w-full h-full object-cover" />
                         : sede.name[0]}
                     </div>
                     <div>

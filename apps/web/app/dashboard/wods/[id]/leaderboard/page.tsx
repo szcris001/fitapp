@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useAuthStore } from '../../../../../store/auth.store'
-import api from '../../../../../lib/api'
+import api, { mediaUrl } from '../../../../../lib/api'
 import { ChevronLeft, Plus, Trophy, Clock, Dumbbell, RotateCcw, X, Search } from 'lucide-react'
 
 /* ─── Types ─────────────────────────────────────── */
@@ -292,7 +292,6 @@ function RankBadge({ rank }: { rank: number }) {
 
 /* ─── Entry row ──────────────────────────────────── */
 function EntryRow({ entry, scoreType }: { entry: LeaderboardEntry; scoreType: string }) {
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? 'http://localhost:3001'
   const initials = entry.user.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 
   return (
@@ -308,7 +307,7 @@ function EntryRow({ entry, scoreType }: { entry: LeaderboardEntry; scoreType: st
       <div className="relative shrink-0">
         {entry.user.avatarUrl ? (
           <img
-            src={`${API_BASE}${entry.user.avatarUrl}`}
+            src={mediaUrl(entry.user.avatarUrl)}
             alt={entry.user.name}
             className="w-9 h-9 rounded-full object-cover"
           />

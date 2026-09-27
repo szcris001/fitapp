@@ -6,6 +6,29 @@ const API_URL = `${API_BASE}/api`
 
 const api = axios.create({ baseURL: API_URL })
 
+// ── Token de medios ───────────────────────────────────────────────────────────
+// login y refresh devuelven `mediaToken`: token de solo lectura para /uploads que va
+// en la URL de las imágenes. Se guarda en memoria para armar URLs en el render.
+let mediaToken: string | null = null
+
+export async function setMediaToken(token: string | null) {
+  mediaToken = token
+  if (token) await AsyncStorage.setItem('fitapp_media_token', token)
+  else await AsyncStorage.removeItem('fitapp_media_token')
+}
+
+export async function loadMediaToken() {
+  mediaToken = await AsyncStorage.getItem('fitapp_media_token')
+}
+
+// URL absoluta de un archivo subido (avatarUrl, logoUrl…) lista para <Image uri>
+export function mediaUrl(path?: string | null): string {
+  if (!path) return ''
+  // Los assets de plataforma son públicos
+  if (!path.startsWith('/uploads/') || path.startsWith('/uploads/assets/') || !mediaToken) return `${API_BASE}${path}`
+  return `${API_BASE}${path}${path.includes('?') ? '&' : '?'}t=${encodeURIComponent(mediaToken)}`
+}
+
 // ── Request interceptor: adjunta el access token a cada petición ──────────────
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem('fitapp_token')
@@ -25,7 +48,10 @@ interface RetryConfig extends AxiosRequestConfig {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  async (response) => {
+    if (response.data?.mediaToken) await setMediaToken(response.data.mediaToken)
+    return response
+  },
   async (error) => {
     const originalConfig: RetryConfig = error.config ?? {}
 
@@ -59,6 +85,7 @@ api.interceptors.response.use(
 
         const newToken: string = data.token
         const newRefreshToken: string = data.refreshToken
+        if (data.mediaToken) await setMediaToken(data.mediaToken)
 
         // Persistir en store y AsyncStorage
         await setTokens(newToken, newRefreshToken)

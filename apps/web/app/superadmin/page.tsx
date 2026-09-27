@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
-import api, { API_BASE } from '../../lib/api'
+import api, { mediaUrl } from '../../lib/api'
 import { Plus, Trash2, RotateCcw, AlertTriangle, Pencil } from 'lucide-react'
 
 export const PLAN_COLOR_PRESETS: Record<string, { bg: string; color: string }> = {
@@ -297,7 +297,7 @@ export default function SuperAdminPage() {
                           <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center text-sm font-bold shrink-0"
                             style={{ backgroundColor: tab === 'history' ? '#1e293b' : '#7c3aed', color: tab === 'history' ? '#64748b' : '#fff' }}>
                             {gym.logoUrl
-                              ? <img src={`${API_BASE}${gym.logoUrl}`} className="w-full h-full object-cover" alt="" />
+                              ? <img src={mediaUrl(gym.logoUrl)} className="w-full h-full object-cover" alt="" />
                               : gym.name[0]}
                           </div>
                           <div>

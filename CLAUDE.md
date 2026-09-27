@@ -125,6 +125,8 @@ Cualquier resultado es un bug de seguridad.
 
 - **Todo endpoint** de negocio debe tener `{ preHandler: authenticate }` o un middleware más restrictivo.
 - **Archivos estáticos** (`/uploads/`, evidencias, avatares) **no son públicos** — deben validar JWT.
+  - Para `<img src>` (no envía headers) usar el **token de medios**: `authenticateMedia` en la API y `mediaUrl(path)` en web/mobile. Ese token (`scope: 'media'`) solo sirve para `/uploads`; `authenticate` lo rechaza.
+  - Única excepción pública: `/uploads/assets/` (assets de plataforma, se ven antes del login).
 - Nunca asumir que una URL de archivo es secreta por ser larga o aleatoria.
 
 ### Parámetros del body vs JWT

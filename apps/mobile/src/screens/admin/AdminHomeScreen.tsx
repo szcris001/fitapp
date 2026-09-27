@@ -6,7 +6,7 @@ import {
 import { useAuthStore } from '../../store/auth.store'
 import { useTheme } from '../../theme/ThemeContext'
 import { usePlatformAssets } from '../../context/PlatformAssetsContext'
-import api, { API_BASE as API_URL } from '../../lib/api'
+import api, { API_BASE as API_URL, mediaUrl } from '../../lib/api'
 
 export default function AdminHomeScreen({ navigation }: any) {
   const { user } = useAuthStore()
@@ -104,7 +104,7 @@ export default function AdminHomeScreen({ navigation }: any) {
         <View style={s.gymHeader}>
           <View style={s.gymInfo}>
             {gym?.logoUrl ? (
-              <Image source={{ uri: `${API_URL}${gym.logoUrl}` }} style={s.gymLogo} />
+              <Image source={{ uri: mediaUrl(gym.logoUrl) }} style={s.gymLogo} />
             ) : (
               <View style={[s.gymLogoPlaceholder, { backgroundColor: c.primary + '25' }]}>
                 <Text style={[s.gymLogoText, { color: c.primary }]}>{gym?.name?.[0]}</Text>
