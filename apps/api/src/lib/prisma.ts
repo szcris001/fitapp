@@ -85,7 +85,13 @@ function inTransaction(params: object): boolean {
  * aunque vengan de requests distintos: la query combinada correría con el contexto
  * de uno solo. findFirst no se agrupa, así cada query usa el contexto de su request.
  */
-function withoutCrossRequestBatching(client: PrismaClient) {
+// passwordHash nunca sale de la base salvo que la query lo pida (omit: { passwordHash: false }):
+// solo login y cambio de contraseña lo necesitan
+const clientOptions = { omit: { user: { passwordHash: true } } } as const
+
+export function createPrismaClient(url: string) {
+  const adapter = new PrismaPg(new TenantAwarePool({ connectionString: url }))
+  const client = new PrismaClient({ adapter, ...clientOptions })
   const delegate = (model: string) => (client as any)[model.charAt(0).toLowerCase() + model.slice(1)]
   return client.$extends({
     name: 'no-cross-request-batching',
@@ -104,11 +110,6 @@ function withoutCrossRequestBatching(client: PrismaClient) {
       },
     },
   })
-}
-
-export function createPrismaClient(url: string) {
-  const adapter = new PrismaPg(new TenantAwarePool({ connectionString: url }))
-  return withoutCrossRequestBatching(new PrismaClient({ adapter }))
 }
 
 export type AppPrismaClient = ReturnType<typeof createPrismaClient>

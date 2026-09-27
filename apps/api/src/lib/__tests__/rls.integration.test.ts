@@ -166,6 +166,20 @@ describe('RLS — concurrencia y conexiones', () => {
   })
 })
 
+describe('passwordHash omitido globalmente', () => {
+  it('no aparece en queries directas ni en relaciones incluidas', async () => {
+    const direct = await prisma.user.findUnique({ where: { id: ids.userB } })
+    const nested = await prisma.membership.findUnique({ where: { id: ids.membershipB }, include: { user: true } })
+    expect(direct).not.toHaveProperty('passwordHash')
+    expect(nested!.user).not.toHaveProperty('passwordHash')
+  })
+
+  it('solo aparece si la query lo pide explícitamente', async () => {
+    const withHash = await prisma.user.findUnique({ where: { id: ids.userB }, omit: { passwordHash: false } })
+    expect(withHash!.passwordHash).toBe('x')
+  })
+})
+
 describe('RLS — requests HTTP', () => {
   it('un request con JWT del gym A solo ve datos del gym A aunque la ruta no filtre', async () => {
     const app = Fastify({ logger: false })

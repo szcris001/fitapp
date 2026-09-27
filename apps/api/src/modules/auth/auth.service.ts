@@ -138,6 +138,7 @@ export async function loginUser(data: LoginInput) {
   if (!data.gymSlug) {
     const superAdmin = await prisma.user.findFirst({
       where: { email: data.email, role: 'SUPER_ADMIN' },
+      omit: { passwordHash: false },
     })
     if (!superAdmin) throw new Error('Credenciales inválidas')
     const valid = await bcrypt.compare(data.password, superAdmin.passwordHash)
@@ -162,6 +163,7 @@ export async function loginUser(data: LoginInput) {
 
   const user = await prisma.user.findFirst({
     where: { gymId: gym.id, email: data.email },
+    omit: { passwordHash: false },
   })
 
   const valid = user ? await bcrypt.compare(data.password, user.passwordHash) : false
