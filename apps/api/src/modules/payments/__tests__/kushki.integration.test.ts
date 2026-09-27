@@ -366,11 +366,25 @@ describe('Kushki: POST /api/payments/checkout/kushki', () => {
     expect(sentBody.amount).toBeDefined()
     expect(sentBody.amount.subtotalIva0).toBeGreaterThan(0)
     expect(sentBody.currency).toBe('CLP')
-    expect(sentBody.callbackURL).toContain('gymId=')
-    expect(sentBody.callbackURL).toContain('planId=')
-    expect(sentBody.callbackURL).toContain('userId=')
+    // La URL de callback no lleva gymId/planId/userId: el servidor guarda el checkout
+    expect(sentBody.callbackURL).not.toContain('gymId=')
+    const checkout = await prisma.paymentCheckout.findUnique({
+      where: { gateway_externalRef: { gateway: 'kushki', externalRef: ticketNumber } },
+    })
+    expect(checkout).toMatchObject({ gymId: gymAId, userId: memberAId, planId: planAId })
+    expect(sentBody.callbackURL).not.toContain('planId=')
+    expect(sentBody.callbackURL).not.toContain('userId=')
   })
 })
+
+/** Checkout que el servidor guarda al iniciar el pago; el callback lo resuelve por ticketNumber */
+async function createKushkiCheckoutRecord(ticketNumber: string, userId = memberAId, planId = planAId, gymId = gymAId) {
+  const plan = await prisma.plan.findUniqueOrThrow({ where: { id: planId } })
+  await prisma.paymentCheckout.deleteMany({ where: { gateway: 'kushki', externalRef: ticketNumber } })
+  await prisma.paymentCheckout.create({
+    data: { gateway: 'kushki', externalRef: ticketNumber, gymId, userId, planId, amountCents: plan.priceCents, currency: plan.currency },
+  })
+}
 
 // ─── Suite 2: POST /payments/callback/kushki ──────────────────────────────────
 
@@ -389,32 +403,33 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
     }
   })
 
-  it('sin gymId en query → 400 (Gimnasio no encontrado)', async () => {
-    // Sin gymId la llamada a getGym(undefined) lanza "Gimnasio no encontrado"
+  it('ticketNumber sin checkout guardado → 400 "Checkout no encontrado"', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/payments/callback/kushki',
-      payload: { ticketNumber: 'tk001', transactionStatus: 'APPROVAL' },
+      payload: { ticketNumber: 'tk_sin_checkout', transactionStatus: 'APPROVAL' },
     })
     expect(res.statusCode).toBe(400)
-    expect(res.json().error).toBeDefined()
+    expect(res.json().error).toMatch(/Checkout no encontrado/i)
   })
 
-  it('gymId inexistente → 400', async () => {
+  it('gymId/planId/userId de la URL se ignoran: sin checkout no se activa nada', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/api/payments/callback/kushki?gymId=00000000-0000-0000-0000-000000000000&planId=00000000-0000-0000-0000-000000000001&userId=00000000-0000-0000-0000-000000000002',
-      payload: { ticketNumber: 'tk002', transactionStatus: 'APPROVAL' },
+      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      payload: { ticketNumber: 'tk_url_params_only', transactionStatus: 'APPROVAL' },
     })
     expect(res.statusCode).toBe(400)
+    expect(await prisma.membership.findFirst({ where: { paymentNotes: 'kushki:tk_url_params_only' } })).toBeNull()
   })
 
   it('sin header x-kushki-token cuando gym tiene privateMerchantId → 401', async () => {
+    await createKushkiCheckoutRecord('tk_no_token', memberAId, planAId, gymAId)
     // handleKushkiCallback: cfg.enabled && cfg.privateMerchantId → validateKushkiToken(undefined, ...)
     // → lanza "Falta header x-kushki-token" → ruta mapea a 401
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/kushki',
       // Sin header x-kushki-token
       payload: { ticketNumber: 'tk_no_token', transactionStatus: 'APPROVAL' },
     })
@@ -424,10 +439,11 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
   })
 
   it('token JWT con formato incorrecto (sin puntos) → 401', async () => {
+    await createKushkiCheckoutRecord('tk_bad_fmt', memberAId, planAId, gymAId)
     // Fix 2026-05-07: routes.ts ahora incluye "no tiene formato" en el mapeo a 401
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/kushki',
       headers: { 'x-kushki-token': 'notajwttoken' },
       payload: { ticketNumber: 'tk_bad_fmt', transactionStatus: 'APPROVAL' },
     })
@@ -436,11 +452,12 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
   })
 
   it('token JWT con merchantId incorrecto → 401', async () => {
+    await createKushkiCheckoutRecord('tk_wrong_merchant', memberAId, planAId, gymAId)
     const tokenWithWrongMerchant = makeKushkiToken('otro-merchant-diferente')
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/kushki',
       headers: { 'x-kushki-token': tokenWithWrongMerchant },
       payload: { ticketNumber: 'tk_wrong_merchant', transactionStatus: 'APPROVAL' },
     })
@@ -450,11 +467,12 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
   })
 
   it('transactionStatus distinto de APPROVAL (DECLINED) → 400 "Pago Kushki no aprobado"', async () => {
+    await createKushkiCheckoutRecord('tk_declined', memberAId, planAId, gymAId)
     const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/kushki',
       headers: { 'x-kushki-token': validToken },
       payload: { ticketNumber: 'tk_declined', transactionStatus: 'DECLINED' },
     })
@@ -465,11 +483,12 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
   })
 
   it('transactionStatus = FAILED → 400 "Pago Kushki no aprobado"', async () => {
+    await createKushkiCheckoutRecord('tk_failed', memberAId, planAId, gymAId)
     const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/kushki',
       headers: { 'x-kushki-token': validToken },
       payload: { ticketNumber: 'tk_failed', transactionStatus: 'FAILED' },
     })
@@ -480,11 +499,12 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
 
   it('éxito: token válido + APPROVAL → 200 + membresía ACTIVE + paymentNotes kushki:{ticketNumber}', async () => {
     const ticketNumber = 'tk_success_approved_001'
+    await createKushkiCheckoutRecord(ticketNumber, memberAId, planAId, gymAId)
     const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/kushki',
       headers: { 'x-kushki-token': validToken },
       payload: { ticketNumber, transactionStatus: 'APPROVAL' },
     })
@@ -508,9 +528,10 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
 
   it('idempotencia: mismo ticketNumber dos veces → 1 sola membresía', async () => {
     const ticketNumber = 'tk_idempotent_002'
+    await createKushkiCheckoutRecord(ticketNumber, memberAId, planAId, gymAId)
     const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
 
-    const callbackUrl = `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`
+    const callbackUrl = '/api/payments/callback/kushki'
     const payload = { ticketNumber, transactionStatus: 'APPROVAL' }
     const headers = { 'x-kushki-token': validToken }
 
@@ -548,12 +569,13 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
   })
 
   it('gymB sin Kushki habilitado → 400 "Pasarela Kushki no habilitada"', async () => {
+    await createKushkiCheckoutRecord('tk_cross_gym_003', memberBId, planAId, gymBId)
     // Fix 2026-05-07: handleKushkiCallback lanza si !cfg?.enabled
     const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymBId}&planId=${planAId}&userId=${memberBId}`,
+      url: '/api/payments/callback/kushki',
       headers: { 'x-kushki-token': validToken },
       payload: { ticketNumber: 'tk_cross_gym_003', transactionStatus: 'APPROVAL' },
     })
@@ -562,32 +584,16 @@ describe('Kushki: POST /api/payments/callback/kushki', () => {
     expect(res.json().error).toMatch(/no habilitada/i)
   })
 
-  it('plan inexistente (UUID válido, no existe en DB) → 400 "Plan no encontrado"', async () => {
-    // La validación del plan ocurre DESPUÉS de la validación del token Kushki
-    const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
-
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=00000000-0000-0000-0000-000000000000&userId=${memberAId}`,
-      headers: { 'x-kushki-token': validToken },
-      payload: { ticketNumber: 'tk_no_plan', transactionStatus: 'APPROVAL' },
-    })
-
-    expect(res.statusCode).toBe(400)
-    const body = res.json()
-    const errorMsg = typeof body.error === 'string' ? body.error : JSON.stringify(body.error)
-    expect(errorMsg).toMatch(/plan no encontrado/i)
-  })
-
   it('transactionStatus ausente (body solo con ticketNumber) → activa membresía (status undefined !== APPROVAL es falsy)', async () => {
     // El service: if (transactionStatus && transactionStatus !== 'APPROVAL') throw ...
     // Si transactionStatus es undefined → condición es falsa → no lanza → activa membresía
     const ticketNumber = 'tk_no_status_004'
+    await createKushkiCheckoutRecord(ticketNumber, memberAId, planAId, gymAId)
     const validToken = makeKushkiToken(PRIVATE_MERCHANT_ID)
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/kushki?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/kushki',
       headers: { 'x-kushki-token': validToken },
       payload: { ticketNumber },
       // transactionStatus no enviado

@@ -407,6 +407,15 @@ describe('Khipu: POST /api/payments/checkout/khipu', () => {
   })
 })
 
+/** Checkout que el servidor guarda al iniciar el pago; el callback lo resuelve por payment_id */
+async function createKhipuCheckoutRecord(paymentId: string, userId = memberAId, planId = planAId, gymId = gymAId) {
+  const plan = await prisma.plan.findUniqueOrThrow({ where: { id: planId } })
+  await prisma.paymentCheckout.deleteMany({ where: { gateway: 'khipu', externalRef: paymentId } })
+  await prisma.paymentCheckout.create({
+    data: { gateway: 'khipu', externalRef: paymentId, gymId, userId, planId, amountCents: plan.priceCents, currency: plan.currency },
+  })
+}
+
 // ─── Suite 2: POST /payments/callback/khipu ──────────────────────────────────
 
 describe('Khipu: POST /api/payments/callback/khipu', () => {
@@ -425,18 +434,12 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
   })
 
   // Test 8
-  it('sin query params (gymId, planId, userId ausentes) → 400', async () => {
-    // Body sin gymId/planId/userId — handleKhipuCallback recibe undefined para esos params
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/callback/khipu',
-      payload: { payment_id: 'kh_no_params' },
-    })
-    // getGym(undefined) lanzará → 400
+  it('payment_id sin checkout guardado → 400 "Checkout no encontrado"', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/payments/callback/khipu', payload: { payment_id: 'kh_no_checkout' } })
     expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Checkout no encontrado/i)
   })
 
-  // Test 9
   it('Khipu getPayment responde error (ok: false) → 400', async () => {
     // La firma es requerida si gym tiene secret — construimos firma válida
     const callbackBody = {
@@ -445,6 +448,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       userId: memberAId,
       payment_id: 'kh_get_fail',
     }
+    await createKhipuCheckoutRecord(callbackBody.payment_id, callbackBody.userId, callbackBody.planId, callbackBody.gymId)
     const sig = makeKhipuCallbackSig(callbackBody, KHIPU_SECRET)
 
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
@@ -472,6 +476,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       userId: memberAId,
       payment_id: 'kh_pending_001',
     }
+    await createKhipuCheckoutRecord(callbackBody.payment_id, callbackBody.userId, callbackBody.planId, callbackBody.gymId)
     const sig = makeKhipuCallbackSig(callbackBody, KHIPU_SECRET)
 
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
@@ -499,6 +504,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       userId: memberAId,
       payment_id: 'kh_no_sig',
     }
+    await createKhipuCheckoutRecord(callbackBody.payment_id, callbackBody.userId, callbackBody.planId, callbackBody.gymId)
 
     // NO enviamos x-khipu-signature — validateKhipuSignature lanzará "Falta header"
     const res = await app.inject({
@@ -522,6 +528,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       userId: memberAId,
       payment_id: 'kh_bad_sig',
     }
+    await createKhipuCheckoutRecord(callbackBody.payment_id, callbackBody.userId, callbackBody.planId, callbackBody.gymId)
 
     const res = await app.inject({
       method: 'POST',
@@ -545,6 +552,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       userId: memberAId,
       payment_id: paymentId,
     }
+    await createKhipuCheckoutRecord(callbackBody.payment_id, callbackBody.userId, callbackBody.planId, callbackBody.gymId)
     const sig = makeKhipuCallbackSig(callbackBody, KHIPU_SECRET)
 
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
@@ -585,6 +593,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       userId: memberAId,
       payment_id: paymentId,
     }
+    await createKhipuCheckoutRecord(callbackBody.payment_id, callbackBody.userId, callbackBody.planId, callbackBody.gymId)
     const sig = makeKhipuCallbackSig(callbackBody, KHIPU_SECRET)
 
     // Mockear fetch para las dos llamadas: checkout → getPayment x2
@@ -634,18 +643,20 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
   })
 
   // Test 15
-  it('[FIX-SEC] userId cross-gym → 400 (getUser valida que userId pertenezca al gymId)', async () => {
-    // Fix aplicado 2026-05-06: handleKhipuCallback llama getUser(userId, gymId) al inicio.
-    // memberB pertenece a gymB, no gymA → getUser lanza → 400
-
+  it('gymId/planId/userId del body se ignoran: el pago activa solo el checkout guardado', async () => {
     const paymentId = 'kh_cross_gym_003'
+    await createKhipuCheckoutRecord(paymentId) // checkout de memberA
     const callbackBody = {
       gymId: gymAId,
       planId: planAId,
-      userId: memberBId, // memberB pertenece a gymB, no gymA
+      userId: memberBId, // antes decidía a quién se activaba la membresía
       payment_id: paymentId,
     }
     const sig = makeKhipuCallbackSig(callbackBody, KHIPU_SECRET)
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'done', payment_id: paymentId, amount: 5000 }),
+    } as Response)
 
     const res = await app.inject({
       method: 'POST',
@@ -654,10 +665,11 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       payload: callbackBody,
     })
 
-    // getUser(memberBId, gymAId) lanza "Usuario no encontrado" → 400
-    expect(res.statusCode).toBe(400)
-    const body = res.json()
-    expect(body.error).toBeDefined()
+    expect(res.statusCode).toBe(200)
+    expect(await prisma.membership.findFirst({ where: { userId: memberBId, paymentNotes: `khipu:${paymentId}` } })).toBeNull()
+    const forA = await prisma.membership.findFirst({ where: { userId: memberAId, paymentNotes: `khipu:${paymentId}` } })
+    expect(forA).not.toBeNull()
+    createdMembershipIds.push(forA!.id)
   })
 
   // Test 16
@@ -694,6 +706,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       userId: memberC.id,
       payment_id: paymentId,
     }
+    await createKhipuCheckoutRecord(callbackBody.payment_id, callbackBody.userId, callbackBody.planId, callbackBody.gymId)
 
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,

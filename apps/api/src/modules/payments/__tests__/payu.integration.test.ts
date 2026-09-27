@@ -376,6 +376,14 @@ describe('PayU: POST /api/payments/checkout/payu', () => {
   })
 })
 
+/** Checkout que el servidor guarda al iniciar el pago; el callback lo resuelve por referenceCode */
+async function createPayUCheckoutRecord(referenceCode: string, userId = memberAId, planId = planAId, gymId = gymAId) {
+  const plan = await prisma.plan.findUniqueOrThrow({ where: { id: planId } })
+  await prisma.paymentCheckout.create({
+    data: { gateway: 'payu', externalRef: referenceCode, gymId, userId, planId, amountCents: plan.priceCents, currency: plan.currency },
+  })
+}
+
 // ─── Suite 2: POST /payments/callback/payu ───────────────────────────────────
 
 describe('PayU: POST /api/payments/callback/payu', () => {
@@ -393,28 +401,23 @@ describe('PayU: POST /api/payments/callback/payu', () => {
     }
   })
 
-  it('sin query params (gymId, planId, userId) → 400', async () => {
-    // Sin query params: getGym(undefined) falla
+  it('referenceCode sin checkout guardado → 400 "Checkout no encontrado"', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/payments/callback/payu',
-      // Sin query string — gymId es undefined
-      payload: {
-        transactionState: '4',
-        referenceCode: 'REF-TEST-001',
-        TX_VALUE: '50000.00',
-        currency: 'COP',
-      },
+      payload: { transactionState: '4', referenceCode: 'REF-SIN-CHECKOUT', TX_VALUE: '50000.00', currency: 'COP' },
     })
     expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Checkout no encontrado/i)
   })
 
   it('firma inválida en callback → 400 "Firma PayU inválida"', async () => {
     const referenceCode = `${gymAId.slice(0, 8)}-fake-ref`
+    await createPayUCheckoutRecord(referenceCode)
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/payu',
       payload: {
         transactionState: '4',
         referenceCode,
@@ -430,6 +433,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
 
   it('transactionState !== "4" (estado 5 = rechazado) → 400 sin activar membresía', async () => {
     const referenceCode = `${gymAId.slice(0, 8)}-rejected-test`
+    await createPayUCheckoutRecord(referenceCode)
     const txValue = '50000.00'
     const currency = 'COP'
     const transactionState = '5' // rechazado
@@ -445,7 +449,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/payu',
       payload: {
         transactionState,
         referenceCode,
@@ -469,6 +473,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
 
   it('transactionState !== "4" (estado 6 = pendiente) → 400 sin activar membresía', async () => {
     const referenceCode = `${gymAId.slice(0, 8)}-pending-test`
+    await createPayUCheckoutRecord(referenceCode)
     const txValue = '50000.00'
     const currency = 'COP'
     const transactionState = '6' // pendiente / en proceso
@@ -484,7 +489,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/payu',
       payload: {
         transactionState,
         referenceCode,
@@ -506,6 +511,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
 
   it('éxito: firma válida + transactionState "4" → membresía ACTIVE creada con paymentMethod payu', async () => {
     const referenceCode = `${gymAId.slice(0, 8)}-success-001`
+    await createPayUCheckoutRecord(referenceCode)
     const txValue = '50000.00'
     const currency = 'COP'
     const transactionState = '4'
@@ -521,7 +527,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/payu',
       payload: {
         transactionState,
         referenceCode,
@@ -550,6 +556,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
 
   it('idempotencia: mismo referenceCode dos veces → una sola membresía creada', async () => {
     const referenceCode = `${gymAId.slice(0, 8)}-idem-002`
+    await createPayUCheckoutRecord(referenceCode)
     const txValue = '50000.00'
     const currency = 'COP'
     const transactionState = '4'
@@ -574,7 +581,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
     // Primera llamada — debe crear membresía
     const res1 = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/payu',
       payload: callbackPayload,
     })
     expect(res1.statusCode).toBe(200)
@@ -583,7 +590,7 @@ describe('PayU: POST /api/payments/callback/payu', () => {
     // Segunda llamada — idempotencia: no debe crear otra membresía
     const res2 = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/payu',
       payload: callbackPayload,
     })
     expect(res2.statusCode).toBe(200)
@@ -602,40 +609,28 @@ describe('PayU: POST /api/payments/callback/payu', () => {
     if (membership) createdMembershipIds.push(membership.id)
   })
 
-  it('cross-gym: gymId de otro gym sin PayU → 400 "Pasarela payu no configurada"', async () => {
+  it('checkout de un gym sin PayU → 400 "Pasarela payu no configurada"', async () => {
     const referenceCode = `${gymBId.slice(0, 8)}-cross-003`
-    const txValue = '50000.00'
-    const currency = 'COP'
-    const transactionState = '4'
+    await createPayUCheckoutRecord(referenceCode, memberBId, planAId, gymBId)
 
-    // Usar gymBId — que no tiene PayU configurado
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymBId}&planId=${planAId}&userId=${memberBId}`,
-      payload: {
-        transactionState,
-        referenceCode,
-        TX_VALUE: txValue,
-        currency,
-        // Sin sign para que no falle en firma antes de fallar en config
-      },
+      url: '/api/payments/callback/payu',
+      payload: { transactionState: '4', referenceCode, TX_VALUE: '50000.00', currency: 'COP' },
     })
 
-    // gymB no tiene PayU habilitado → gatewayConfig lanza → 400
     expect(res.statusCode).toBe(400)
-    const body = res.json()
-    expect(body.error).toBeDefined()
-    const errorMsg = typeof body.error === 'string' ? body.error : JSON.stringify(body.error)
-    expect(errorMsg).toMatch(/pasarela payu no configurada/i)
+    expect(res.json().error).toMatch(/pasarela payu no configurada/i)
   })
 
   it('callback sin campo sign es rechazado → 400', async () => {
     // Fix 2026-05-07: sign es ahora obligatorio en handlePayUCallback
     const referenceCode = `${gymAId.slice(0, 8)}-nosign-004`
+    await createPayUCheckoutRecord(referenceCode)
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}`,
+      url: '/api/payments/callback/payu',
       payload: {
         transactionState: '4',
         referenceCode,
@@ -649,28 +644,42 @@ describe('PayU: POST /api/payments/callback/payu', () => {
     expect(res.json().error).toMatch(/Falta firma PayU/i)
   })
 
-  it('userId cross-gym es rechazado → 400', async () => {
-    // Fix 2026-05-07: getUser(userId, gymId) al inicio de handlePayUCallback
-    const referenceCode = `${gymAId.slice(0, 8)}-cross-user-005`
+  it('gymId/planId/userId en la URL se ignoran: el pago activa solo el checkout guardado', async () => {
+    const referenceCode = `${gymAId.slice(0, 8)}-url-params-005`
+    await createPayUCheckoutRecord(referenceCode) // checkout de memberA
     const txValue = '50000.00'
-    const currency = 'COP'
-    const transactionState = '4'
-
-    const sign = payuCallbackSignature(
-      PAYU_API_KEY,
-      PAYU_MERCHANT_ID,
-      referenceCode,
-      txValue,
-      currency,
-      transactionState,
-    )
+    const sign = payuCallbackSignature(PAYU_API_KEY, PAYU_MERCHANT_ID, referenceCode, txValue, 'COP', '4')
 
     const res = await app.inject({
       method: 'POST',
-      url: `/api/payments/callback/payu?gymId=${gymAId}&planId=${planAId}&userId=${memberBId}`,
-      payload: { transactionState, referenceCode, TX_VALUE: txValue, currency, sign },
+      // Antes estos parámetros decidían a quién se activaba la membresía
+      url: `/api/payments/callback/payu?gymId=${gymBId}&planId=${planAId}&userId=${memberBId}`,
+      payload: { transactionState: '4', referenceCode, TX_VALUE: txValue, currency: 'COP', sign },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const forB = await prisma.membership.findFirst({ where: { userId: memberBId, paymentNotes: `payu:${referenceCode}` } })
+    const forA = await prisma.membership.findFirst({ where: { userId: memberAId, paymentNotes: `payu:${referenceCode}` } })
+    expect(forB).toBeNull()
+    expect(forA).not.toBeNull()
+    createdMembershipIds.push(forA!.id)
+  })
+
+  it('monto pagado distinto al del checkout → 400 sin activar membresía', async () => {
+    const referenceCode = `${gymAId.slice(0, 8)}-amount-006`
+    await createPayUCheckoutRecord(referenceCode)
+    const txValue = '100.00' // el plan cuesta 50000.00
+    const sign = payuCallbackSignature(PAYU_API_KEY, PAYU_MERCHANT_ID, referenceCode, txValue, 'COP', '4')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/payments/callback/payu',
+      payload: { transactionState: '4', referenceCode, TX_VALUE: txValue, currency: 'COP', sign },
     })
 
     expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/monto pagado no coincide/i)
+    const m = await prisma.membership.findFirst({ where: { paymentNotes: `payu:${referenceCode}` } })
+    expect(m).toBeNull()
   })
 })

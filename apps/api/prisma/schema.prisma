@@ -77,6 +77,7 @@ model Gym {
   users                  User[]
   wods                   Wod[]
   wodResults             WodResult[]
+  paymentCheckouts       PaymentCheckout[]
 }
 
 model User {
@@ -109,30 +110,33 @@ model User {
   wodResultsRecorded WodResult[]          @relation("WodResultRecordedBy")
   wodResults         WodResult[]
 
+  paymentCheckouts PaymentCheckout[]
+
   @@unique([gymId, email])
   @@unique([gymId, rut])
 }
 
 model Plan {
-  id                  String       @id @default(uuid())
+  id                  String            @id @default(uuid())
   gymId               String
   name                String
   description         String?
   priceCents          Int
-  currency            String       @default("CLP")
+  currency            String            @default("CLP")
   durationDays        Int
   maxClasses          Int?
-  isActive            Boolean      @default(true)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  autoRenewDaysBefore Int          @default(3)
-  autoRenewEnabled    Boolean      @default(false)
-  autoRenewMaxRetries Int          @default(2)
-  isTrial             Boolean      @default(false)
+  isActive            Boolean           @default(true)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  autoRenewDaysBefore Int               @default(3)
+  autoRenewEnabled    Boolean           @default(false)
+  autoRenewMaxRetries Int               @default(2)
+  isTrial             Boolean           @default(false)
   memberships         Membership[]
-  gym                 Gym          @relation(fields: [gymId], references: [id])
-  allowedClasses      Class[]      @relation("ClassAllowedPlans")
-  classTypes          ClassType[]  @relation("PlanClassTypes")
+  gym                 Gym               @relation(fields: [gymId], references: [id])
+  allowedClasses      Class[]           @relation("ClassAllowedPlans")
+  classTypes          ClassType[]       @relation("PlanClassTypes")
+  paymentCheckouts    PaymentCheckout[]
 }
 
 model Membership {
@@ -475,9 +479,9 @@ model BenchmarkResult {
   userId      String
   gymId       String
   // Resultado: tiempo en segundos (For Time) o reps/rondas (AMRAP) o peso en kg (Weight)
-  scoreType   String    // TIME | REPS | ROUNDS | WEIGHT | CUSTOM
-  scoreValue  Float     // segundos, reps, rondas o kg
-  scoreNotes  String?   // "10+5", "DNF", descripción libre
+  scoreType   String // TIME | REPS | ROUNDS | WEIGHT | CUSTOM
+  scoreValue  Float // segundos, reps, rondas o kg
+  scoreNotes  String? // "10+5", "DNF", descripción libre
   isRx        Boolean   @default(true)
   recordedAt  DateTime  @default(now())
   createdAt   DateTime  @default(now())
@@ -655,4 +659,26 @@ enum ReconciliationStatus {
   CONFIRMED
   REJECTED
   MANUAL
+}
+
+/// Checkout de pasarela creado por el servidor. Los callbacks lo resuelven por
+/// (gateway, externalRef) en vez de confiar en gymId/planId/userId de la URL.
+model PaymentCheckout {
+  id           String    @id @default(uuid())
+  gymId        String
+  userId       String
+  planId       String
+  gateway      String // flow | khipu | payu | kushki | openpay
+  externalRef  String // flow: token · khipu: payment_id · payu: referenceCode · kushki: ticketNumber · openpay: order_id
+  amountCents  Int
+  currency     String
+  membershipId String?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  gym          Gym       @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan         Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([gateway, externalRef])
+  @@index([gymId])
 }

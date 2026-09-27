@@ -79,6 +79,79 @@ function gatewayConfig(gym: any, gateway: string) {
   return cfg
 }
 
+// ─── Checkouts de pasarela (Flow, Khipu, PayU, Kushki, OpenPay) ─────────────
+// El checkout se guarda en el servidor al crearlo; el callback lo resuelve por la
+// referencia de la pasarela. gymId/planId/userId nunca se toman de la URL del
+// callback: con ellos, un pago válido podía activar otro plan u otro usuario.
+
+type CheckoutGateway = 'flow' | 'khipu' | 'payu' | 'kushki' | 'openpay'
+
+async function recordCheckout(
+  gateway: CheckoutGateway, externalRef: string, gymId: string, userId: string,
+  plan: { id: string; priceCents: number; currency: string },
+) {
+  await prisma.paymentCheckout.create({
+    data: { gateway, externalRef, gymId, userId, planId: plan.id, amountCents: plan.priceCents, currency: plan.currency },
+  })
+}
+
+async function findCheckout(gateway: CheckoutGateway, externalRef: unknown) {
+  if (typeof externalRef !== 'string' || !externalRef) throw new Error('Referencia de pago faltante')
+  const checkout = await prisma.paymentCheckout.findUnique({
+    where: { gateway_externalRef: { gateway, externalRef } },
+  })
+  if (!checkout) throw new Error('Checkout no encontrado')
+  return checkout
+}
+
+// Si la pasarela informa el monto pagado, debe coincidir con el del checkout
+function assertPaidAmount(checkout: { amountCents: number }, paidMajorUnits: unknown) {
+  if (paidMajorUnits === undefined || paidMajorUnits === null || paidMajorUnits === '') return
+  const paid = Number(paidMajorUnits)
+  if (!Number.isFinite(paid) || Math.abs(paid - checkout.amountCents / 100) >= 1) {
+    throw new Error('El monto pagado no coincide con el checkout')
+  }
+}
+
+type Checkout = Awaited<ReturnType<typeof findCheckout>>
+
+// Activa la membresía del checkout una sola vez (el pago ya se verificó con la pasarela)
+async function completeCheckout(checkout: Checkout, paymentMethod: CheckoutGateway, paymentNotes: string) {
+  if (checkout.membershipId) return { received: true, membershipId: checkout.membershipId }
+
+  // Reclamo atómico: dos callbacks simultáneos no activan dos membresías
+  const claimed = await prisma.paymentCheckout.updateMany({
+    where: { id: checkout.id, completedAt: null },
+    data: { completedAt: new Date() },
+  })
+  if (claimed.count === 0) {
+    const current = await prisma.paymentCheckout.findUnique({ where: { id: checkout.id } })
+    return { received: true, membershipId: current?.membershipId ?? null }
+  }
+
+  let membership
+  try {
+    membership = await activateMembership(checkout.userId, checkout.planId, paymentMethod, { paymentNotes })
+    await prisma.paymentCheckout.update({ where: { id: checkout.id }, data: { membershipId: membership.id } })
+  } catch (err) {
+    // Liberar el reclamo para que la pasarela pueda reintentar el callback
+    await prisma.paymentCheckout.update({ where: { id: checkout.id }, data: { completedAt: null } })
+    throw err
+  }
+
+  const [user, plan] = await Promise.all([
+    prisma.user.findUnique({ where: { id: checkout.userId } }),
+    prisma.plan.findUnique({ where: { id: checkout.planId } }),
+  ])
+  if (user && plan) {
+    sendPaymentConfirmation(checkout.gymId, {
+      memberName: user.name, memberEmail: user.email, planName: plan.name,
+      amount: plan.priceCents, currency: plan.currency, paymentMethod, endsAt: membership.endsAt,
+    }).catch(() => {})
+  }
+  return { received: true, membershipId: membership.id }
+}
+
 // ─── Stripe ──────────────────────────────────────────────────────────────────
 
 export async function createCheckoutSession(gymId: string, planId: string, userId: string) {
@@ -485,7 +558,7 @@ export async function createFlowCheckout(gymId: string, planId: string, userId: 
     amount: String(Math.round(plan.priceCents / 100)),
     email: user.email,
     paymentMethod: '9', // all methods
-    urlConfirmation: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/flow?gymId=${gymId}&planId=${planId}&userId=${userId}`,
+    urlConfirmation: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/flow`,
     urlReturn: `${process.env.FRONTEND_URL}/payment/success`,
   }
   params.s = flowSign(params, cfg.secretKey)
@@ -502,6 +575,8 @@ export async function createFlowCheckout(gymId: string, planId: string, userId: 
   const data = await res.json() as any
   if (data.code && data.code !== 0) throw new Error(`Flow: ${data.message}`)
 
+  await recordCheckout('flow', data.token, gymId, userId, plan)
+
   const redirectUrl = cfg.sandbox
     ? `https://sandbox.flow.cl/app/web/pay.php?token=${data.token}`
     : `https://www.flow.cl/app/web/pay.php?token=${data.token}`
@@ -509,12 +584,12 @@ export async function createFlowCheckout(gymId: string, planId: string, userId: 
   return { url: redirectUrl, token: data.token, commerceOrder }
 }
 
-export async function handleFlowCallback(token: string, gymId: string, planId: string, userId: string) {
-  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
-  const cfg = gatewayConfig(gym, 'flow')
+export async function handleFlowCallback(token: unknown) {
+  const checkout = await findCheckout('flow', token)
+  const cfg = gatewayConfig(await getGym(checkout.gymId), 'flow')
 
   const baseUrl = cfg.sandbox ? 'https://sandbox.flow.cl/api' : 'https://www.flow.cl/api'
-  const params: Record<string, string> = { apiKey: cfg.apiKey, token }
+  const params: Record<string, string> = { apiKey: cfg.apiKey, token: token as string }
   params.s = flowSign(params, cfg.secretKey)
 
   const res = await fetch(`${baseUrl}/payment/getStatus?${new URLSearchParams(params)}`)
@@ -522,27 +597,9 @@ export async function handleFlowCallback(token: string, gymId: string, planId: s
 
   const payment = await res.json() as any
   if (payment.status !== 2) throw new Error(`Pago Flow no aprobado (status: ${payment.status})`)
+  assertPaidAmount(checkout, payment.amount)
 
-  const existing = await prisma.membership.findFirst({
-    where: { userId, paymentNotes: `flow:${token}` },
-  })
-  if (existing) return { received: true, membershipId: existing.id }
-
-  const plan = await prisma.plan.findUnique({ where: { id: planId } })
-  if (!plan) throw new Error('Plan no encontrado')
-
-  const membership = await activateMembership(userId, planId, 'flow', { paymentNotes: `flow:${token}` })
-
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
-    sendPaymentConfirmation(gymId, {
-      memberName: user.name, memberEmail: user.email, planName: plan.name,
-      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'flow', endsAt,
-    }).catch(() => {})
-  }
-
-  return { received: true, membershipId: membership.id }
+  return completeCheckout(checkout, 'flow', `flow:${token}`)
 }
 
 // ─── Khipu (Chile) ───────────────────────────────────────────────────────────
@@ -565,8 +622,7 @@ export async function createKhipuCheckout(gymId: string, planId: string, userId:
     payer_email: user.email,
     return_url: `${process.env.FRONTEND_URL}/payment/success`,
     cancel_url: `${process.env.FRONTEND_URL}/payment/cancelled`,
-    notify_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/khipu?gymId=${gymId}&planId=${planId}&userId=${userId}`,
-    custom: `${gymId}|${planId}|${userId}`,
+    notify_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/khipu`,
   })
 
   const body = params.toString()
@@ -583,6 +639,7 @@ export async function createKhipuCheckout(gymId: string, planId: string, userId:
 
   if (!res.ok) throw new Error(`Khipu error: ${await res.text()}`)
   const data = await res.json() as any
+  await recordCheckout('khipu', data.payment_id, gymId, userId, plan)
   return { url: data.payment_url, paymentId: data.payment_id }
 }
 
@@ -604,14 +661,11 @@ export function validateKhipuSignature(
 
 export async function handleKhipuCallback(
   body: any,
-  gymId: string,
-  planId: string,
-  userId: string,
   xKhipuSignature?: string,
   rawBody?: Buffer,
 ) {
-  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
-  const cfg = gatewayConfig(gym, 'khipu')
+  const checkout = await findCheckout('khipu', body?.payment_id)
+  const cfg = gatewayConfig(await getGym(checkout.gymId), 'khipu')
 
   // Validar firma si el gym tiene el secret configurado
   if (cfg.secret) {
@@ -620,40 +674,17 @@ export async function handleKhipuCallback(
   }
 
   const paymentId: string = body.payment_id
-  if (!paymentId) throw new Error('Sin payment_id de Khipu')
-
   const url = `https://khipu.com/api/2.0/payments/${paymentId}`
   const sig = khipuSign('GET', url, '', cfg.secret ?? '')
-
   const res = await fetch(url, {
     headers: { 'Authorization': `${cfg.receiverId}:${sig}` },
   })
-
   if (!res.ok) throw new Error('Error verificando pago Khipu')
   const payment = await res.json() as any
-
   if (payment.status !== 'done') throw new Error(`Pago Khipu no completado (${payment.status})`)
+  assertPaidAmount(checkout, payment.amount)
 
-  const existing = await prisma.membership.findFirst({
-    where: { userId, paymentNotes: `khipu:${paymentId}` },
-  })
-  if (existing) return { received: true, membershipId: existing.id }
-
-  const plan = await prisma.plan.findUnique({ where: { id: planId } })
-  if (!plan) throw new Error('Plan no encontrado')
-
-  const membership = await activateMembership(userId, planId, 'khipu', { paymentNotes: `khipu:${paymentId}` })
-
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
-    sendPaymentConfirmation(gymId, {
-      memberName: user.name, memberEmail: user.email, planName: plan.name,
-      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'khipu', endsAt,
-    }).catch(() => {})
-  }
-
-  return { received: true, membershipId: membership.id }
+  return completeCheckout(checkout, 'khipu', `khipu:${paymentId}`)
 }
 
 // ─── PayU LATAM ───────────────────────────────────────────────────────────────
@@ -686,20 +717,20 @@ export async function createPayUCheckout(gymId: string, planId: string, userId: 
     test: cfg.sandbox ? '1' : '0',
     buyerEmail: user.email,
     buyerFullName: user.name,
-    confirmationUrl: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/payu?gymId=${gymId}&planId=${planId}&userId=${userId}`,
+    confirmationUrl: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/payu`,
     responseUrl: `${process.env.FRONTEND_URL}/payment/success`,
   })
 
   // PayU requires a form POST — return URL + params for frontend to build the form
+  await recordCheckout('payu', referenceCode, gymId, userId, plan)
   return { url: baseUrl, params: Object.fromEntries(params), referenceCode }
 }
 
-export async function handlePayUCallback(body: any, gymId: string, planId: string, userId: string) {
-  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
-  const cfg = gatewayConfig(gym, 'payu')
-
+export async function handlePayUCallback(body: any) {
   // PayU sends: transactionState (4=Approved), referenceCode, TX_VALUE, currency, signature
-  const { transactionState, referenceCode, TX_VALUE, currency, sign } = body
+  const { transactionState, referenceCode, TX_VALUE, currency, sign } = body ?? {}
+  const checkout = await findCheckout('payu', referenceCode)
+  const cfg = gatewayConfig(await getGym(checkout.gymId), 'payu')
 
   if (transactionState !== '4') throw new Error(`Pago PayU no aprobado (estado: ${transactionState})`)
 
@@ -713,27 +744,9 @@ export async function handlePayUCallback(body: any, gymId: string, planId: strin
   if (sign.toLowerCase() !== expected.toLowerCase()) {
     throw new Error('Firma PayU inválida')
   }
+  assertPaidAmount(checkout, TX_VALUE)
 
-  const existing = await prisma.membership.findFirst({
-    where: { userId, paymentNotes: `payu:${referenceCode}` },
-  })
-  if (existing) return { received: true, membershipId: existing.id }
-
-  const plan = await prisma.plan.findUnique({ where: { id: planId } })
-  if (!plan) throw new Error('Plan no encontrado')
-
-  const membership = await activateMembership(userId, planId, 'payu', { paymentNotes: `payu:${referenceCode}` })
-
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
-    sendPaymentConfirmation(gymId, {
-      memberName: user.name, memberEmail: user.email, planName: plan.name,
-      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'payu', endsAt,
-    }).catch(() => {})
-  }
-
-  return { received: true, membershipId: membership.id }
+  return completeCheckout(checkout, 'payu', `payu:${referenceCode}`)
 }
 
 // ─── Kushki ───────────────────────────────────────────────────────────────────
@@ -756,7 +769,7 @@ export async function createKushkiCheckout(gymId: string, planId: string, userId
     description: plan.name,
     redirectURL: `${process.env.FRONTEND_URL}/payment/success`,
     cancelURL: `${process.env.FRONTEND_URL}/payment/cancelled`,
-    callbackURL: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/kushki?gymId=${gymId}&planId=${planId}&userId=${userId}`,
+    callbackURL: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/kushki`,
     userType: '0',
     paymentDescription: `Membresía ${plan.durationDays} días — ${plan.name}`,
   }
@@ -776,6 +789,9 @@ export async function createKushkiCheckout(gymId: string, planId: string, userId
   if (!data.redirectURL && !data.payment_url) {
     throw new Error('Kushki no devolvió URL de pago')
   }
+
+  if (!data.ticketNumber) throw new Error('Kushki no devolvió ticketNumber')
+  await recordCheckout('kushki', data.ticketNumber, gymId, userId, plan)
 
   return { url: data.redirectURL || data.payment_url, chargeToken: data.ticketNumber }
 }
@@ -815,16 +831,11 @@ export function validateKushkiToken(
   }
 }
 
-export async function handleKushkiCallback(
-  body: any,
-  gymId: string,
-  planId: string,
-  userId: string,
-  xKushkiToken?: string,
-) {
-  const { ticketNumber, transactionStatus } = body
+export async function handleKushkiCallback(body: any, xKushkiToken?: string) {
+  const { ticketNumber, transactionStatus } = body ?? {}
+  const checkout = await findCheckout('kushki', ticketNumber)
 
-  const [gym] = await Promise.all([getGym(gymId), getUser(userId, gymId)])
+  const gym = await getGym(checkout.gymId)
   const cfg = (gym.paymentGateways as any)?.kushki
   if (!cfg?.enabled) throw new Error('Pasarela Kushki no habilitada para este gimnasio')
   if (cfg?.privateMerchantId) {
@@ -835,26 +846,7 @@ export async function handleKushkiCallback(
     throw new Error(`Pago Kushki no aprobado (${transactionStatus})`)
   }
 
-  const existing = await prisma.membership.findFirst({
-    where: { userId, paymentNotes: `kushki:${ticketNumber}` },
-  })
-  if (existing) return { received: true, membershipId: existing.id }
-
-  const plan = await prisma.plan.findUnique({ where: { id: planId } })
-  if (!plan) throw new Error('Plan no encontrado')
-
-  const membership = await activateMembership(userId, planId, 'kushki', { paymentNotes: `kushki:${ticketNumber}` })
-
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
-    sendPaymentConfirmation(gymId, {
-      memberName: user.name, memberEmail: user.email, planName: plan.name,
-      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'kushki', endsAt,
-    }).catch(() => {})
-  }
-
-  return { received: true, membershipId: membership.id }
+  return completeCheckout(checkout, 'kushki', `kushki:${ticketNumber}`)
 }
 
 // ─── OpenPay (México / Colombia) ──────────────────────────────────────────────
@@ -876,7 +868,7 @@ export async function createOpenPayCheckout(gymId: string, planId: string, userI
     currency: plan.currency.toUpperCase(),
     description: plan.name,
     order_id: orderId,
-    redirect_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/openpay?gymId=${gymId}&planId=${planId}&userId=${userId}&orderId=${orderId}`,
+    redirect_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/openpay?orderId=${orderId}`,
     customer: {
       name: user.name,
       email: user.email,
@@ -898,15 +890,14 @@ export async function createOpenPayCheckout(gymId: string, planId: string, userI
   const paymentUrl = data.payment_method?.url || data.redirect_url
   if (!paymentUrl) throw new Error('OpenPay no devolvió URL de pago')
 
+  await recordCheckout('openpay', orderId, gymId, userId, plan)
   return { url: paymentUrl, transactionId: data.id, orderId }
 }
 
 export async function handleOpenPayCallback(query: any) {
-  const { gymId, planId, userId, orderId } = query
-  if (!gymId || !planId || !userId || !orderId) throw new Error('Parámetros incompletos')
-
-  const gym = await getGym(gymId)
-  const cfg = gatewayConfig(gym, 'openpay')
+  const orderId = query?.orderId
+  const checkout = await findCheckout('openpay', orderId)
+  const cfg = gatewayConfig(await getGym(checkout.gymId), 'openpay')
 
   const baseUrl = cfg.sandbox
     ? `https://sandbox-api.openpay.mx/v1/${cfg.merchantId}`
@@ -926,27 +917,9 @@ export async function handleOpenPayCallback(query: any) {
   if (!charge || charge.status !== 'completed') {
     throw new Error(`Pago OpenPay no completado (${charge?.status})`)
   }
+  assertPaidAmount(checkout, charge.amount)
 
-  const existing = await prisma.membership.findFirst({
-    where: { userId, paymentNotes: `openpay:${charge.id}` },
-  })
-  if (existing) return { received: true, membershipId: existing.id }
-
-  const plan = await prisma.plan.findUnique({ where: { id: planId } })
-  if (!plan) throw new Error('Plan no encontrado')
-
-  const membership = await activateMembership(userId, planId, 'openpay', { paymentNotes: `openpay:${charge.id}` })
-
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (user) {
-    const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + 30)
-    sendPaymentConfirmation(gymId, {
-      memberName: user.name, memberEmail: user.email, planName: plan.name,
-      amount: plan.priceCents, currency: plan.currency, paymentMethod: 'openpay', endsAt,
-    }).catch(() => {})
-  }
-
-  return { received: true, membershipId: membership.id }
+  return completeCheckout(checkout, 'openpay', `openpay:${charge.id}`)
 }
 
 // ─── Manual / existing ───────────────────────────────────────────────────────
