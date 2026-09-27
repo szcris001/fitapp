@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
 import api from '../../lib/api'
+import { toMajorUnits } from '../../lib/money'
 import {
   Users, UserCheck, UserX, CalendarDays,
   AlertTriangle, ArrowRight, Dumbbell,
@@ -147,10 +148,10 @@ function QuickPaymentModal({ userId, plans, onClose }: {
             <label className="block text-sm font-semibold" style={{ color: 'var(--text-2)' }}>Plan</label>
             <select value={planId} onChange={e => setPlanId(e.target.value)} className="input">
               {plans.map(p => (
-                <option key={p.id} value={p.id}>{p.name} — {(p.priceCents / 100).toLocaleString('es-CL')} {p.currency} · {p.durationDays}d</option>
+                <option key={p.id} value={p.id}>{p.name} — {toMajorUnits(p.priceCents, p.currency).toLocaleString('es-CL')} {p.currency} · {p.durationDays}d</option>
               ))}
             </select>
-            {selectedPlan && <p className="text-xs" style={{ color: 'var(--text-4)' }}>Duración: {selectedPlan.durationDays} días · {(selectedPlan.priceCents / 100).toLocaleString('es-CL')} {selectedPlan.currency}</p>}
+            {selectedPlan && <p className="text-xs" style={{ color: 'var(--text-4)' }}>Duración: {selectedPlan.durationDays} días · {toMajorUnits(selectedPlan.priceCents, selectedPlan.currency).toLocaleString('es-CL')} {selectedPlan.currency}</p>}
           </div>
           <div className="card rounded-xl p-4 space-y-3">
             <label className="block text-sm font-semibold" style={{ color: 'var(--text-2)' }}>Método de pago</label>

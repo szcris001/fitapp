@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
+import { toMajorUnits } from '../../../lib/money'
 import {
   DollarSign, TrendingUp, BarChart2, Clock,
   AlertTriangle, Sparkles, CheckCircle2, Wallet, CreditCard,
@@ -338,7 +339,7 @@ export default function ReportsPage() {
     }
   }
 
-  const formatMoney = (cents: number) => cents.toLocaleString('es-CL')
+  const formatMoney = (minor: number, currency = 'CLP') => toMajorUnits(minor, currency).toLocaleString('es-CL')
 
   const priorityStyle = (p: string) =>
     p === 'high'   ? 'border-red-200 bg-red-50 text-red-800'       :
@@ -490,7 +491,7 @@ export default function ReportsPage() {
                               </div>
                             </td>
                             <td className="px-6 py-4 text-sm" style={{ color: 'var(--text-2)' }}>{m.plan.name}</td>
-                            <td className="px-6 py-4 text-sm font-semibold" style={{ color: 'var(--text-1)' }}>{formatMoney(m.pricePaid)} {m.currency}</td>
+                            <td className="px-6 py-4 text-sm font-semibold" style={{ color: 'var(--text-1)' }}>{formatMoney(m.pricePaid, m.currency)} {m.currency}</td>
                             <td className="px-6 py-4 text-sm" style={{ color: 'var(--text-3)' }}>
                               {m.paidAt ? new Date(m.paidAt).toLocaleDateString('es-CL') : <span style={{ color: 'var(--text-4)' }}>—</span>}
                             </td>

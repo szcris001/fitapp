@@ -1,3 +1,4 @@
+import { toMajorUnits } from './money'
 /**
  * Servicio de Facturación Electrónica (DTE) para Chile
  * Integración con Bsale API (https://api.bsale.io/v1)
@@ -67,7 +68,8 @@ export async function emitirDTE(gym: BsaleGymConfig, input: DteInput): Promise<D
   if (!documentTypeId) return null
 
   // Price without IVA (19% in Chile)
-  const netUnitValue = Math.round(input.priceCents / 100 / 1.19)
+  // DTE (SII) es solo Chile: CLP, sin decimales
+  const netUnitValue = Math.round(toMajorUnits(input.priceCents, 'CLP') / 1.19)
   const emissionDate = Math.floor(Date.now() / 1000)
 
   const body: any = {

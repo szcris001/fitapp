@@ -4,6 +4,7 @@ import {
   TextInput, ActivityIndicator, Alert
 } from 'react-native'
 import api from '../../lib/api'
+import { toMajorUnits } from '../../lib/money'
 
 const PAYMENT_METHODS = [
   { id: 'cash', label: '💵 Efectivo' },
@@ -57,7 +58,7 @@ export default function AssignMembershipScreen({ route, navigation }: any) {
 
       <Text style={s.sectionLabel}>PLAN</Text>
       {plans.map(plan => {
-        const price = (plan.priceCents / 100).toLocaleString('es-CL')
+        const price = toMajorUnits(plan.priceCents, plan.currency ?? 'CLP').toLocaleString('es-CL')
         return (
           <TouchableOpacity
             key={plan.id}

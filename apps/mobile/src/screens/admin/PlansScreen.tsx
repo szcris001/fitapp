@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import api from '../../lib/api'
+import { toMajorUnits, toMinorUnits } from '../../lib/money'
 
 export default function PlansScreen({ navigation }: any) {
   const [plans, setPlans] = useState<any[]>([])
@@ -36,7 +37,7 @@ export default function PlansScreen({ navigation }: any) {
   const openEdit = (plan: any) => {
     setEditId(plan.id)
     setForm({
-      name: plan.name, description: plan.description || '', priceCents: plan.priceCents.toString(),
+      name: plan.name, description: plan.description || '', priceCents: String(toMajorUnits(plan.priceCents, plan.currency || 'CLP')),
       currency: plan.currency || 'CLP', maxClasses: plan.maxClasses?.toString() || '',
     })
     setShowForm(true)
@@ -46,7 +47,7 @@ export default function PlansScreen({ navigation }: any) {
     if (!form.name.trim()) return Alert.alert('Error', 'El nombre es obligatorio')
     const body = {
       name: form.name, description: form.description || undefined,
-      priceCents: parseInt(form.priceCents) || 0, currency: form.currency,
+      priceCents: toMinorUnits(parseFloat(form.priceCents) || 0, form.currency), currency: form.currency,
       maxClasses: form.maxClasses ? parseInt(form.maxClasses) : undefined,
     }
     setSaving(true)
@@ -139,7 +140,7 @@ export default function PlansScreen({ navigation }: any) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPlans() }} tintColor="#6366f1" />}
       >
         {plans.map(plan => {
-          const price = (plan.priceCents / 100).toLocaleString('es-CL')
+          const price = toMajorUnits(plan.priceCents, plan.currency ?? 'CLP').toLocaleString('es-CL')
           return (
             <View key={plan.id} style={s.planCard}>
               <View style={s.planHeader}>

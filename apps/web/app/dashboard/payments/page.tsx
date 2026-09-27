@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api, { mediaUrl } from '../../../lib/api'
+import { formatMoney, toMajorUnits } from '../../../lib/money'
 import { Wallet, TrendingUp, CreditCard, CheckCircle, Clock, X, ExternalLink } from 'lucide-react'
 
 const METHOD_LABEL: Record<string, string> = {
@@ -51,8 +52,7 @@ export default function PaymentsPage() {
     if (!loading && pending.length === 0) setTab('history')
   }, [pending, loading])
 
-  const fmt = (cents: number, currency = 'CLP') =>
-    `${(cents / 100).toLocaleString('es-CL')} ${currency}`
+  const fmt = (minor: number, currency = 'CLP') => formatMoney(minor, currency)
 
   const handleConfirm = async (id: string) => {
     setActionId(id)
@@ -294,7 +294,7 @@ export default function PaymentsPage() {
                       </td>
                       <td className="px-5 py-3.5 text-sm" style={{ color: 'var(--text-2)' }}>{m.plan?.name}</td>
                       <td className="px-5 py-3.5 text-sm font-semibold tabular-nums" style={{ color: 'var(--text-1)' }}>
-                        {(m.pricePaid / 100).toLocaleString('es-CL')} {m.currency}
+                        {toMajorUnits(m.pricePaid, m.currency).toLocaleString('es-CL')} {m.currency}
                       </td>
                       <td className="px-5 py-3.5 text-sm">
                         <span className="flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>

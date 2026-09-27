@@ -5,6 +5,7 @@ import * as mpClient from '../../lib/mp-client'
 import { emitirDTE, DteInput } from '../../lib/dte'
 import { sendPaymentConfirmation } from '../../lib/email'
 import { MEMBERSHIP_DAYS } from '../../lib/membership'
+import { toMajorUnits } from '../../lib/money'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-02-25.clover',
@@ -106,10 +107,10 @@ async function findCheckout(gateway: CheckoutGateway, externalRef: unknown) {
 }
 
 // Si la pasarela informa el monto pagado, debe coincidir con el del checkout
-function assertPaidAmount(checkout: { amountCents: number }, paidMajorUnits: unknown) {
+function assertPaidAmount(checkout: { amountCents: number; currency: string }, paidMajorUnits: unknown) {
   if (paidMajorUnits === undefined || paidMajorUnits === null || paidMajorUnits === '') return
   const paid = Number(paidMajorUnits)
-  if (!Number.isFinite(paid) || Math.abs(paid - checkout.amountCents / 100) >= 1) {
+  if (!Number.isFinite(paid) || Math.abs(paid - toMajorUnits(checkout.amountCents, checkout.currency)) >= 1) {
     throw new Error('El monto pagado no coincide con el checkout')
   }
 }
@@ -357,7 +358,7 @@ export async function createMercadoPagoCheckout(gymId: string, planId: string, u
       description: `Membresía ${MEMBERSHIP_DAYS} días`,
       quantity: 1,
       // CLP has no subunits — store value is already in the base currency unit
-      unit_price: plan.currency.toUpperCase() === 'CLP' ? plan.priceCents : plan.priceCents / 100,
+      unit_price: toMajorUnits(plan.priceCents, plan.currency),
       currency_id: plan.currency.toUpperCase(),
     }],
     payer: {
@@ -555,7 +556,7 @@ export async function createFlowCheckout(gymId: string, planId: string, userId: 
     commerceOrder,
     subject: plan.name,
     currency: plan.currency.toUpperCase(),
-    amount: String(Math.round(plan.priceCents / 100)),
+    amount: String(Math.round(toMajorUnits(plan.priceCents, plan.currency))),
     email: user.email,
     paymentMethod: '9', // all methods
     urlConfirmation: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/flow`,
@@ -618,7 +619,7 @@ export async function createKhipuCheckout(gymId: string, planId: string, userId:
   const params = new URLSearchParams({
     subject: plan.name,
     currency: plan.currency.toUpperCase(),
-    amount: String(plan.priceCents / 100),
+    amount: String(toMajorUnits(plan.priceCents, plan.currency)),
     payer_email: user.email,
     return_url: `${process.env.FRONTEND_URL}/payment/success`,
     cancel_url: `${process.env.FRONTEND_URL}/payment/cancelled`,
@@ -698,7 +699,7 @@ export async function createPayUCheckout(gymId: string, planId: string, userId: 
   const cfg = gatewayConfig(gym, 'payu')
 
   const referenceCode = `${gymId.slice(0, 8)}-${Date.now()}`
-  const amount = (plan.priceCents / 100).toFixed(2)
+  const amount = toMajorUnits(plan.priceCents, plan.currency).toFixed(2)
   const currency = plan.currency.toUpperCase()
   const signature = payuSignature(cfg.apiKey, cfg.merchantId, referenceCode, amount, currency)
 
@@ -763,7 +764,7 @@ export async function createKushkiCheckout(gymId: string, planId: string, userId
     amount: {
       subtotalIva: 0,
       iva: 0,
-      subtotalIva0: plan.priceCents / 100,
+      subtotalIva0: toMajorUnits(plan.priceCents, plan.currency),
     },
     currency: plan.currency.toUpperCase(),
     description: plan.name,
@@ -868,7 +869,7 @@ export async function createOpenPayCheckout(gymId: string, planId: string, userI
 
   const body = {
     method: 'card',
-    amount: plan.priceCents / 100,
+    amount: toMajorUnits(plan.priceCents, plan.currency),
     currency: plan.currency.toUpperCase(),
     description: plan.name,
     order_id: orderId,
@@ -937,7 +938,7 @@ export async function createMachCheckout(gymId: string, planId: string, userId: 
   const cfg = gatewayConfig(gym, 'mach')
 
   const externalId = `${gymId.slice(0, 8)}-${planId.slice(0, 8)}-${userId.slice(0, 8)}-${Date.now()}`
-  const amountCLP = Math.round(plan.priceCents / 100)
+  const amountCLP = Math.round(toMajorUnits(plan.priceCents, plan.currency))
 
   const body = {
     amount: amountCLP,

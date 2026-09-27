@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api from '../../../../lib/api'
+import { toMajorUnits } from '../../../../lib/money'
 import { ArrowLeft, Camera } from 'lucide-react'
 
 export default function NewUserPage() {
@@ -169,7 +170,7 @@ export default function NewUserPage() {
                       <option value="">Sin plan por ahora</option>
                       {plans.map(p => (
                         <option key={p.id} value={p.id}>
-                          {p.name} — {(p.priceCents / 100).toLocaleString()} {p.currency}
+                          {p.name} — {toMajorUnits(p.priceCents, p.currency).toLocaleString()} {p.currency}
                         </option>
                       ))}
                     </select>

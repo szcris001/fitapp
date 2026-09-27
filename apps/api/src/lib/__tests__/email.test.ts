@@ -92,7 +92,7 @@ const BASE_PAYMENT_DATA = {
   memberName: 'Juan Pérez',
   memberEmail: 'juan@test.com',
   planName: 'Plan Mensual',
-  amount: 2990000, // 29.900 CLP (en centavos)
+  amount: 29900, // $29.900 CLP (unidad mínima = peso)
   currency: 'CLP',
   paymentMethod: 'cash',
   endsAt: new Date('2026-06-01'),
@@ -250,8 +250,8 @@ describe('sendPaymentConfirmation', () => {
     expect(callArgs.subject).toBe('Pago de Carlos Rojas por Plan Trimestral recibido')
   })
 
-  it('body HTML contiene el monto formateado en CLP (amount / 100)', async () => {
-    // amount = 2990000 centavos → 29900 CLP → toLocaleString('es-CL') → "29.900"
+  it('body HTML contiene el monto formateado en CLP (sin decimales)', async () => {
+    // amount = 29900 CLP (sin decimales) → toLocaleString('es-CL') → "29.900"
     await sendPaymentConfirmation('gym-id-1', BASE_PAYMENT_DATA)
 
     const callArgs = currentSendMail.mock.calls[0][0]

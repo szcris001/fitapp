@@ -178,7 +178,7 @@ beforeAll(async () => {
     data: {
       gymId: gymAId,
       name: 'Plan Flow Test',
-      priceCents: 500000, // $5000 CLP (en centavos)
+      priceCents: 5000, // $5.000 CLP (CLP no tiene decimales: unidad mínima = peso)
       currency: 'CLP',
       durationDays: 30,
       isActive: true,
@@ -392,6 +392,8 @@ describe('Flow: POST /api/payments/checkout/flow', () => {
     const expectedSig = crypto.createHmac('sha256', FLOW_SECRET_KEY).update(str).digest('hex')
 
     expect(sentBody.get('s')).toBe(expectedSig)
+    // Plan de $5.000 CLP → Flow recibe 5000 (CLP sin decimales; antes se dividía por 100 → 50)
+    expect(sentBody.get('amount')).toBe('5000')
 
     // Verificar que el apiKey enviado es el correcto
     expect(sentBody.get('apiKey')).toBe(FLOW_API_KEY)

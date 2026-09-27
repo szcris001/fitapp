@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../lib/api'
+import { toMajorUnits } from '../../../../lib/money'
 import {
   ArrowLeft, Edit2, CheckCircle, CreditCard, Banknote,
   RefreshCw, X, ExternalLink, Wallet, Camera, KeyRound,
@@ -104,7 +105,7 @@ function PaymentModal({
 
   const selectedPlan = plans.find(p => p.id === planId)
   const formatPrice = (p: any) =>
-    p ? `${(p.priceCents / 100).toLocaleString('es-CL')} ${p.currency}` : ''
+    p ? `${toMajorUnits(p.priceCents, p.currency).toLocaleString('es-CL')} ${p.currency}` : ''
 
   const handleManual = async () => {
     if (!planId) return
@@ -166,7 +167,7 @@ function PaymentModal({
               <select value={planId} onChange={e => setPlanId(e.target.value)} className="input">
                 {plans.map(p => (
                   <option key={p.id} value={p.id}>
-                    {p.name} — {(p.priceCents / 100).toLocaleString('es-CL')} {p.currency} · {p.durationDays}d
+                    {p.name} — {toMajorUnits(p.priceCents, p.currency).toLocaleString('es-CL')} {p.currency} · {p.durationDays}d
                   </option>
                 ))}
               </select>
@@ -879,7 +880,7 @@ export default function UserDetailPage() {
                           {m.paymentMethod ? `${METHOD_ICON[m.paymentMethod]} ${METHOD_LABEL[m.paymentMethod] || m.paymentMethod}` : '—'}
                         </td>
                         <td className="py-3 pr-4 font-semibold" style={{ color: 'var(--text-1)' }}>
-                          {m.pricePaid != null ? `${(m.pricePaid / 100).toLocaleString('es-CL')} ${m.currency}` : '—'}
+                          {m.pricePaid != null ? `${toMajorUnits(m.pricePaid, m.currency).toLocaleString('es-CL')} ${m.currency}` : '—'}
                         </td>
                         <td className="py-3">
                           <span className={STATUS_BADGE[m.status] || 'badge-gray'}>

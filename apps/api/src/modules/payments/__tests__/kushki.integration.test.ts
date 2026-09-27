@@ -183,7 +183,7 @@ beforeAll(async () => {
     data: {
       gymId: gymAId,
       name: 'Plan Kushki Test',
-      priceCents: 500000, // $5000 CLP (en centavos)
+      priceCents: 5000, // $5.000 CLP (CLP no tiene decimales: unidad mínima = peso)
       currency: 'CLP',
       durationDays: 30,
       isActive: true,

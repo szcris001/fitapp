@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
+import { toMajorUnits, toMinorUnits } from '../../../lib/money'
 import {
   CreditCard, Plus, Clock, Edit2, Check, X, Trash2,
   Search, FlaskConical, Infinity, Calendar, Layers,
@@ -91,7 +92,7 @@ function PlanCard({
     plan.isTrial
       ? 'Gratis'
       : plan.priceCents != null
-      ? plan.priceCents.toLocaleString('es-CL')
+      ? toMajorUnits(plan.priceCents, plan.currency).toLocaleString('es-CL')
       : '—'
 
   return (
@@ -242,7 +243,8 @@ function EditCard({
   const [form, setForm] = useState<FormShape>({
     name: plan.name,
     description: plan.description || '',
-    priceCents: String(plan.priceCents),
+    // El formulario trabaja en la unidad que escribe la persona (pesos, dólares…)
+    priceCents: String(toMajorUnits(plan.priceCents, plan.currency)),
     currency: plan.currency,
     maxClasses: plan.maxClasses != null ? String(plan.maxClasses) : '',
     isTrial: plan.isTrial ?? false,
@@ -472,7 +474,7 @@ export default function PlansPage() {
       await api.post('/plans', {
         name: createForm.name,
         description: createForm.description || undefined,
-        priceCents: createForm.isTrial ? 0 : Number(createForm.priceCents),
+        priceCents: createForm.isTrial ? 0 : toMinorUnits(Number(createForm.priceCents), createForm.currency),
         currency: createForm.currency,
         maxClasses: createForm.maxClasses ? Number(createForm.maxClasses) : undefined,
         isTrial: createForm.isTrial,
@@ -495,7 +497,7 @@ export default function PlansPage() {
       await api.put(`/plans/${planId}`, {
         name: form.name,
         description: form.description || undefined,
-        priceCents: form.isTrial ? 0 : Number(form.priceCents),
+        priceCents: form.isTrial ? 0 : toMinorUnits(Number(form.priceCents), form.currency),
         currency: form.currency,
         maxClasses: form.maxClasses ? Number(form.maxClasses) : null,
         isTrial: form.isTrial,

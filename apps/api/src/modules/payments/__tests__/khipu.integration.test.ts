@@ -209,7 +209,7 @@ beforeAll(async () => {
     data: {
       gymId: gymAId,
       name: 'Plan Khipu Test',
-      priceCents: 500000, // $5000 CLP (en centavos)
+      priceCents: 5000, // $5.000 CLP (CLP no tiene decimales: unidad mínima = peso)
       currency: 'CLP',
       durationDays: 30,
       isActive: true,
@@ -692,7 +692,7 @@ describe('Khipu: POST /api/payments/callback/khipu', () => {
       data: {
         gymId: gymCId,
         name: 'Plan Khipu C Test',
-        priceCents: 300000,
+        priceCents: 3000, // $3.000 CLP
         currency: 'CLP',
         durationDays: 30,
         isActive: true,

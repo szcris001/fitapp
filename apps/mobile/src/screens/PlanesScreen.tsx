@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuthStore } from '../store/auth.store'
 import api, { API_BASE } from '../lib/api'
+import { toMajorUnits } from '../lib/money'
 import { BottomSheet } from '../components/BottomSheet'
 
 const METHOD_LABEL: Record<string, string> = {
@@ -79,7 +80,7 @@ function PayModal({ plan, onClose, onPaid }: PayModalProps) {
   const [fintocPaymentIntentId, setFintocPaymentIntentId] = useState<string | null>(null)
   const [pollingStatus, setPollingStatus] = useState<'idle' | 'polling' | 'success' | 'failed'>('idle')
 
-  const price = (plan.priceCents / 100).toLocaleString('es-CL')
+  const price = toMajorUnits(plan.priceCents, plan.currency ?? 'CLP').toLocaleString('es-CL')
   const showAutoRenew = method === 'stripe' && plan.autoRenewEnabled
 
   // ── Fintoc Pay: polling de estado mientras el WebView está abierto ────────
@@ -560,7 +561,7 @@ export default function PlanesScreen({ navigation }: { navigation?: any }) {
                   </View>
                   <View style={styles.planPriceWrap}>
                     <Text style={styles.planPrice}>
-                      {(plan.priceCents / 100).toLocaleString('es-CL')}
+                      {toMajorUnits(plan.priceCents, plan.currency ?? 'CLP').toLocaleString('es-CL')}
                     </Text>
                     <Text style={styles.planCurrency}>{plan.currency}</Text>
                   </View>
@@ -610,7 +611,7 @@ export default function PlanesScreen({ navigation }: { navigation?: any }) {
                   </View>
                   <View style={styles.historyRight}>
                     <Text style={styles.historyAmount}>
-                      {(m.pricePaid / 100).toLocaleString('es-CL')} {m.currency}
+                      {toMajorUnits(m.pricePaid, m.currency ?? 'CLP').toLocaleString('es-CL')} {m.currency}
                     </Text>
                     <View style={[styles.historyStatus, { backgroundColor: STATUS_COLOR[m.status] + '20' }]}>
                       <Text style={[styles.historyStatusText, { color: STATUS_COLOR[m.status] }]}>
