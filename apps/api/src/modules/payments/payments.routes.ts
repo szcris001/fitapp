@@ -23,25 +23,6 @@ import {
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
 
-const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-async function validateCallbackParams(
-  gymId: unknown,
-  planId: unknown,
-  userId: unknown,
-): Promise<string | null> {
-  if (
-    typeof gymId !== 'string' || !uuidRegex.test(gymId) ||
-    typeof planId !== 'string' || !uuidRegex.test(planId) ||
-    typeof userId !== 'string' || !uuidRegex.test(userId)
-  ) {
-    return 'Parámetros de callback inválidos'
-  }
-  const user = await prisma.user.findFirst({ where: { id: userId, gymId }, select: { id: true } })
-  if (!user) return 'Usuario no válido para este gimnasio'
-  return null
-}
-
 const manualPaymentSchema = z.object({
   userId: z.string().uuid(),
   planId: z.string().uuid(),
@@ -216,11 +197,10 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // Callback de Flow (redirect después de pago, sin auth)
   app.post('/payments/callback/flow', async (request, reply) => {
-    const { token, gymId, planId, userId } = request.body as any
-    const validationError = await validateCallbackParams(gymId, planId, userId)
-    if (validationError) return reply.status(400).send({ error: validationError })
+    // gym, plan y usuario salen del checkout guardado (por token), nunca de la request
+    const { token } = (request.body ?? {}) as any
     try {
-      await handleFlowCallback(token, gymId, planId, userId)
+      await handleFlowCallback(token)
       return reply.send({ ok: true })
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
@@ -244,13 +224,10 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // IPN de Khipu (sin auth)
   app.post('/payments/callback/khipu', async (request, reply) => {
-    const { gymId, planId, userId, ...rest } = request.body as any
-    const validationError = await validateCallbackParams(gymId, planId, userId)
-    if (validationError) return reply.status(400).send({ error: validationError })
     const xKhipuSignature = request.headers['x-khipu-signature'] as string | undefined
     const rawBody = (request as any).rawBody as Buffer | undefined
     try {
-      await handleKhipuCallback(rest, gymId, planId, userId, xKhipuSignature, rawBody)
+      await handleKhipuCallback(request.body, xKhipuSignature, rawBody)
       return reply.send({ ok: true })
     } catch (err: any) {
       const status = err.message?.includes('inválida') || err.message?.includes('Falta header') ? 401 : 400
@@ -275,11 +252,8 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // Confirmación de PayU (POST desde PayU a nuestro servidor)
   app.post('/payments/callback/payu', async (request, reply) => {
-    const { gymId, planId, userId } = request.query as any
-    const validationError = await validateCallbackParams(gymId, planId, userId)
-    if (validationError) return reply.status(400).send({ error: validationError })
     try {
-      await handlePayUCallback(request.body, gymId, planId, userId)
+      await handlePayUCallback(request.body)
       return reply.send({ ok: true })
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
@@ -302,12 +276,9 @@ export async function paymentRoutes(app: FastifyInstance) {
   })
 
   app.post('/payments/callback/kushki', async (request, reply) => {
-    const { gymId, planId, userId } = request.query as any
-    const validationError = await validateCallbackParams(gymId, planId, userId)
-    if (validationError) return reply.status(400).send({ error: validationError })
     const xKushkiToken = request.headers['x-kushki-token'] as string | undefined
     try {
-      await handleKushkiCallback(request.body, gymId, planId, userId, xKushkiToken)
+      await handleKushkiCallback(request.body, xKushkiToken)
       return reply.send({ ok: true })
     } catch (err: any) {
       const status = err.message?.includes('inválido') || err.message?.includes('Falta header') || err.message?.includes('no coincide') || err.message?.includes('no tiene formato') ? 401 : 400
@@ -332,11 +303,6 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // Callback de OpenPay (redirect GET desde el navegador del usuario)
   app.get('/payments/callback/openpay', async (request, reply) => {
-    const { gymId, planId, userId } = request.query as any
-    const validationError = await validateCallbackParams(gymId, planId, userId)
-    if (validationError) {
-      return reply.redirect(`${process.env.FRONTEND_URL}/payment/cancelled?error=${encodeURIComponent(validationError)}`)
-    }
     try {
       await handleOpenPayCallback(request.query)
       return reply.redirect(`${process.env.FRONTEND_URL}/payment/success`)

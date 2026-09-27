@@ -354,6 +354,7 @@ describe('Flow: POST /api/payments/checkout/flow', () => {
 
   it('firma HMAC-SHA256 en checkout es correcta (verificar campo s del body enviado a Flow)', async () => {
     const flowToken = 'tok_sig_verify_456'
+    await createFlowCheckoutRecord(flowToken)
     let capturedUrl: string | undefined
     let capturedOptions: RequestInit | undefined
 
@@ -397,6 +398,15 @@ describe('Flow: POST /api/payments/checkout/flow', () => {
   })
 })
 
+/** Checkout que el servidor guarda al iniciar el pago; el callback lo resuelve por token */
+async function createFlowCheckoutRecord(token: string, userId = memberAId, planId = planAId, gymId = gymAId) {
+  const plan = await prisma.plan.findUniqueOrThrow({ where: { id: planId } })
+  await prisma.paymentCheckout.deleteMany({ where: { gateway: 'flow', externalRef: token } })
+  await prisma.paymentCheckout.create({
+    data: { gateway: 'flow', externalRef: token, gymId, userId, planId, amountCents: plan.priceCents, currency: plan.currency },
+  })
+}
+
 // ─── Suite 2: POST /payments/callback/flow ────────────────────────────────────
 
 describe('Flow: POST /api/payments/callback/flow', () => {
@@ -414,17 +424,14 @@ describe('Flow: POST /api/payments/callback/flow', () => {
     }
   })
 
-  it('sin params (token, gymId, planId, userId) → 400', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/callback/flow',
-      payload: {},
-    })
-    // handleFlowCallback recibe undefined para todos los params → falla en getGym(undefined)
+  it('token sin checkout guardado → 400 "Checkout no encontrado"', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/payments/callback/flow', payload: { token: 'tok_sin_checkout' } })
     expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Checkout no encontrado/i)
   })
 
   it('Flow getStatus responde error (ok: false) → 400', async () => {
+    await createFlowCheckoutRecord('tok_bad_status')
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: false,
       text: async () => 'Flow getStatus server error',
@@ -435,9 +442,6 @@ describe('Flow: POST /api/payments/callback/flow', () => {
       url: '/api/payments/callback/flow',
       payload: {
         token: 'tok_bad_status',
-        gymId: gymAId,
-        planId: planAId,
-        userId: memberAId,
       },
     })
 
@@ -447,6 +451,7 @@ describe('Flow: POST /api/payments/callback/flow', () => {
   })
 
   it('Flow getStatus devuelve status !== 2 (rechazado, status 3) → 400 con mensaje de rechazo', async () => {
+    await createFlowCheckoutRecord('tok_rejected_status3')
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: 3, commerceOrder: 'test-order-1', amount: 5000 }),
@@ -457,9 +462,6 @@ describe('Flow: POST /api/payments/callback/flow', () => {
       url: '/api/payments/callback/flow',
       payload: {
         token: 'tok_rejected_status3',
-        gymId: gymAId,
-        planId: planAId,
-        userId: memberAId,
       },
     })
 
@@ -469,6 +471,7 @@ describe('Flow: POST /api/payments/callback/flow', () => {
   })
 
   it('Flow getStatus devuelve status !== 2 (pendiente, status 1) → 400 error', async () => {
+    await createFlowCheckoutRecord('tok_pending_status1')
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: 1, commerceOrder: 'test-order-pending', amount: 5000 }),
@@ -479,9 +482,6 @@ describe('Flow: POST /api/payments/callback/flow', () => {
       url: '/api/payments/callback/flow',
       payload: {
         token: 'tok_pending_status1',
-        gymId: gymAId,
-        planId: planAId,
-        userId: memberAId,
       },
     })
 
@@ -492,6 +492,7 @@ describe('Flow: POST /api/payments/callback/flow', () => {
 
   it('exito: pago aprobado (status 2) → membresía ACTIVE creada con paymentMethod flow y paymentNotes flow:token', async () => {
     const flowToken = 'tok_success_approved_001'
+    await createFlowCheckoutRecord(flowToken)
 
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
@@ -503,9 +504,6 @@ describe('Flow: POST /api/payments/callback/flow', () => {
       url: '/api/payments/callback/flow',
       payload: {
         token: flowToken,
-        gymId: gymAId,
-        planId: planAId,
-        userId: memberAId,
       },
     })
 
@@ -529,6 +527,7 @@ describe('Flow: POST /api/payments/callback/flow', () => {
 
   it('idempotencia: mismo token dos veces → segunda llamada devuelve { ok: true } sin duplicar membresía', async () => {
     const flowToken = 'tok_idempotent_002'
+    await createFlowCheckoutRecord(flowToken)
 
     // Mockear fetch dos veces para las dos llamadas al callback
     vi.spyOn(global, 'fetch')
@@ -543,9 +542,6 @@ describe('Flow: POST /api/payments/callback/flow', () => {
 
     const callbackPayload = {
       token: flowToken,
-      gymId: gymAId,
-      planId: planAId,
-      userId: memberAId,
     }
 
     // Primera llamada — crea la membresía
@@ -579,57 +575,43 @@ describe('Flow: POST /api/payments/callback/flow', () => {
     if (membership) createdMembershipIds.push(membership.id)
   })
 
-  it('token de gymId que no corresponde al gym del plan → 400 error de validación', async () => {
-    // gymBId no tiene el planA ni la pasarela Flow configurada
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ status: 2, commerceOrder: 'test-cross-gym', amount: 5000 }),
-    } as Response)
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/callback/flow',
-      payload: {
-        token: 'tok_cross_gym_003',
-        gymId: gymBId,   // Gym B — sin Flow configurado
-        planId: planAId, // Plan del Gym A
-        userId: memberBId,
-      },
-    })
-
-    // gymB no tiene Flow habilitado → gatewayConfig lanza → 400
+  it('checkout de un gym sin Flow → 400', async () => {
+    await createFlowCheckoutRecord('tok_cross_gym_003', memberBId, planAId, gymBId)
+    const res = await app.inject({ method: 'POST', url: '/api/payments/callback/flow', payload: { token: 'tok_cross_gym_003' } })
     expect(res.statusCode).toBe(400)
-    const body = res.json()
-    expect(body.error).toBeDefined()
+    expect(res.json().error).toMatch(/Pasarela flow no configurada/i)
   })
 
-  it('[BUG-SEC] userId cross-gym no es rechazado → el callback acepta userId de otro gym (bug de seguridad documentado)', async () => {
-    // BUG: handleFlowCallback no valida que el userId pertenezca al gymId.
-    // Solo llama getGym() + gatewayConfig(), luego getStatus, y activa membresía
-    // con cualquier userId sin validar pertenencia al gym.
-    // ASSIGNEE: backend-dev
-    // Ver: BACKLOG.md [BUG] Flow callback no valida cross-gym de userId
-
+  it('gymId/planId/userId del body se ignoran: el pago activa solo el checkout guardado', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ status: 2, commerceOrder: 'test-cross-user', amount: 5000 }),
+      json: async () => ({ status: 2, commerceOrder: 'test-cross-user' }),
     } as Response)
-
     const crossToken = 'tok_cross_user_004'
+    await createFlowCheckoutRecord(crossToken) // checkout de memberA
 
     const res = await app.inject({
       method: 'POST',
       url: '/api/payments/callback/flow',
-      payload: {
-        token: crossToken,
-        gymId: gymAId,
-        planId: planAId,
-        userId: memberBId, // memberB pertenece a gymB, no gymA — debería ser rechazado
-      },
+      // Antes estos campos decidían a quién se activaba la membresía
+      payload: { token: crossToken, gymId: gymBId, planId: planAId, userId: memberBId },
     })
 
-    // Bug corregido 2026-05-06: handleFlowCallback ahora llama getUser(userId, gymId)
-    // que lanza si el userId no pertenece al gymId → 400
+    expect(res.statusCode).toBe(200)
+    expect(await prisma.membership.findFirst({ where: { userId: memberBId, paymentNotes: `flow:${crossToken}` } })).toBeNull()
+    const forA = await prisma.membership.findFirst({ where: { userId: memberAId, paymentNotes: `flow:${crossToken}` } })
+    expect(forA).not.toBeNull()
+    createdMembershipIds.push(forA!.id)
+  })
+
+  it('monto informado por Flow distinto al del checkout → 400', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 2, commerceOrder: 'test-amount', amount: 1 }),
+    } as Response)
+    await createFlowCheckoutRecord('tok_amount_005')
+    const res = await app.inject({ method: 'POST', url: '/api/payments/callback/flow', payload: { token: 'tok_amount_005' } })
     expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/monto pagado no coincide/i)
   })
 })

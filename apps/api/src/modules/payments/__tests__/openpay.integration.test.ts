@@ -385,9 +385,10 @@ describe('OpenPay: POST /api/payments/checkout/openpay', () => {
     expect(sentBody.currency).toBe('MXN')
     expect(sentBody.customer.email).toBe('qa-openpay-member-a@test.local')
     expect(sentBody.redirect_url).toContain('/api/payments/callback/openpay')
-    expect(sentBody.redirect_url).toContain(`gymId=${gymAId}`)
-    expect(sentBody.redirect_url).toContain(`planId=${planAId}`)
-    expect(sentBody.redirect_url).toContain(`userId=${memberAId}`)
+    // Solo viaja orderId: gym, plan y usuario quedan en el checkout del servidor
+    expect(sentBody.redirect_url).not.toContain('gymId=')
+    expect(sentBody.redirect_url).not.toContain('userId=')
+    expect(sentBody.redirect_url).toContain(`orderId=${sentBody.order_id}`)
   })
 
   it('exito con redirect_url en root del response (sin payment_method.url) → 200', async () => {
@@ -414,6 +415,15 @@ describe('OpenPay: POST /api/payments/checkout/openpay', () => {
     expect(body.transactionId).toBe('trx_redirect_url_789')
   })
 })
+
+/** Checkout que el servidor guarda al iniciar el pago; el callback lo resuelve por orderId */
+async function createOpenPayCheckoutRecord(orderId: string, userId = memberAId, planId = planAId, gymId = gymAId) {
+  const plan = await prisma.plan.findUniqueOrThrow({ where: { id: planId } })
+  await prisma.paymentCheckout.deleteMany({ where: { gateway: 'openpay', externalRef: orderId } })
+  await prisma.paymentCheckout.create({
+    data: { gateway: 'openpay', externalRef: orderId, gymId, userId, planId, amountCents: plan.priceCents, currency: plan.currency },
+  })
+}
 
 // ─── Suite 2: GET /payments/callback/openpay ──────────────────────────────────
 
@@ -443,19 +453,18 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
     expect(res.headers.location).toContain('cancelled')
   })
 
-  it('gymId que no existe en DB → redirect a cancelled (userId no pertenece a ese gymId)', async () => {
-    // validateCallbackParams verifica que userId pertenezca al gymId → falla con error de validación
+  it('orderId sin checkout guardado (aunque la URL traiga gymId/planId/userId) → redirect a cancelled', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=00000000-0000-0000-0000-000000000000&planId=${planAId}&userId=${memberAId}&orderId=test-order-xyz`,
+      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-sin-checkout`,
     })
     expect(res.statusCode).toBe(302)
-    const location = res.headers.location as string
-    expect(location).toContain('cancelled')
-    expect(decodeURIComponent(location)).toMatch(/inválid|no válido/)
+    expect(res.headers.location).toContain('/payment/cancelled')
+    expect(decodeURIComponent(res.headers.location as string)).toMatch(/Checkout no encontrado/i)
   })
 
   it('OpenPay getStatus falla (ok: false) → redirect a cancelled con error', async () => {
+    await createOpenPayCheckoutRecord('test-order-fail', memberAId, planAId, gymAId)
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: false,
       text: async () => 'OpenPay server error',
@@ -463,7 +472,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-fail`,
+      url: `/api/payments/callback/openpay?orderId=test-order-fail`,
     })
 
     expect(res.statusCode).toBe(302)
@@ -473,6 +482,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   })
 
   it('pago no completado (status: "pending") → redirect a cancelled con mensaje de estado', async () => {
+    await createOpenPayCheckoutRecord('test-order-pending', memberAId, planAId, gymAId)
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => ([{ id: 'trx_pending_001', status: 'in_progress' }]),
@@ -480,7 +490,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-pending`,
+      url: `/api/payments/callback/openpay?orderId=test-order-pending`,
     })
 
     expect(res.statusCode).toBe(302)
@@ -490,6 +500,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   })
 
   it('pago no completado (status: "failed") → redirect a cancelled', async () => {
+    await createOpenPayCheckoutRecord('test-order-failed', memberAId, planAId, gymAId)
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => ([{ id: 'trx_failed_002', status: 'failed' }]),
@@ -497,7 +508,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-failed`,
+      url: `/api/payments/callback/openpay?orderId=test-order-failed`,
     })
 
     expect(res.statusCode).toBe(302)
@@ -505,6 +516,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   })
 
   it('exito: pago completado → membresía ACTIVE creada y redirect a success', async () => {
+    await createOpenPayCheckoutRecord('test-order-ok', memberAId, planAId, gymAId)
     const chargeId = 'trx_success_completed_001'
 
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
@@ -514,7 +526,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-ok`,
+      url: `/api/payments/callback/openpay?orderId=test-order-ok`,
     })
 
     // La ruta redirige a success
@@ -537,6 +549,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   it('idempotencia: mismo orderId dos veces → 1 sola membresía, segunda llamada también redirige a success', async () => {
     const chargeId = 'trx_idempotent_002'
     const orderId = 'test-order-idempotent'
+    await createOpenPayCheckoutRecord(orderId, memberAId, planAId, gymAId)
 
     const mockCharge = { id: chargeId, status: 'completed', amount: 500, order_id: orderId }
 
@@ -550,7 +563,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
         json: async () => ([mockCharge]),
       } as Response)
 
-    const callbackUrl = `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=${orderId}`
+    const callbackUrl = `/api/payments/callback/openpay?orderId=${orderId}`
 
     // Primera llamada — crea la membresía
     const res1 = await app.inject({ method: 'GET', url: callbackUrl })
@@ -576,6 +589,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   })
 
   it('cross-gym: gymId de gym B (sin OpenPay) con planId de gym A → redirect a cancelled', async () => {
+    await createOpenPayCheckoutRecord('test-cross-gym', memberBId, planAId, gymBId)
     // gymB no tiene openpay configurado → gatewayConfig lanza
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
@@ -584,7 +598,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymBId}&planId=${planAId}&userId=${memberBId}&orderId=test-cross-gym`,
+      url: `/api/payments/callback/openpay?orderId=test-cross-gym`,
     })
 
     expect(res.statusCode).toBe(302)
@@ -594,6 +608,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   })
 
   it('OpenPay devuelve array vacío (charge no encontrado) → redirect a cancelled', async () => {
+    await createOpenPayCheckoutRecord('test-order-notfound', memberAId, planAId, gymAId)
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => ([]),
@@ -601,7 +616,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-notfound`,
+      url: `/api/payments/callback/openpay?orderId=test-order-notfound`,
     })
 
     expect(res.statusCode).toBe(302)
@@ -611,6 +626,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   })
 
   it('OpenPay devuelve objeto único (no array) con status completed → membresía ACTIVE', async () => {
+    await createOpenPayCheckoutRecord('test-order-direct-obj', memberAId, planAId, gymAId)
     // El servicio hace: const charge = Array.isArray(charges) ? charges[0] : charges
     // Entonces también acepta un objeto directo
     const chargeId = 'trx_object_direct_004'
@@ -622,7 +638,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-direct-obj`,
+      url: `/api/payments/callback/openpay?orderId=test-order-direct-obj`,
     })
 
     expect(res.statusCode).toBe(302)
@@ -639,6 +655,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
   })
 
   it('OpenPay usa URL sandbox cuando cfg.sandbox === true', async () => {
+    await createOpenPayCheckoutRecord('test-order-sandbox-url', memberAId, planAId, gymAId)
     // Verificar que el getStatus llama al endpoint sandbox correcto
     const chargeId = 'trx_sandbox_url_005'
     let capturedUrl: string | undefined
@@ -653,7 +670,7 @@ describe('OpenPay: GET /api/payments/callback/openpay', () => {
 
     await app.inject({
       method: 'GET',
-      url: `/api/payments/callback/openpay?gymId=${gymAId}&planId=${planAId}&userId=${memberAId}&orderId=test-order-sandbox-url`,
+      url: `/api/payments/callback/openpay?orderId=test-order-sandbox-url`,
     })
 
     expect(capturedUrl).toContain(`sandbox-api.openpay.mx/v1/${OPENPAY_MERCHANT_ID}/charges`)
