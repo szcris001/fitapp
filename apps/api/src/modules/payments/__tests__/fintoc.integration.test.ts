@@ -31,7 +31,7 @@
  */
 
 import crypto from 'crypto'
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import Fastify, { FastifyInstance } from 'fastify'
 import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
@@ -488,6 +488,29 @@ describe('Fintoc: GET /api/payments/fintoc/status', () => {
 
 // ─── Suite 3: POST /payments/fintoc/sync — importación e idempotencia ────────
 
+// La API consulta los movimientos a Fintoc: se simula su respuesta (formato Fintoc) y
+// se llama a /sync sin body. `movements` usa el formato interno de los tests.
+process.env.FINTOC_SECRET_KEY = process.env.FINTOC_SECRET_KEY || 'sk_test_fintoc'
+process.env.FINTOC_PUBLIC_KEY = process.env.FINTOC_PUBLIC_KEY || 'pk_test_fintoc'
+
+type TestMovement = { id: string; amount: number; post_date: string; description?: string; sender_rut?: string; sender_name?: string; reference_code?: string }
+
+function syncWith(app: FastifyInstance, token: string, movements: TestMovement[] = []) {
+  vi.restoreAllMocks() // un mock no consumido (p. ej. 403) no debe pasar al siguiente test
+  vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    json: async () => movements.map(m => ({
+      id: m.id, amount: m.amount, currency: 'CLP', post_date: m.post_date, description: m.description,
+      reference_id: m.reference_code,
+      sender_account: m.sender_rut || m.sender_name ? { holder_id: m.sender_rut, holder_name: m.sender_name } : null,
+    })),
+  } as Response)
+  return app.inject({
+    method: 'POST', url: '/api/payments/fintoc/sync',
+    headers: { authorization: `Bearer ${token}` },
+  })
+}
+
 describe('Fintoc: POST /api/payments/fintoc/sync — importación e idempotencia', () => {
   let app: FastifyInstance
 
@@ -511,50 +534,51 @@ describe('Fintoc: POST /api/payments/fintoc/sync — importación e idempotencia
   })
 
   it('MEMBER intenta sync → 403', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${memberAToken}` },
-      payload: {
-        movements: [{ id: 'mv_auth_member', amount: 10000, post_date: '2026-05-01' }],
-      },
-    })
+    const res = await syncWith(app, memberAToken, [{ id: 'mv_auth_member', amount: 10000, post_date: '2026-05-01' }])
     expect(res.statusCode).toBe(403)
   })
 
-  it('body vacío (movements array vacío) → 400 Zod (min(1))', async () => {
+  it('movimientos enviados por el cliente se ignoran: solo cuenta lo que devuelve Fintoc', async () => {
+    const ts = Date.now()
+    vi.restoreAllMocks()
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)
     const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
+      method: 'POST', url: '/api/payments/fintoc/sync',
       headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { movements: [] },
+      // Antes el frontend enviaba los movimientos y se importaban tal cual
+      payload: { movements: [{ id: `mv_forged_${ts}`, amount: 99999, post_date: '2026-05-01' }] },
     })
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(200)
+    expect(res.json().imported).toBe(0)
+    expect(await prisma.bankMovement.findUnique({ where: { fintocMovementId: `mv_forged_${ts}` } })).toBeNull()
   })
 
-  it('body sin movements → 400 Zod', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { foo: 'bar' },
+  it('consulta a Fintoc la cuenta del link con link_token y solo importa abonos', async () => {
+    const ts = Date.now()
+    vi.restoreAllMocks()
+    let calledUrl = ''
+    vi.spyOn(global, 'fetch').mockImplementationOnce(async (url: string | URL | Request) => {
+      calledUrl = url.toString()
+      return { ok: true, json: async () => [
+        { id: `mv_in_${ts}`, amount: 15000, currency: 'CLP', post_date: '2026-05-03' },
+        { id: `mv_out_${ts}`, amount: -5000, currency: 'CLP', post_date: '2026-05-03' },
+      ] } as Response
     })
-    expect(res.statusCode).toBe(400)
+    const res = await app.inject({ method: 'POST', url: '/api/payments/fintoc/sync', headers: { authorization: `Bearer ${adminAToken}` } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().imported).toBe(1) // el egreso (monto negativo) no se importa
+    expect(calledUrl).toMatch(/^https:\/\/api\.fintoc\.com\/v1\/accounts\/.+\/movements\?/)
+    expect(calledUrl).toContain('link_token=')
+    const mv = await prisma.bankMovement.findUnique({ where: { fintocMovementId: `mv_in_${ts}` } })
+    if (mv) createdBankMovementIds.push(mv.id)
   })
 
   it('sync de 2 movimientos nuevos → imported: 2, skipped: 0', async () => {
     const ts = Date.now()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [
+    const res = await syncWith(app, adminAToken, [
           { id: `mv_new_1_${ts}`, amount: 10000, post_date: '2026-05-01', description: 'Abono alumno 1' },
           { id: `mv_new_2_${ts}`, amount: 20000, post_date: '2026-05-02', description: 'Abono alumno 2' },
-        ],
-      },
-    })
+        ])
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
@@ -576,24 +600,10 @@ describe('Fintoc: POST /api/payments/fintoc/sync — importación e idempotencia
     const movementId = `mv_idempotent_${ts}`
 
     // Primera importación
-    await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [{ id: movementId, amount: 15000, post_date: '2026-05-03' }],
-      },
-    })
+    await syncWith(app, adminAToken, [{ id: movementId, amount: 15000, post_date: '2026-05-03' }])
 
     // Segunda importación (mismo id)
-    const res2 = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [{ id: movementId, amount: 15000, post_date: '2026-05-03' }],
-      },
-    })
+    const res2 = await syncWith(app, adminAToken, [{ id: movementId, amount: 15000, post_date: '2026-05-03' }])
 
     expect(res2.statusCode).toBe(200)
     const body = res2.json()
@@ -614,25 +624,13 @@ describe('Fintoc: POST /api/payments/fintoc/sync — importación e idempotencia
     const newId = `mv_mix_new_${ts}`
 
     // Crear el existente primero
-    await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { movements: [{ id: existingId, amount: 5000, post_date: '2026-05-01' }] },
-    })
+    await syncWith(app, adminAToken, [{ id: existingId, amount: 5000, post_date: '2026-05-01' }])
 
     // Importar mezcla
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [
+    const res = await syncWith(app, adminAToken, [
           { id: existingId, amount: 5000, post_date: '2026-05-01' },  // duplicado
           { id: newId, amount: 7500, post_date: '2026-05-04' },        // nuevo
-        ],
-      },
-    })
+        ])
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
@@ -650,12 +648,7 @@ describe('Fintoc: POST /api/payments/fintoc/sync — importación e idempotencia
     const beforeSync = linkBefore?.lastSyncAt
 
     const ts = Date.now()
-    await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { movements: [{ id: `mv_sync_ts_${ts}`, amount: 1000, post_date: '2026-05-05' }] },
-    })
+    await syncWith(app, adminAToken, [{ id: `mv_sync_ts_${ts}`, amount: 1000, post_date: '2026-05-05' }])
 
     const linkAfter = await prisma.fintocLink.findUnique({ where: { gymId: gymAId } })
     expect(linkAfter?.lastSyncAt).not.toBeNull()
@@ -685,12 +678,7 @@ describe('Fintoc: POST /api/payments/fintoc/sync — importación e idempotencia
     const tempToken = tempApp2.jwt.sign({ userId: tempAdmin.id, gymId: tempGym.id, role: 'ADMIN', name: 'Admin Sin Link', email: 'qa-fintoc-nolink@test.local' })
     await tempApp2.close()
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${tempToken}` },
-      payload: { movements: [{ id: 'mv_nolink_1', amount: 1000, post_date: '2026-05-01' }] },
-    })
+    const res = await syncWith(app, tempToken, [{ id: 'mv_nolink_1', amount: 1000, post_date: '2026-05-01' }])
 
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/no hay link fintoc/i)
@@ -719,20 +707,13 @@ describe('Fintoc: Matcher de conciliación — Fase 1 exact_rut y Fase 2 amount_
     const ts = Date.now()
     const movementId = `mv_rut_match_${ts}`
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [{
+    const res = await syncWith(app, adminAToken, [{
           id: movementId,
           amount: 50000,          // mismo monto que la membresía (plan.priceCents = 50000)
           post_date: new Date().toISOString().split('T')[0],
           sender_rut: '12345678-9',  // coincide con memberA.rut
           sender_name: 'Member Fintoc A',
-        }],
-      },
-    })
+        }])
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
@@ -758,19 +739,12 @@ describe('Fintoc: Matcher de conciliación — Fase 1 exact_rut y Fase 2 amount_
     const ts = Date.now()
     const movementId = `mv_rut_no_match_${ts}`
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [{
+    const res = await syncWith(app, adminAToken, [{
           id: movementId,
           amount: 50000,
           post_date: new Date().toISOString().split('T')[0],
           sender_rut: '99999999-9',   // RUT inexistente
-        }],
-      },
-    })
+        }])
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
@@ -804,19 +778,12 @@ describe('Fintoc: Matcher de conciliación — Fase 1 exact_rut y Fase 2 amount_
     const movementId = `mv_amount_only_${ts}`
 
     // postedAt = ahora (dentro de ±72h de membership.createdAt = ahora)
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [{
+    const res = await syncWith(app, adminAToken, [{
           id: movementId,
           amount: 77777,
           post_date: new Date().toISOString(),
           // Sin sender_rut → no hay Fase 1
-        }],
-      },
-    })
+        }])
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
@@ -844,18 +811,11 @@ describe('Fintoc: Matcher de conciliación — Fase 1 exact_rut y Fase 2 amount_
     const ts = Date.now()
     const movementId = `mv_no_candidates_${ts}`
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/payments/fintoc/sync',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: {
-        movements: [{
+    const res = await syncWith(app, adminAToken, [{
           id: movementId,
           amount: 99999999,  // monto que no existe en ninguna membresía
           post_date: new Date().toISOString(),
-        }],
-      },
-    })
+        }])
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
@@ -1592,5 +1552,67 @@ describe('Fintoc: POST /api/payments/webhook/fintoc — webhook HMAC + idempoten
     const body = res.json()
     expect(body.imported).toBe(0)
     expect(body.skipped).toBe(0)
+  })
+})
+
+// ─── Suite: conexión con el widget y RUT sin formato ──────────────────────────
+
+describe('Fintoc: widget (link intent + exchange) y RUT de Fintoc sin formato', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => { app = await buildApp() })
+  // El link de gym B (actualizado por el exchange) lo borra la limpieza global: tiene
+  // movimientos de otra suite que lo referencian
+  afterAll(async () => {
+    vi.restoreAllMocks()
+    await app.close()
+  })
+
+  it('POST /fintoc/link-intent → widgetToken de Fintoc + publicKey', async () => {
+    vi.restoreAllMocks()
+    let sentBody: any
+    vi.spyOn(global, 'fetch').mockImplementationOnce(async (_url, init) => {
+      sentBody = JSON.parse(String(init?.body))
+      return { ok: true, json: async () => ({ id: 'li_1', widget_token: 'wt_test_123', status: 'created' }) } as Response
+    })
+    const res = await app.inject({ method: 'POST', url: '/api/payments/fintoc/link-intent', headers: { authorization: `Bearer ${adminBToken}` } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ widgetToken: 'wt_test_123', publicKey: process.env.FINTOC_PUBLIC_KEY })
+    expect(sentBody).toEqual({ country: 'cl', holder_type: 'business', product: 'movements' })
+  })
+
+  it('POST /fintoc/link/exchange guarda el link con la cuenta en CLP', async () => {
+    vi.restoreAllMocks()
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        link_token: 'lt_exchanged', institution: { name: 'Banco de Prueba' },
+        accounts: [
+          { id: 'acc_usd', currency: 'USD', number: '999', holder_name: 'Gym B', holder_id: '761234567' },
+          { id: 'acc_clp', currency: 'CLP', number: '123', holder_name: 'Gym B', holder_id: '761234567' },
+        ],
+      }),
+    } as Response)
+    const res = await app.inject({
+      method: 'POST', url: '/api/payments/fintoc/link/exchange',
+      headers: { authorization: `Bearer ${adminBToken}` }, payload: { exchangeToken: 'et_from_widget' },
+    })
+    expect(res.statusCode).toBe(201)
+    const link = await prisma.fintocLink.findUnique({ where: { gymId: gymBId } })
+    expect(link).toMatchObject({ linkToken: 'lt_exchanged', accountId: 'acc_clp', bankName: 'Banco de Prueba', holderRut: '761234567' })
+  })
+
+  it('el matcher compara RUT sin formato (Fintoc) con RUT formateado del alumno', async () => {
+    await createPendingTransferMembership(gymAId, memberAId, planAId, 50000)
+    const movementId = `mv_rut_unformatted_${Date.now()}`
+    const res = await syncWith(app, adminAToken, [{
+      id: movementId, amount: 50000, post_date: new Date().toISOString().split('T')[0],
+      sender_rut: '123456789', // memberA.rut = '12345678-9'
+    }])
+    expect(res.json().confirmed).toBe(1)
+    // Confirmado por RUT (el matcher toma la membresía pendiente más antigua del alumno)
+    const mv = await prisma.bankMovement.findUnique({ where: { fintocMovementId: movementId } })
+    expect(mv!.matchConfidence).toBe('exact_rut')
+    if (mv) createdBankMovementIds.push(mv.id)
   })
 })
