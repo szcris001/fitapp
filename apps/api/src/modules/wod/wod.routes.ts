@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { calculateLoad } from './wod.utils'
 import { includeBlocks } from './wod.service'
+import { gymDayRange, gymDayStart, getGymTimezone } from '../../lib/gym-day'
 
 // Payload del JWT: { userId, gymId, role }
 interface AuthUser {
@@ -60,13 +61,6 @@ function sanitizeBlocks(blocks: any[]) {
   }))
 }
 
-/** Normaliza una fecha a medianoche local (sin hora) para comparar por día */
-function dayRange(dateStr: string) {
-  const d = new Date(dateStr)
-  d.setHours(0, 0, 0, 0)
-  return { gte: d, lt: new Date(d.getTime() + 86_400_000) }
-}
-
 export async function wodRoutes(app: FastifyInstance) {
 
   // ─── CREATE ─────────────────────────────────────────────────────────────────
@@ -80,9 +74,10 @@ export async function wodRoutes(app: FastifyInstance) {
     })
     if (!classType) return reply.status(404).send({ error: 'Tipo de clase no encontrado' })
 
-    // One WOD per classType per day
+    // One WOD per classType per day (día local del gym)
+    const tz = await getGymTimezone(user.gymId)
     const existing = await prisma.wod.findFirst({
-      where: { gymId: user.gymId, classTypeId, date: dayRange(date) },
+      where: { gymId: user.gymId, classTypeId, date: gymDayRange(date, tz) },
     })
     if (existing) {
       return reply.status(400).send({ error: 'Ya existe una planificación para este tipo de clase en esa fecha' })
@@ -94,7 +89,7 @@ export async function wodRoutes(app: FastifyInstance) {
           gymId: user.gymId,
           classTypeId,
           title,
-          date: new Date(date),
+          date: gymDayStart(date, tz),
           blocks: { create: sanitizeBlocks(blocks ?? []) },
         },
         include: includeBlocks,
@@ -116,7 +111,7 @@ export async function wodRoutes(app: FastifyInstance) {
     })
     if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
     const wods = await prisma.wod.findMany({
-      where: { gymId: user.gymId, classTypeId: cls.classTypeId, date: dayRange(cls.startsAt.toISOString()) },
+      where: { gymId: user.gymId, classTypeId: cls.classTypeId, date: gymDayRange(cls.startsAt, await getGymTimezone(user.gymId)) },
       include: includeBlocks,
       orderBy: { date: 'desc' },
     })
@@ -133,7 +128,7 @@ export async function wodRoutes(app: FastifyInstance) {
     })
     if (!cls) return reply.send([])
     const wod = await prisma.wod.findFirst({
-      where: { gymId: user.gymId, classTypeId: cls.classTypeId, date: dayRange(cls.startsAt.toISOString()) },
+      where: { gymId: user.gymId, classTypeId: cls.classTypeId, date: gymDayRange(cls.startsAt, await getGymTimezone(user.gymId)) },
       include: includeBlocks,
     })
     if (!wod) return reply.send([])
@@ -166,11 +161,11 @@ export async function wodRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { from, to } = request.query as any
     const where: any = { gymId: user.gymId }
-    if (from) where.date = { ...where.date, gte: new Date(from) }
-    if (to) {
-      const toDate = new Date(to)
-      toDate.setUTCHours(23, 59, 59, 999)
-      where.date = { ...where.date, lte: toDate }
+    if (from || to) {
+      // from/to son días locales del gym (inclusive)
+      const tz = await getGymTimezone(user.gymId)
+      if (from) where.date = { ...where.date, gte: gymDayRange(from, tz).gte }
+      if (to) where.date = { ...where.date, lt: gymDayRange(to, tz).lt }
     }
     const wods = await prisma.wod.findMany({
       where,
@@ -198,7 +193,7 @@ export async function wodRoutes(app: FastifyInstance) {
         where: { id },
         data: {
           title,
-          date: new Date(date),
+          ...(date !== undefined ? { date: gymDayStart(date, await getGymTimezone(user.gymId)) } : {}),
           blocks: { create: sanitizeBlocks(blocks ?? []) },
           ...(scoreType !== undefined ? { scoreType } : {}),
         },
@@ -463,6 +458,7 @@ export async function wodRoutes(app: FastifyInstance) {
     const wods = request.body as any[]
     const created = []
     const errors = []
+    const tz = await getGymTimezone(user.gymId)
 
     for (const wodData of wods) {
       try {
@@ -476,7 +472,7 @@ export async function wodRoutes(app: FastifyInstance) {
             gymId: user.gymId,
             classTypeId: wodData.classTypeId,
             title: wodData.title,
-            date: new Date(wodData.date),
+            date: gymDayStart(wodData.date, tz),
             blocks: { create: sanitizeBlocks(wodData.blocks ?? []) },
           },
         })

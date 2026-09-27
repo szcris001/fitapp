@@ -3,18 +3,7 @@ import { BookingStatus } from '../../generated/prisma'
 import { CreateClassTypeInput, CreateClassInput, BookingInput } from './classes.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 import { sendPushNotification } from '../../lib/push'
-
-// Devuelve el inicio del día (UTC) que corresponde a medianoche en la timezone del gym
-function startOfDayUTC(date: Date, timezone: string): Date {
-  const localDate = date.toLocaleDateString('sv', { timeZone: timezone }) // 'YYYY-MM-DD'
-  const midnightUTC = new Date(`${localDate}T00:00:00.000Z`)
-  const h = parseInt(
-    new Intl.DateTimeFormat('en', { timeZone: timezone, hour: '2-digit', hour12: false }).format(midnightUTC),
-    10
-  ) % 24
-  const offsetMs = (h <= 12 ? -h : 24 - h) * 3_600_000
-  return new Date(midnightUTC.getTime() + offsetMs)
-}
+import { gymDayRange, getGymTimezone, DEFAULT_GYM_TIMEZONE } from '../../lib/gym-day'
 
 export async function listClassTypes(gymId: string) {
   return prisma.classType.findMany({
@@ -109,12 +98,9 @@ export async function getClassById(gymId: string, classId: string) {
   })
   if (!cls) throw new Error('Clase no encontrada')
 
-  // Look up shared WOD for this classType on the same day
-  const dayStart = new Date(cls.startsAt)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart.getTime() + 86_400_000)
+  // WOD compartido del mismo tipo de clase en el mismo día local del gym
   const wod = await prisma.wod.findFirst({
-    where: { gymId, classTypeId: cls.classTypeId, date: { gte: dayStart, lt: dayEnd } },
+    where: { gymId, classTypeId: cls.classTypeId, date: gymDayRange(cls.startsAt, await getGymTimezone(gymId)) },
     include: {
       blocks: {
         orderBy: { order: 'asc' },
@@ -297,9 +283,8 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
   }
 
   // Rango del día de la clase en la timezone del gym
-  const gymTz = cls.gym.timezone || 'America/Santiago'
-  const dayStart = startOfDayUTC(cls.startsAt, gymTz)
-  const dayEnd = new Date(dayStart.getTime() + 86_400_000)
+  const gymTz = cls.gym.timezone || DEFAULT_GYM_TIMEZONE
+  const { gte: dayStart, lt: dayEnd } = gymDayRange(cls.startsAt, gymTz)
   const activeStatuses: BookingStatus[] = ['CONFIRMED', 'ATTENDED', 'WAITLIST', 'PENDING_CONFIRM']
 
   // No se puede reservar el mismo tipo de clase dos veces en el mismo día — regla para

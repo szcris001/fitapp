@@ -3,6 +3,7 @@ import { prisma } from './prisma'
 import { sendExpiryReminder, sendBulkToGyms } from './email'
 import { sendPushNotification } from './push'
 import { chargeAutoRenewMembership } from '../modules/payments/payments.service'
+import { gymDayRangeFromToday, DEFAULT_GYM_TIMEZONE } from './gym-day'
 
 /**
  * Aviso diario a las 9:00 AM: membresías de miembros por vencer.
@@ -11,23 +12,21 @@ async function runMemberExpiryJob() {
   console.log('[Cron] Revisando membresías por vencer...')
   const gyms = await prisma.gym.findMany({
     where: { status: 'ACTIVE' },
-    select: { id: true, expiryReminderDays: true },
+    select: { id: true, expiryReminderDays: true, timezone: true },
   })
 
   for (const gym of gyms) {
     const days = gym.expiryReminderDays ?? 3
     if (days <= 0) continue
 
-    const targetDate = new Date()
-    targetDate.setDate(targetDate.getDate() + days)
-    const start = new Date(targetDate); start.setHours(0, 0, 0, 0)
-    const end   = new Date(targetDate); end.setHours(23, 59, 59, 999)
+    // Día local del gym que está a `days` días de hoy
+    const { gte: start, lt: end } = gymDayRangeFromToday(gym.timezone || DEFAULT_GYM_TIMEZONE, days)
 
     const memberships = await prisma.membership.findMany({
       where: {
         user: { gymId: gym.id },
         status: 'ACTIVE',
-        endsAt: { gte: start, lte: end },
+        endsAt: { gte: start, lt: end },
       },
       include: {
         user: { select: { name: true, email: true, pushToken: true } },

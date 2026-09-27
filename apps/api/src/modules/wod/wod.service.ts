@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import { calculateLoad } from './wod.utils'
+import { gymDayRange, getGymTimezone } from '../../lib/gym-day'
 
 export const includeBlocks = {
   blocks: {
@@ -12,8 +13,7 @@ export async function getWodByClass(gymId: string, classId: string) {
   const cls = await prisma.class.findFirst({ where: { id: classId, gymId } })
   if (!cls) throw new Error('Clase no encontrada')
 
-  const dayStart = new Date(cls.startsAt); dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart.getTime() + 86_400_000)
+  const { gte: dayStart, lt: dayEnd } = gymDayRange(cls.startsAt, await getGymTimezone(gymId))
   return prisma.wod.findFirst({
     where: { gymId, classTypeId: cls.classTypeId, date: { gte: dayStart, lt: dayEnd } },
     include: includeBlocks,
@@ -29,8 +29,7 @@ export async function getWodWithLoads(gymId: string, classId: string, userId: st
   ])
   if (!cls) throw new Error('Clase no encontrada')
 
-  const dayStart = new Date(cls.startsAt); dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart.getTime() + 86_400_000)
+  const { gte: dayStart, lt: dayEnd } = gymDayRange(cls.startsAt, await getGymTimezone(gymId))
   const wod = await prisma.wod.findFirst({
     where: { gymId, classTypeId: cls.classTypeId, date: { gte: dayStart, lt: dayEnd } },
     include: includeBlocks,

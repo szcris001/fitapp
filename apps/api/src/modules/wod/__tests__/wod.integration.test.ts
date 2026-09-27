@@ -1336,3 +1336,65 @@ describe('WOD: resultados usan el userId del JWT', () => {
     expect(res.json().recordedBy).toBe(coachAId)
   })
 })
+
+// ─── Suite: el WOD se empareja con la clase por día local del gym ─────────────
+
+describe('WOD: emparejamiento por día local del gym (America/Santiago)', () => {
+  let app: FastifyInstance
+  let lateClassId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    // Clase a las 22:00 del 2026-11-10 en Santiago (UTC-3) = 01:00 UTC del 11-nov
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date('2026-11-11T01:00:00Z'), endsAt: new Date('2026-11-11T02:00:00Z'),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    lateClassId = cls.id
+  })
+
+  afterAll(async () => {
+    await prisma.class.deleteMany({ where: { id: lateClassId } })
+    await app.close()
+  })
+
+  it('WOD creado con fecha solo-día (mobile) aparece en la clase de las 22:00 de ese día', async () => {
+    const create = await app.inject({
+      method: 'POST', url: '/api/wods',
+      headers: { authorization: `Bearer ${coachAToken}` },
+      payload: { classTypeId: classTypeAId, title: 'WOD nocturno', date: '2026-11-10', blocks: [] },
+    })
+    expect(create.statusCode).toBe(201)
+    createdWodIds.push(create.json().id)
+    // Se guarda como el inicio del día local: 00:00 en Santiago = 03:00 UTC
+    expect(new Date(create.json().date).toISOString()).toBe('2026-11-10T03:00:00.000Z')
+
+    const res = await app.inject({
+      method: 'GET', url: `/api/wods/class/${lateClassId}`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().map((w: any) => w.title)).toContain('WOD nocturno')
+  })
+
+  it('el mismo día enviado como timestamp (web) cuenta como duplicado', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/wods',
+      headers: { authorization: `Bearer ${coachAToken}` },
+      payload: { classTypeId: classTypeAId, title: 'Duplicado', date: '2026-11-11T01:00:00.000Z', blocks: [] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Ya existe una planificación/)
+  })
+
+  it('GET /wods?from=&to= usa días locales', async () => {
+    const res = await app.inject({
+      method: 'GET', url: '/api/wods?from=2026-11-10&to=2026-11-10',
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.json().map((w: any) => w.title)).toContain('WOD nocturno')
+  })
+})

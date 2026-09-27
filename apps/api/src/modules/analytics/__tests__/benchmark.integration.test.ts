@@ -47,7 +47,8 @@ beforeAll(async () => {
     data: { gymId: gymBId, name: 'Member Bench B', email: 'qa-bench-b@test.local', passwordHash: 'x', role: 'MEMBER' },
   })).id
   benchmarkId = (await prisma.benchmark.create({
-    data: { nombre: BENCHMARK_NAME, categoria: 'GIRL', formato: 'For time', isOfficial: true },
+    // Benchmark del gym A (no oficial): uno oficial alteraría el conteo de seedBenchmarks en paralelo
+    data: { nombre: BENCHMARK_NAME, categoria: 'GIRL', formato: 'For time', isOfficial: false, gymId: gymAId },
   })).id
   // Resultado de otro gym que NO debe aparecer en my-result de memberA
   await prisma.benchmarkResult.create({
