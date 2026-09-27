@@ -119,7 +119,7 @@ export async function gymRoutes(app: FastifyInstance) {
     try {
       return reply.send(await updateGym(user.gymId, parsed.data))
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
@@ -128,7 +128,7 @@ export async function gymRoutes(app: FastifyInstance) {
     try {
       return reply.send(await getGymStats(user.gymId))
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
@@ -138,7 +138,7 @@ export async function gymRoutes(app: FastifyInstance) {
     try {
       return reply.send(await getClassOccupancy(user.gymId, period))
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
@@ -185,7 +185,7 @@ export async function gymRoutes(app: FastifyInstance) {
 
       return reply.send({ logoUrl })
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 

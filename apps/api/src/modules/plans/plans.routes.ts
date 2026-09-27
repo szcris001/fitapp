@@ -12,7 +12,7 @@ export async function planRoutes(app: FastifyInstance) {
       const plans = await listPlans(gymId)
       return reply.send(plans)
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
@@ -26,7 +26,7 @@ export async function planRoutes(app: FastifyInstance) {
       const plan = await createPlan(user.gymId, parsed.data)
       return reply.status(201).send(plan)
     } catch (err: any) {
-      return reply.status(500).send({ error: err.message })
+      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })
 
