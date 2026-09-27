@@ -12,6 +12,9 @@
  *   POST /api/skills                    — crear habilidad personalizada
  *   PUT  /api/skills/:id                — actualizar habilidad
  *   DELETE /api/skills/:id             — desactivar habilidad (soft delete)
+ *   GET  /api/gyms/my-sedes            — sedes del admin (por ownerEmail leído de DB)
+ *   POST /api/gyms/my-sedes            — crear sede
+ *   POST /api/gyms/switch-sede         — cambiar de sede activa
  *
  * Casos de aislamiento cross-gym:
  *   - Admin de Gym B no puede leer ni modificar datos de Gym A
@@ -1028,5 +1031,101 @@ describe('DELETE /api/skills/:id — soft delete de habilidad', () => {
       headers: { authorization: `Bearer ${adminAToken}` },
     })
     expect(res.statusCode).toBe(404)
+  })
+})
+
+// ─── Suite: Multi-sede (el JWT no lleva email, se lee de la DB) ───────────────
+
+describe('Multi-sede — my-sedes y switch-sede con JWT mínimo', () => {
+  const OWNED_SLUG = 'qa-gyms-sede-owned'
+  const CREATED_SLUG = 'qa-gyms-sede-created'
+  const FOREIGN_SLUG = 'qa-gyms-sede-foreign'
+  let app: FastifyInstance
+  let minimalAdminAToken: string
+  let ownedSedeId: string
+  let foreignSedeId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    await prisma.gym.deleteMany({ where: { slug: { in: [OWNED_SLUG, CREATED_SLUG, FOREIGN_SLUG] } } })
+    // Admin A es dueño de su gym y de una sede extra; la sede "foreign" es de otro admin
+    await prisma.gym.update({ where: { id: gymAId }, data: { ownerEmail: 'qa-gyms-admin-a@test.local' } })
+    ownedSedeId = (await prisma.gym.create({
+      data: { name: 'QA Sede Owned', slug: OWNED_SLUG, status: 'ACTIVE', ownerEmail: 'qa-gyms-admin-a@test.local' },
+    })).id
+    foreignSedeId = (await prisma.gym.create({
+      data: { name: 'QA Sede Foreign', slug: FOREIGN_SLUG, status: 'ACTIVE', ownerEmail: 'qa-gyms-admin-b@test.local' },
+    })).id
+    // Token con el payload que emite /auth/login: sin email ni name
+    minimalAdminAToken = app.jwt.sign({ userId: adminAId, gymId: gymAId, role: 'ADMIN' })
+  })
+
+  afterAll(async () => {
+    await prisma.gym.deleteMany({ where: { slug: { in: [OWNED_SLUG, CREATED_SLUG, FOREIGN_SLUG] } } })
+    await app.close()
+  })
+
+  it('GET /gyms/my-sedes lista solo las sedes del admin', async () => {
+    const res = await app.inject({
+      method: 'GET', url: '/api/gyms/my-sedes',
+      headers: { authorization: `Bearer ${minimalAdminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const ids = JSON.parse(res.body).map((g: any) => g.id)
+    expect(ids).toEqual(expect.arrayContaining([gymAId, ownedSedeId]))
+    expect(ids).not.toContain(foreignSedeId)
+  })
+
+  it('POST /gyms/my-sedes asigna ownerEmail desde la DB', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/gyms/my-sedes',
+      headers: { authorization: `Bearer ${minimalAdminAToken}` },
+      payload: { name: 'QA Sede Created', slug: CREATED_SLUG },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.body).ownerEmail).toBe('qa-gyms-admin-a@test.local')
+  })
+
+  it('POST /gyms/switch-sede a sede propia → 200, JWT mínimo con el nuevo gymId', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/gyms/switch-sede',
+      headers: { authorization: `Bearer ${minimalAdminAToken}` },
+      payload: { targetGymId: ownedSedeId },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.user.email).toBe('qa-gyms-admin-a@test.local')
+    expect(body.user.name).toBe('Admin Gyms A')
+    const { iat, exp, ...claims } = app.jwt.decode(body.token) as any
+    expect(claims).toEqual({ userId: adminAId, gymId: ownedSedeId, role: 'ADMIN' })
+  })
+
+  it('POST /gyms/switch-sede a sede ajena → 403', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/gyms/switch-sede',
+      headers: { authorization: `Bearer ${minimalAdminAToken}` },
+      payload: { targetGymId: foreignSedeId },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('token con email falso en el payload no da acceso a sede ajena', async () => {
+    // Antes el email se tomaba del JWT; ahora se ignora y se lee de la DB
+    const forged = app.jwt.sign({ userId: adminAId, gymId: gymAId, role: 'ADMIN', email: 'qa-gyms-admin-b@test.local' })
+    const res = await app.inject({
+      method: 'POST', url: '/api/gyms/switch-sede',
+      headers: { authorization: `Bearer ${forged}` },
+      payload: { targetGymId: foreignSedeId },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('usuario inexistente → 401', async () => {
+    const ghost = app.jwt.sign({ userId: '00000000-0000-0000-0000-000000000000', gymId: gymAId, role: 'ADMIN' })
+    const res = await app.inject({
+      method: 'GET', url: '/api/gyms/my-sedes',
+      headers: { authorization: `Bearer ${ghost}` },
+    })
+    expect(res.statusCode).toBe(401)
   })
 })

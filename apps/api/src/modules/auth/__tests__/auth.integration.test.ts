@@ -174,10 +174,12 @@ describe('Auth Integration — POST /api/auth/login', () => {
 
     // Verificar payload del JWT
     const decoded = app.jwt.decode(body.token) as any
-    expect(decoded.email).toBe(TEST_ADMIN_EMAIL)
     expect(decoded.role).toBe('ADMIN')
     expect(decoded.gymId).toBe(gymId)
     expect(decoded.userId).toBeDefined()
+    // El JWT solo lleva { userId, gymId, role } — sin datos personales
+    const { iat, exp, ...claims } = decoded
+    expect(Object.keys(claims).sort()).toEqual(['gymId', 'role', 'userId'])
 
     // Verificar objeto user en la respuesta
     expect(body.user).toBeDefined()
