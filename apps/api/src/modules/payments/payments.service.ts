@@ -839,14 +839,18 @@ export async function handleKushkiCallback(body: any, xKushkiToken?: string) {
   const gym = await getGym(checkout.gymId)
   const cfg = (gym.paymentGateways as any)?.kushki
   if (!cfg?.enabled) throw new Error('Pasarela Kushki no habilitada para este gimnasio')
-  if (cfg?.privateMerchantId) {
-    validateKushkiToken(xKushkiToken, cfg.privateMerchantId)
-  }
+  // Sin privateMerchantId no hay con qué validar el token: se rechaza (fail-closed)
+  if (!cfg.privateMerchantId) throw new Error('Kushki sin privateMerchantId configurado')
+  validateKushkiToken(xKushkiToken, cfg.privateMerchantId)
 
-  if (transactionStatus && transactionStatus !== 'APPROVAL') {
-    throw new Error(`Pago Kushki no aprobado (${transactionStatus})`)
+  // El estado es obligatorio: antes, un callback sin transactionStatus activaba la membresía
+  if (transactionStatus !== 'APPROVAL') {
+    throw new Error(`Pago Kushki no aprobado (${transactionStatus ?? 'sin estado'})`)
   }
+  assertPaidAmount(checkout, body?.amount?.subtotalIva0 ?? body?.totalAmount)
 
+  // PENDIENTE: validateKushkiToken no verifica la firma del JWT (solo el merchantId del
+  // payload). Confirmar el pago contra la API de Kushki según su documentación oficial.
   return completeCheckout(checkout, 'kushki', `kushki:${ticketNumber}`)
 }
 

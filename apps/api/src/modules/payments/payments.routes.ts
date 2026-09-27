@@ -286,7 +286,7 @@ export async function paymentRoutes(app: FastifyInstance) {
       await handleKushkiCallback(request.body, xKushkiToken)
       return reply.send({ ok: true })
     } catch (err: any) {
-      const status = err.message?.includes('inválido') || err.message?.includes('Falta header') || err.message?.includes('no coincide') || err.message?.includes('no tiene formato') ? 401 : 400
+      const status = err.message?.includes('inválido') || err.message?.includes('Falta header') || err.message?.includes('merchantId no coincide') || err.message?.includes('no tiene formato') ? 401 : 400
       return reply.status(status).send({ error: err.message })
     }
   })
