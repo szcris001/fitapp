@@ -32,6 +32,7 @@ import { requireActiveGym } from './middlewares/auth.middleware'
 import { mediaRoutes } from './modules/media/media.routes'
 import { registerTenantContext } from './lib/tenant-hook'
 import { registerErrorHandler } from './lib/http-error'
+import { initSentry } from './lib/sentry'
 
 dotenv.config()
 
@@ -39,6 +40,9 @@ if (!process.env.JWT_SECRET) {
   console.error('FATAL: JWT_SECRET no configurado. La API no puede iniciar sin un secreto seguro.')
   process.exit(1)
 }
+
+// Monitoreo de errores (no hace nada sin SENTRY_DSN)
+initSentry()
 
 const app = Fastify({ logger: true })
 
