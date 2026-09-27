@@ -1129,3 +1129,36 @@ describe('Multi-sede — my-sedes y switch-sede con JWT mínimo', () => {
     expect(res.statusCode).toBe(401)
   })
 })
+
+// ─── Suite: KPIs del dashboard en /gyms/me/stats (spec §4.1) ─────────────────
+
+describe('GET /api/gyms/me/stats — ingresos del mes y alumnos en riesgo', () => {
+  let app: FastifyInstance
+  let planId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    planId = (await prisma.plan.create({ data: { gymId: gymAId, name: 'QA Plan KPI', priceCents: 40000, currency: 'CLP', durationDays: 30 } })).id
+    // memberA: membresía activa pagada este mes y sin reservas → en riesgo
+    await prisma.membership.create({
+      data: {
+        userId: memberAId, planId, status: 'ACTIVE', startsAt: new Date(), endsAt: new Date(Date.now() + 30 * 86_400_000),
+        pricePaid: 40000, currency: 'CLP', paidAt: new Date(),
+      },
+    })
+  })
+
+  afterAll(async () => {
+    await prisma.membership.deleteMany({ where: { planId } })
+    await prisma.plan.deleteMany({ where: { id: planId } })
+    await app.close()
+  })
+
+  it('incluye revenueMonth (unidad mínima por moneda) y atRiskMembers', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/gyms/me/stats', headers: { authorization: `Bearer ${adminAToken}` } })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.revenueMonth).toEqual([{ currency: 'CLP', amount: 40000 }])
+    expect(body.atRiskMembers).toBe(1)
+  })
+})

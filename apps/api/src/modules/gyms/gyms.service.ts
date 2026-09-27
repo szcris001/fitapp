@@ -1,7 +1,8 @@
 import { prisma } from '../../lib/prisma'
 import { UpdateGymInput } from './gyms.schema'
 import { handlePrismaError } from '../../lib/prismaError'
-import { gymDayRangeFromToday, getGymTimezone } from '../../lib/gym-day'
+import { gymDayRangeFromToday, getGymTimezone, gymLocalDate, startOfGymDay } from '../../lib/gym-day'
+import { atRiskMembersWhere } from '../analytics/retention'
 
 export async function getGym(gymId: string) {
   const gym = await prisma.gym.findUnique({
@@ -223,7 +224,22 @@ export async function getGymStats(gymId: string) {
     }),
   ])
 
+  // KPIs del dashboard (spec §4.1): ingresos del mes (día local del gym) y alumnos en riesgo
+  const tz = await getGymTimezone(gymId)
+  const monthStart = startOfGymDay(gymLocalDate(new Date(), tz).slice(0, 8) + '01', tz)
+  const [revenueByCurrency, atRiskMembers] = await Promise.all([
+    prisma.membership.groupBy({
+      by: ['currency'],
+      where: { user: { gymId }, paidAt: { gte: monthStart } },
+      _sum: { pricePaid: true },
+    }),
+    prisma.user.count({ where: atRiskMembersWhere(gymId) }),
+  ])
+
   return {
+    // Unidad mínima ISO por moneda (formatear con toMajorUnits/formatMoney)
+    revenueMonth: revenueByCurrency.map(r => ({ currency: r.currency, amount: r._sum.pricePaid ?? 0 })),
+    atRiskMembers,
     members: {
       total: totalMembers,
       active: activeMembers,
