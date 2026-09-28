@@ -11,7 +11,7 @@ const DEFAULT_DASHBOARD_BG = 'https://images.unsplash.com/photo-1534438327276-14
 const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? 'http://localhost:3001'
 import {
   House, Users, CalendarDays, Trophy,
-  Layers, Banknote, BarChart3, Send,
+  Layers, BarChart3, Send, TrendingUp,
   SlidersHorizontal, LogOut, Pin, PinOff, Wallet, Landmark,
   ChevronDown, ChevronRight, Building2, Plus, Moon, Sun,
 } from 'lucide-react'
@@ -63,12 +63,26 @@ const allNavItems: NavItem[] = [
     coachAllowed: true,
   },
   {
+    label: 'Evolución',
+    href: '/dashboard/evolution',
+    icon: TrendingUp,
+    accent: '#14b8a6',
+    coachAllowed: true,
+  },
+  {
     label: 'Planes',
     href: '/dashboard/plans',
     icon: Layers,
     accent: '#8b5cf6',
     coachAllowed: false,
     section: 'Administración',
+  },
+  {
+    label: 'Pagos',
+    href: '/dashboard/payments',
+    icon: Wallet,
+    accent: '#22c55e',
+    coachAllowed: false,
   },
   {
     label: 'Conciliación',
