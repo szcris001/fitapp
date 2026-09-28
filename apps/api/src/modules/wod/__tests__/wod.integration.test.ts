@@ -28,6 +28,7 @@ import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../../lib/prisma'
 import { wodRoutes } from '../wod.routes'
+import { gymDayStart, DEFAULT_GYM_TIMEZONE } from '../../../lib/gym-day'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -53,6 +54,8 @@ let adminBToken: string
 
 // Clase del día de hoy en Gym A (para tests de getWodByClass)
 let classAId: string
+// Día local del gym de la clase A: los WODs de la clase A se guardan en ese día
+let classADay: Date
 
 // IDs de WODs creados en tests — para cleanup
 const createdWodIds: string[] = []
@@ -227,6 +230,7 @@ beforeAll(async () => {
     },
   })
   classAId = classA.id
+  classADay = gymDayStart(startsAt, DEFAULT_GYM_TIMEZONE)
 
   // Tokens JWT
   const tempApp = Fastify({ logger: false })
@@ -418,7 +422,7 @@ describe('WOD: GET /api/wods/class/:classId — WOD por clase', () => {
         gymId: gymAId,
         classTypeId: classTypeAId,
         title: 'WOD del día para clase',
-        date: new Date(), // hoy
+        date: classADay, // día local de la clase A
         blocks: {
           create: [
             {
@@ -563,7 +567,7 @@ describe('WOD: GET /api/wods/class/:classId/my-loads — cargas del usuario', ()
           gymId: gymAId,
           classTypeId: classTypeAId,
           title: 'WOD cargas',
-          date: new Date(),
+          date: classADay,
           blocks: {
             create: [
               {

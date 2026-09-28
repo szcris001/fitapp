@@ -5,7 +5,7 @@ import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
 import {
   ChevronRight, RefreshCw,
-  Dumbbell, Tv2, Medal, Users,
+  Dumbbell, Tv2, Medal, Users, ClipboardList, Plus, Upload,
 } from 'lucide-react'
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -45,17 +45,153 @@ function Skeleton() {
 }
 
 /* ─── Tabs ───────────────────────────────────────────── */
-type Tab = 'benchmarks' | 'rms'
+type Tab = 'wods' | 'benchmarks' | 'rms'
 const TABS: { id: Tab; label: string; Icon: any }[] = [
+  { id: 'wods',       label: 'WODs',         Icon: ClipboardList },
   { id: 'benchmarks', label: 'Benchmarks',   Icon: Medal    },
   { id: 'rms',        label: 'Récords (RM)', Icon: Dumbbell },
 ]
+
+/* ─── Listado de WODs (spec §4.5) ───────────────────────
+   El WOD se crea y edita en el detalle de la clase del día (ClassDetail);
+   aquí se lista con filtros y cada fila abre esa clase. */
+interface WodListItem {
+  id: string
+  title: string | null
+  date: string
+  classTypeId: string
+  classType?: { id: string; name: string; color: string | null }
+  blocks: { movements: unknown[] }[]
+}
+interface ClassTypeOption { id: string; name: string }
+
+const localDay = (d: Date) => d.toLocaleDateString('sv') // YYYY-MM-DD
+function currentWeek(): { from: string; to: string } {
+  const now = new Date()
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7))
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  return { from: localDay(monday), to: localDay(sunday) }
+}
+
+function WodList() {
+  const router = useRouter()
+  const [range, setRange] = useState(currentWeek)
+  const [classTypeId, setClassTypeId] = useState('')
+  const [classTypes, setClassTypes] = useState<ClassTypeOption[]>([])
+  // Resultado de la última carga; "cargando" = el rango pedido aún no tiene resultado
+  const [result, setResult] = useState<{ key: string; wods: WodListItem[]; error: string | null } | null>(null)
+  const rangeKey = `${range.from}|${range.to}`
+  const loading = result?.key !== rangeKey
+  const wods = result?.wods ?? []
+  const error = result?.error ?? null
+
+  useEffect(() => {
+    api.get<ClassTypeOption[]>('/class-types').then(r => setClassTypes(r.data)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const key = `${range.from}|${range.to}`
+    api.get<WodListItem[]>('/wods', { params: { from: range.from, to: range.to } })
+      .then(r => setResult({ key, wods: r.data, error: null }))
+      .catch(() => setResult({ key, wods: [], error: 'No se pudieron cargar los WODs.' }))
+  }, [range])
+
+  const visible = classTypeId ? wods.filter(w => w.classTypeId === classTypeId) : wods
+
+  // Abre la clase de ese tipo en ese día, donde vive el editor del WOD
+  const openWod = async (w: WodListItem) => {
+    const day = localDay(new Date(w.date))
+    try {
+      const { data } = await api.get<{ id: string; classTypeId: string }[]>('/classes', { params: { from: day, to: day } })
+      const cls = data.find(c => c.classTypeId === w.classTypeId)
+      if (cls) router.push(`/dashboard/classes/${cls.id}`)
+      else alert('No hay una clase de este tipo ese día. Crea la clase para editar su WOD.')
+    } catch {
+      alert('No se pudo abrir la clase del WOD.')
+    }
+  }
+
+  const inputStyle = { backgroundColor: 'var(--surface-2, var(--surface))', color: 'var(--text-1)', border: '1px solid var(--border-1)' }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs" style={{ color: 'var(--text-3)' }}>
+          Desde
+          <input type="date" value={range.from} max={range.to}
+            onChange={e => setRange(r => ({ ...r, from: e.target.value }))}
+            className="block mt-1 px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+        </label>
+        <label className="text-xs" style={{ color: 'var(--text-3)' }}>
+          Hasta
+          <input type="date" value={range.to} min={range.from}
+            onChange={e => setRange(r => ({ ...r, to: e.target.value }))}
+            className="block mt-1 px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+        </label>
+        <label className="text-xs" style={{ color: 'var(--text-3)' }}>
+          Tipo de clase
+          <select value={classTypeId} onChange={e => setClassTypeId(e.target.value)}
+            className="block mt-1 px-3 py-2 rounded-lg text-sm" style={inputStyle}>
+            <option value="">Todos</option>
+            {classTypes.map(ct => <option key={ct.id} value={ct.id}>{ct.name}</option>)}
+          </select>
+        </label>
+        <div className="flex gap-2 ml-auto">
+          <button onClick={() => router.push('/dashboard/classes')}
+            title="El WOD se crea desde la clase del día"
+            className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
+            style={{ background: 'var(--gradient-btn)', color: '#fff' }}>
+            <Plus className="w-4 h-4" /> Nuevo WOD
+          </button>
+          <button onClick={() => router.push('/dashboard/wods/import')}
+            className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-medium"
+            style={{ border: '1px solid var(--border-1)', color: 'var(--text-2)' }}>
+            <Upload className="w-4 h-4" /> Importar
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>}
+      {loading ? (
+        <div className="space-y-2">{[0, 1, 2].map(i => <Skeleton key={i} />)}</div>
+      ) : visible.length === 0 ? (
+        <p className="text-sm py-8 text-center" style={{ color: 'var(--text-4)' }}>
+          No hay WODs en este rango. Se crean desde el detalle de cada clase.
+        </p>
+      ) : (
+        <div className="card rounded-xl divide-y" style={{ borderColor: 'var(--border-1)' }}>
+          {visible.map(w => (
+            <button key={w.id} onClick={() => openWod(w)}
+              className="flex items-center gap-4 w-full text-left px-5 py-3 transition-colors"
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--surface-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
+              <span className="text-sm font-semibold w-28 shrink-0 capitalize" style={{ color: 'var(--text-2)' }}>
+                {new Date(w.date).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })}
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                style={{ backgroundColor: (w.classType?.color ?? '#6366f1') + '22', color: w.classType?.color ?? '#6366f1' }}>
+                {w.classType?.name ?? 'Clase'}
+              </span>
+              <span className="text-sm flex-1 truncate" style={{ color: 'var(--text-1)' }}>{w.title || 'WOD sin título'}</span>
+              <span className="text-xs shrink-0" style={{ color: 'var(--text-4)' }}>
+                {w.blocks.length} bloques · {w.blocks.reduce((n, b) => n + b.movements.length, 0)} movimientos
+              </span>
+              <ChevronRight className="w-4 h-4 shrink-0" style={{ color: 'var(--text-4)' }} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /* ═══════════════════════════════════════════════════════ */
 export default function WodsPage() {
   const router = useRouter()
   const { user, loadFromStorage } = useAuthStore()
-  const [tab, setTab] = useState<Tab>('benchmarks')
+  const [tab, setTab] = useState<Tab>('wods')
 
   // Benchmarks board
   const [benchmarks, setBenchmarks] = useState<BenchmarkBoard[]>([])
@@ -103,7 +239,7 @@ export default function WodsPage() {
             Pizarra
           </h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-4)' }}>
-            Benchmarks y récords del box
+            WODs, benchmarks y récords del box
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -147,6 +283,8 @@ export default function WodsPage() {
       )}
 
       {/* ── Tab Benchmarks ────────────────────────────── */}
+      {tab === 'wods' && <WodList />}
+
       {tab === 'benchmarks' && (
         <div className="space-y-5">
           {loadingBench ? (
