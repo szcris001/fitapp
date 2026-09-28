@@ -143,20 +143,18 @@ Panel de inicio con indicadores clave del negocio.
 
 **Estado: implementado**
 
-**Listado** (`/dashboard/wods`):
-- Lista con fecha, nombre del WOD, tipo de clase asociado.
-- Filtros por fecha y tipo.
-- Botón "Nuevo WOD" e "Importar".
+El WOD pertenece a un tipo de clase y a un día (día local del gym). **Se crea y edita en el detalle de la clase** (`/dashboard/classes/[id]`), que tiene el constructor de bloques; no hay un editor aparte (`/dashboard/wods/new` y `/dashboard/wods/[id]` redirigen a Clases).
 
-**Detalle de WOD** (`/dashboard/wods/[id]`):
-- Ver y editar bloques del WOD.
-- Cada bloque: nombre, timecap, movimientos con RX / escalado / carga recomendada.
-- Benchmarks de referencia (Girls, Heroes, Open, Games).
+**Listado** (`/dashboard/wods`, pestaña "WODs"):
+- Fecha, tipo de clase, nombre, cantidad de bloques y movimientos.
+- Filtros por rango de fechas (por defecto la semana actual) y tipo de clase.
+- Cada WOD abre la clase de ese tipo en ese día.
+- Botones "Nuevo WOD" (lleva al calendario de clases) e "Importar".
+- Pestañas adicionales: Benchmarks y Récords (RM) del box; Modo TV.
 
-**Crear WOD** (`/dashboard/wods/new`):
-- Nombre, tipo de clase, fecha programada.
-- Constructor de bloques: agregar bloques → agregar movimientos con reps, carga RX, carga escalado.
-- Cálculo automático de carga recomendada según % del RM del alumno.
+**Editor (en el detalle de la clase)**:
+- Bloques con nombre, timecap y movimientos con reps, cargas RX / escalado / rookie por género y % del RM.
+- La carga recomendada por alumno se calcula en la app (`/wods/class/:classId/my-loads`).
 
 **Importar WODs** (`/dashboard/wods/import`):
 - Subir Excel con estructura de bloques y movimientos.
