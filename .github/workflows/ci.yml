@@ -51,6 +51,10 @@ jobs:
       - name: Run lint
         run: pnpm lint
 
+      - name: Typecheck mobile
+        working-directory: apps/mobile
+        run: pnpm typecheck
+
   # ─── Tests de API (PostgreSQL + Redis reales; la app corre como fitapp_app, bajo RLS) ─
   test-api:
     name: Test API

@@ -249,7 +249,7 @@ function BenchmarkModal({
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
               {SCORE_TYPES.map(st => (
                 <TouchableOpacity key={st.key} onPress={() => setScoreType(st.key)}
-                  style={[styles.scoreTypeChip, { backgroundColor: scoreType === st.key ? catColor : c.bg, borderColor: scoreType === st.key ? catColor : c.border }]}>
+                  style={[styles.scoreTypeChip, { backgroundColor: scoreType === st.key ? catColor : c.background, borderColor: scoreType === st.key ? catColor : c.border }]}>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: scoreType === st.key ? '#fff' : c.text3 }}>{st.label}</Text>
                 </TouchableOpacity>
               ))}
@@ -259,32 +259,32 @@ function BenchmarkModal({
               <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.inputLabel, { color: c.text3 }]}>Minutos</Text>
-                  <TextInput style={[styles.input, { backgroundColor: c.bg, borderColor: c.border, color: c.text1 }]}
-                    value={timeMins} onChangeText={setTimeMins} keyboardType="numeric" placeholder="0" placeholderTextColor={c.text4} maxLength={2} />
+                  <TextInput style={[styles.input, { backgroundColor: c.background, borderColor: c.border, color: c.text1 }]}
+                    value={timeMins} onChangeText={setTimeMins} keyboardType="numeric" placeholder="0" placeholderTextColor={c.text3} maxLength={2} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.inputLabel, { color: c.text3 }]}>Segundos</Text>
-                  <TextInput style={[styles.input, { backgroundColor: c.bg, borderColor: c.border, color: c.text1 }]}
-                    value={timeSecs} onChangeText={setTimeSecs} keyboardType="numeric" placeholder="00" placeholderTextColor={c.text4} maxLength={2} />
+                  <TextInput style={[styles.input, { backgroundColor: c.background, borderColor: c.border, color: c.text1 }]}
+                    value={timeSecs} onChangeText={setTimeSecs} keyboardType="numeric" placeholder="00" placeholderTextColor={c.text3} maxLength={2} />
                 </View>
               </View>
             ) : (
               <View style={{ marginBottom: 16 }}>
                 <Text style={[styles.inputLabel, { color: c.text3 }]}>{SCORE_TYPES.find(s => s.key === scoreType)?.label}</Text>
-                <TextInput style={[styles.input, { backgroundColor: c.bg, borderColor: c.border, color: c.text1 }]}
+                <TextInput style={[styles.input, { backgroundColor: c.background, borderColor: c.border, color: c.text1 }]}
                   value={scoreRaw} onChangeText={setScoreRaw} keyboardType="numeric"
-                  placeholder={SCORE_TYPES.find(s => s.key === scoreType)?.placeholder} placeholderTextColor={c.text4} />
+                  placeholder={SCORE_TYPES.find(s => s.key === scoreType)?.placeholder} placeholderTextColor={c.text3} />
               </View>
             )}
 
             <Text style={[styles.inputLabel, { color: c.text3 }]}>Notas (opcional)</Text>
-            <TextInput style={[styles.input, { backgroundColor: c.bg, borderColor: c.border, color: c.text1, marginBottom: 16 }]}
-              value={scoreNotes} onChangeText={setScoreNotes} placeholder="DNF, detalles..." placeholderTextColor={c.text4} />
+            <TextInput style={[styles.input, { backgroundColor: c.background, borderColor: c.border, color: c.text1, marginBottom: 16 }]}
+              value={scoreNotes} onChangeText={setScoreNotes} placeholder="DNF, detalles..." placeholderTextColor={c.text3} />
 
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
               {[true, false].map(rx => (
                 <TouchableOpacity key={String(rx)} onPress={() => setIsRx(rx)}
-                  style={[styles.scoreTypeChip, { flex: 1, backgroundColor: isRx === rx ? (rx ? '#22c55e' : '#f59e0b') : c.bg, borderColor: isRx === rx ? (rx ? '#22c55e' : '#f59e0b') : c.border }]}>
+                  style={[styles.scoreTypeChip, { flex: 1, backgroundColor: isRx === rx ? (rx ? '#22c55e' : '#f59e0b') : c.background, borderColor: isRx === rx ? (rx ? '#22c55e' : '#f59e0b') : c.border }]}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: isRx === rx ? '#fff' : c.text3, textAlign: 'center' }}>
                     {rx ? 'Rx' : 'Scaled'}
                   </Text>

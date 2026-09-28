@@ -23,6 +23,9 @@ export default function SettingsScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false)
   const [attendanceForm, setAttendanceForm] = useState({
     attendanceMode: 'manual' as 'manual' | 'auto',
+    gymLat: '',
+    gymLng: '',
+    gymRadiusMeters: '200',
   })
   const [waitlistForm, setWaitlistForm] = useState({
     waitlistConfirmEnabled: false,
