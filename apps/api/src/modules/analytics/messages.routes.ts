@@ -7,15 +7,17 @@ import { Expo, ExpoPushMessage } from 'expo-server-sdk'
 const expo = new Expo()
 
 const pushSchema = z.object({
-  target: z.enum(['all', 'active', 'expiring', 'inactive', 'individual']),
+  target: z.enum(['all', 'active', 'expiring', 'inactive', 'individual', 'plan']),
   userId: z.string().uuid().optional(),
+  planId: z.string().uuid().optional(),
   title: z.string().min(1),
   message: z.string().min(1),
 })
 
 const emailSchema = z.object({
-  target: z.enum(['all', 'active', 'expiring', 'inactive', 'individual']),
+  target: z.enum(['all', 'active', 'expiring', 'inactive', 'individual', 'plan']),
   userId: z.string().uuid().optional(),
+  planId: z.string().uuid().optional(),
   subject: z.string().min(1),
   body: z.string().min(1),
 })
@@ -24,7 +26,17 @@ const pushTokenSchema = z.object({
   token: z.string().min(1),
 })
 
-async function getTargetUsers(gymId: string, target: string, userId?: string) {
+async function getTargetUsers(gymId: string, target: string, userId?: string, planId?: string) {
+  // Por plan (spec §4.10): alumnos con membresía activa o de prueba en un plan de ESTE gym
+  if (target === 'plan') {
+    if (!planId) return []
+    const plan = await prisma.plan.findFirst({ where: { id: planId, gymId }, select: { id: true } })
+    if (!plan) return []
+    return prisma.user.findMany({
+      where: { gymId, role: 'MEMBER', memberships: { some: { planId, status: { in: ['ACTIVE', 'TRIAL'] } } } },
+      select: { id: true, name: true, email: true, pushToken: true },
+    })
+  }
   if (target === 'individual' && userId) {
     return prisma.user.findMany({
       where: { id: userId, gymId },
@@ -81,7 +93,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const parsed = pushSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
 
-    const targets = await getTargetUsers(user.gymId, parsed.data.target, parsed.data.userId)
+    const targets = await getTargetUsers(user.gymId, parsed.data.target, parsed.data.userId, parsed.data.planId)
     const validTokens = targets.filter(t => t.pushToken && Expo.isExpoPushToken(t.pushToken))
 
     let sent = 0
@@ -121,7 +133,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const parsed = emailSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
 
-    const targets = await getTargetUsers(user.gymId, parsed.data.target, parsed.data.userId)
+    const targets = await getTargetUsers(user.gymId, parsed.data.target, parsed.data.userId, parsed.data.planId)
 
     // Envío masivo vía SMTP del gimnasio (usa la misma infraestructura que emails automáticos)
     const { sendBulkEmail } = await import('../../lib/email')

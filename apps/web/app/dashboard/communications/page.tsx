@@ -8,6 +8,7 @@ import { MessageSquare, Bell, Mail, CheckCircle } from 'lucide-react'
 export default function CommunicationsPage() {
   const { user, loadFromStorage } = useAuthStore()
   const [users, setUsers] = useState<any[]>([])
+  const [plans, setPlans] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [success, setSuccess] = useState('')
@@ -15,13 +16,14 @@ export default function CommunicationsPage() {
   const [tab, setTab] = useState<'push' | 'email'>('push')
   const router = useRouter()
 
-  const [pushForm, setPushForm] = useState({ target: 'all', userId: '', title: '', message: '' })
-  const [emailForm, setEmailForm] = useState({ target: 'all', userId: '', subject: '', body: '' })
+  const [pushForm, setPushForm] = useState({ target: 'all', userId: '', planId: '', title: '', message: '' })
+  const [emailForm, setEmailForm] = useState({ target: 'all', userId: '', planId: '', subject: '', body: '' })
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
     if (!user) { router.push('/login'); return }
     api.get('/users').then(r => setUsers(r.data)).catch(() => {}).finally(() => setLoading(false))
+    api.get('/plans').then(r => setPlans(r.data)).catch(() => {})
   }, [user])
 
   const handleSendPush = async (e: React.FormEvent) => {
@@ -31,11 +33,12 @@ export default function CommunicationsPage() {
       await api.post('/messages/push', {
         target: pushForm.target,
         userId: pushForm.target === 'individual' ? pushForm.userId : undefined,
+        planId: pushForm.target === 'plan' ? pushForm.planId : undefined,
         title: pushForm.title,
         message: pushForm.message,
       })
       setSuccess('Notificación enviada correctamente')
-      setPushForm({ target: 'all', userId: '', title: '', message: '' })
+      setPushForm({ target: 'all', userId: '', planId: '', title: '', message: '' })
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al enviar la notificación')
     } finally { setSending(false) }
@@ -48,11 +51,12 @@ export default function CommunicationsPage() {
       await api.post('/messages/email', {
         target: emailForm.target,
         userId: emailForm.target === 'individual' ? emailForm.userId : undefined,
+        planId: emailForm.target === 'plan' ? emailForm.planId : undefined,
         subject: emailForm.subject,
         body: emailForm.body,
       })
       setSuccess('Email enviado correctamente')
-      setEmailForm({ target: 'all', userId: '', subject: '', body: '' })
+      setEmailForm({ target: 'all', userId: '', planId: '', subject: '', body: '' })
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al enviar el email')
     } finally { setSending(false) }
@@ -63,6 +67,7 @@ export default function CommunicationsPage() {
     { value: 'active',     label: 'Solo alumnos activos' },
     { value: 'expiring',   label: 'Planes por vencer (7 días)' },
     { value: 'inactive',   label: 'Alumnos inactivos' },
+    { value: 'plan',       label: 'Alumnos de un plan' },
     { value: 'individual', label: 'Alumno específico' },
   ]
 
@@ -127,6 +132,16 @@ export default function CommunicationsPage() {
             </select>
           </div>
 
+          {pushForm.target === 'plan' && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Plan</label>
+              <select value={pushForm.planId} onChange={e => setPushForm(f => ({ ...f, planId: e.target.value }))} required
+                className="input">
+                <option value="">Seleccionar...</option>
+                {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
           {pushForm.target === 'individual' && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Seleccionar alumno</label>
@@ -189,6 +204,16 @@ export default function CommunicationsPage() {
             </select>
           </div>
 
+          {emailForm.target === 'plan' && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Plan</label>
+              <select value={emailForm.planId} onChange={e => setEmailForm(f => ({ ...f, planId: e.target.value }))} required
+                className="input">
+                <option value="">Seleccionar...</option>
+                {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
           {emailForm.target === 'individual' && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Seleccionar alumno</label>
