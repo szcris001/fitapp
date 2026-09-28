@@ -14,6 +14,7 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { signMediaToken } from '../../lib/media-token'
+import { logger } from '../../lib/logger'
 
 const refreshBodySchema = z.object({
   refreshToken: z.string().min(1),
@@ -107,7 +108,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     // Always return 200 to avoid email enumeration
     await forgotPassword(parsed.data.email, parsed.data.gymSlug).catch(err =>
-      console.error('[Auth] forgot-password error:', err.message),
+      logger.error({ err }, '[Auth] forgot-password error'),
     )
     return reply.send({ message: 'Si el correo existe, recibirás un link para restablecer tu contraseña.' })
   })

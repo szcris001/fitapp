@@ -101,7 +101,7 @@ apps/api/src/modules/<domain>/
 
 6. **Idempotencia para jobs y webhooks**: chequear tabla `WebhookEvent` o `JobLog` antes de procesar.
 
-7. **Logs estructurados**: usa el logger de Fastify (`req.log.info({...}, 'mensaje')`). Nunca `console.log`.
+7. **Logs estructurados**: en handlers usa `request.log`; fuera de un request (cron, servicios, `.catch` de correos) importa `logger` de `src/lib/logger.ts` (la misma instancia pino que usa Fastify). Errores como `logger.error({ err }, 'mensaje')`. Nunca `console.*`.
 
 8. **Migraciones Prisma**: nunca edites una migración ya aplicada. Si necesitas cambiar el schema, crea una nueva.
 

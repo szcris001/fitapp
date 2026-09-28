@@ -4,12 +4,13 @@ import { sendExpiryReminder, sendBulkToGyms } from './email'
 import { sendPushNotification } from './push'
 import { chargeAutoRenewMembership } from '../modules/payments/payments.service'
 import { gymDayRangeFromToday, DEFAULT_GYM_TIMEZONE } from './gym-day'
+import { logger } from './logger'
 
 /**
  * Aviso diario a las 9:00 AM: membresías de miembros por vencer.
  */
 async function runMemberExpiryJob() {
-  console.log('[Cron] Revisando membresías por vencer...')
+  logger.info('[Cron] Revisando membresías por vencer...')
   const gyms = await prisma.gym.findMany({
     where: { status: 'ACTIVE' },
     select: { id: true, expiryReminderDays: true, timezone: true },
@@ -43,9 +44,9 @@ async function runMemberExpiryJob() {
           daysLeft: days,
           endsAt:   m.endsAt,
         })
-        console.log(`[Cron] Aviso enviado a ${m.user.email} (vence en ${days}d)`)
+        logger.info(`[Cron] Aviso enviado a ${m.user.email} (vence en ${days}d)`)
       } catch (err) {
-        console.error(`[Cron] Error enviando aviso a ${m.user.email}:`, err)
+        logger.error({ err }, `[Cron] Error enviando aviso a ${m.user.email}`)
       }
       if (m.user.pushToken) {
         await sendPushNotification(
@@ -83,7 +84,7 @@ async function runAutoAttendanceJob() {
       data: { status: 'ATTENDED', attended: true, attendedAt: new Date() },
     })
     if (updated.count > 0) {
-      console.log(`[Cron] Auto-asistencia gym ${gym.id}: ${updated.count} reservas marcadas`)
+      logger.info(`[Cron] Auto-asistencia gym ${gym.id}: ${updated.count} reservas marcadas`)
     }
   }
 }
@@ -108,17 +109,17 @@ async function runGymAutoSuspendJob() {
       prisma.gymSubscription.update({ where: { id: sub.id }, data: { status: 'EXPIRED' } }),
       prisma.gym.update({ where: { id: sub.gymId }, data: { status: 'SUSPENDED' } }),
     ])
-    console.log(`[Cron] Gym suspendido por vencimiento: ${sub.gym.name} (sub ${sub.id})`)
+    logger.info(`[Cron] Gym suspendido por vencimiento: ${sub.gym.name} (sub ${sub.id})`)
   }
 
-  if (expired.length) console.log(`[Cron] ${expired.length} gym(s) suspendido(s)`)
+  if (expired.length) logger.info(`[Cron] ${expired.length} gym(s) suspendido(s)`)
 }
 
 /**
  * Aviso diario a las 8:00 AM: suscripción FitApp de gimnasios por vencer.
  */
 async function runSubscriptionExpiryJob() {
-  console.log('[Cron] Revisando suscripciones FitApp por vencer...')
+  logger.info('[Cron] Revisando suscripciones FitApp por vencer...')
 
   const settings = await prisma.platformSettings.findUnique({ where: { id: 'system' } })
   const days = settings?.subExpiryReminderDays ?? 7
@@ -162,12 +163,12 @@ async function runSubscriptionExpiryJob() {
     try {
       await sendBulkToGyms({ subject, body })
       sent++
-      console.log(`[Cron] Aviso suscripción enviado a ${sub.gym.ownerEmail} (vence ${dateStr})`)
+      logger.info(`[Cron] Aviso suscripción enviado a ${sub.gym.ownerEmail} (vence ${dateStr})`)
     } catch (err) {
-      console.error(`[Cron] Error notificando suscripción a ${sub.gym.name}:`, err)
+      logger.error({ err }, `[Cron] Error notificando suscripción a ${sub.gym.name}`)
     }
   }
-  console.log(`[Cron] Avisos de suscripción enviados: ${sent}`)
+  logger.info(`[Cron] Avisos de suscripción enviados: ${sent}`)
 }
 
 /**
@@ -240,7 +241,7 @@ async function runPendingConfirmExpiryJob() {
     }
   }
 
-  if (expired.length > 0) console.log(`[Cron] ${expired.length} reserva(s) PENDING_CONFIRM expirada(s)`)
+  if (expired.length > 0) logger.info(`[Cron] ${expired.length} reserva(s) PENDING_CONFIRM expirada(s)`)
 }
 
 /**
@@ -248,7 +249,7 @@ async function runPendingConfirmExpiryJob() {
  * Corre a las 7:00 AM diario.
  */
 async function runAutoRenewJob() {
-  console.log('[Cron] Revisando auto-renovaciones...')
+  logger.info('[Cron] Revisando auto-renovaciones...')
   const now = new Date()
   const windowEnd = new Date(now.getTime() + 60 * 60 * 1000) // próxima hora
 
@@ -285,7 +286,7 @@ async function runAutoRenewJob() {
 
     try {
       await chargeAutoRenewMembership(m)
-      console.log(`[Cron] Auto-renovación exitosa: membership ${m.id}`)
+      logger.info(`[Cron] Auto-renovación exitosa: membership ${m.id}`)
       if (m.user.pushToken) {
         await sendPushNotification(
           m.user.pushToken,
@@ -295,7 +296,7 @@ async function runAutoRenewJob() {
         )
       }
     } catch (err: any) {
-      console.error(`[Cron] Auto-renovación fallida membership ${m.id}:`, err.message)
+      logger.error({ err }, `[Cron] Auto-renovación fallida membership ${m.id}`)
       await prisma.membership.update({
         where: { id: m.id },
         data: { autoRenewFailures: { increment: 1 } },
@@ -311,45 +312,45 @@ async function runAutoRenewJob() {
     }
   }
 
-  if (memberships.length > 0) console.log(`[Cron] ${memberships.length} auto-renovacion(es) procesada(s)`)
+  if (memberships.length > 0) logger.info(`[Cron] ${memberships.length} auto-renovacion(es) procesada(s)`)
 }
 
 export function startCronJobs() {
   // Expirar PENDING_CONFIRM — cada minuto
   cron.schedule('* * * * *', async () => {
     try { await runPendingConfirmExpiryJob() }
-    catch (err) { console.error('[Cron] Error en job de confirmación waitlist:', err) }
+    catch (err) { logger.error({ err }, '[Cron] Error en job de confirmación waitlist') }
   })
 
   // Auto-asistencia — cada 5 minutos
   cron.schedule('*/5 * * * *', async () => {
     try { await runAutoAttendanceJob() }
-    catch (err) { console.error('[Cron] Error en auto-asistencia:', err) }
+    catch (err) { logger.error({ err }, '[Cron] Error en auto-asistencia') }
   })
 
   // Auto-suspender gyms vencidos — cada hora
   cron.schedule('0 * * * *', async () => {
     try { await runGymAutoSuspendJob() }
-    catch (err) { console.error('[Cron] Error en job de auto-suspensión:', err) }
+    catch (err) { logger.error({ err }, '[Cron] Error en job de auto-suspensión') }
   })
 
   // Aviso de membresías de miembros — 9:00 AM diario
   cron.schedule('0 9 * * *', async () => {
     try { await runMemberExpiryJob() }
-    catch (err) { console.error('[Cron] Error en job de membresías:', err) }
+    catch (err) { logger.error({ err }, '[Cron] Error en job de membresías') }
   })
 
   // Aviso de suscripción FitApp a gimnasios — 8:00 AM diario
   cron.schedule('0 8 * * *', async () => {
     try { await runSubscriptionExpiryJob() }
-    catch (err) { console.error('[Cron] Error en job de suscripciones:', err) }
+    catch (err) { logger.error({ err }, '[Cron] Error en job de suscripciones') }
   })
 
   // Auto-renovaciones Stripe — 7:00 AM diario
   cron.schedule('0 7 * * *', async () => {
     try { await runAutoRenewJob() }
-    catch (err) { console.error('[Cron] Error en auto-renovaciones:', err) }
+    catch (err) { logger.error({ err }, '[Cron] Error en auto-renovaciones') }
   })
 
-  console.log('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · auto-suspend horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM')
+  logger.info('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · auto-suspend horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM')
 }

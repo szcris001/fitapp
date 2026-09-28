@@ -7,6 +7,7 @@ import { sendPaymentConfirmation } from '../../lib/email'
 import { MEMBERSHIP_DAYS } from '../../lib/membership'
 import { toMajorUnits } from '../../lib/money'
 import { HttpError } from '../../lib/http-error'
+import { logger } from '../../lib/logger'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-02-25.clover',
@@ -281,7 +282,7 @@ export async function handleStripeWebhook(payload: Buffer, signature: string) {
       sendPaymentConfirmation(gymId, {
         memberName: user.name, memberEmail: user.email, planName: plan.name,
         amount: plan.priceCents, currency: plan.currency, paymentMethod: 'stripe', endsAt: membership.endsAt,
-      }).catch(err => console.error('[Email] Stripe:', err))
+      }).catch(err => logger.error({ err }, '[Email] Stripe'))
     }
 
     return { received: true, membershipId: membership.id }
@@ -336,7 +337,7 @@ export async function chargeAutoRenewMembership(membership: any): Promise<void> 
     sendPaymentConfirmation(user.gymId ?? '', {
       memberName: user.name, memberEmail: user.email, planName: plan.name,
       amount: plan.priceCents, currency: plan.currency, paymentMethod: 'auto-renovación', endsAt: newMembership.endsAt,
-    }).catch(err => console.error('[Email] AutoRenew:', err))
+    }).catch(err => logger.error({ err }, '[Email] AutoRenew'))
   }
 }
 
@@ -459,7 +460,7 @@ export async function handleMercadoPagoWebhook(
         if (approved) { paymentId = String(approved.id); break }
       }
     } catch (err) {
-      console.error('[MP Webhook] merchant_order lookup error', err)
+      logger.error({ err }, '[MP Webhook] merchant_order lookup error')
     }
   }
 
@@ -529,7 +530,7 @@ export async function handleMercadoPagoWebhook(
       return { received: true, membershipId: membership.id }
     }
   } catch (err) {
-    console.error('[MP Webhook]', err)
+    logger.error({ err }, '[MP Webhook]')
   }
 
   return { received: true }
@@ -1054,7 +1055,7 @@ export async function handleMachWebhook(body: any, authorizationHeader?: string)
   sendPaymentConfirmation(gym.id, {
     memberName: user.name, memberEmail: user.email, planName: plan.name,
     amount: plan.priceCents, currency: plan.currency, paymentMethod: 'mach', endsAt: membership.endsAt,
-  }).catch(err => console.error('[Email] MACH:', err))
+  }).catch(err => logger.error({ err }, '[Email] MACH'))
 
   return { received: true, membershipId: membership.id }
 }
@@ -1123,7 +1124,7 @@ export async function registerManualPayment(
     memberName: user.name, memberEmail: user.email, planName: plan.name,
     amount: plan.priceCents, currency: plan.currency, paymentMethod, endsAt,
     invoicePdfUrl, invoiceType: finalInvoiceType, invoiceNumber,
-  }).catch(err => console.error('[Email] Manual:', err))
+  }).catch(err => logger.error({ err }, '[Email] Manual'))
 
   return membership
 }
@@ -1852,7 +1853,7 @@ export async function handleFintocPayWebhook(body: any, rawBody: Buffer | string
       sendPaymentConfirmation(gymId, {
         memberName: user.name, memberEmail: user.email, planName: plan.name,
         amount: plan.priceCents, currency: plan.currency, paymentMethod: 'fintoc_pay', endsAt: membership.endsAt,
-      }).catch(err => console.error('[Email] Fintoc Pay:', err))
+      }).catch(err => logger.error({ err }, '[Email] Fintoc Pay'))
     }
   }
 

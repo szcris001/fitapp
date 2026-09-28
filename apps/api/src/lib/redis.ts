@@ -1,4 +1,5 @@
 import Redis from 'ioredis'
+import { logger } from './logger'
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 
@@ -10,5 +11,5 @@ export const redis = new Redis(REDIS_URL, {
 
 redis.on('error', (err) => {
   // Solo loggear — no queremos que un Redis caído tire abajo la API
-  console.error('[Redis] error de conexión:', err.message)
+  logger.error({ err }, '[Redis] error de conexión')
 })
