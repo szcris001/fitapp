@@ -31,7 +31,7 @@ El sistema es **multi-tenant**: cada gimnasio tiene su propio entorno aislado (a
 
 ### Reglas de acceso del panel web
 
-- `COACH` ve: Inicio, Alumnos, Clases. No ve: Planes, Pagos, Conciliación, Reportes, Comunicaciones, Configuración.
+- `COACH` ve: Inicio, Alumnos, Clases, Pizarra (WODs) y Evolución. No ve: Planes, Pagos, Conciliación, Reportes, Comunicaciones, Configuración.
 - `ADMIN` ve todo.
 - `SUPER_ADMIN` es redirigido al panel `/superadmin` (distinto al dashboard de gym).
 
@@ -256,6 +256,8 @@ Motor de retención basado en IA (Claude de Anthropic).
 - Historial de RMs por movimiento.
 - Progresión gimnástica por habilidad.
 
+Visible en el menú para ADMIN y COACH.
+
 **Pendiente:** completar gráficos de evolución individual.
 
 ---
@@ -440,21 +442,27 @@ Todos los endpoints excepto `POST /auth/login` requieren `Authorization: Bearer 
 ### WODs
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/wods` | Listar WODs (`?from=&to=`) |
-| POST | `/wods` | Crear WOD con bloques y movimientos |
-| GET | `/wods/:id` | Detalle de WOD |
-| PUT | `/wods/:id` | Actualizar WOD |
+| GET | `/wods` | Listar WODs (`?from=&to=&classTypeId=`) |
+| POST | `/wods` | Crear WOD con bloques y movimientos (Zod; uno por tipo de clase y día) |
+| PUT | `/wods/:id` | Actualizar WOD (reemplaza bloques en una transacción) |
 | DELETE | `/wods/:id` | Eliminar WOD |
-| GET | `/wods/benchmarks` | Listar benchmarks (Girls, Heroes, Open) |
+| POST | `/wods/import` | Importación masiva desde Excel (JSON validado con Zod; duplicados se reportan en `errors`) |
+| GET | `/wods/class/:classId` | WOD del día de una clase |
+| GET | `/wods/class/:classId/my-loads` | Cargas personalizadas del alumno |
+| GET | `/wods/:id/leaderboard` | Leaderboard del WOD |
+| POST | `/wods/:id/results` | Coach registra resultado de un alumno |
+| GET | `/benchmarks` | Listar benchmarks (Girls, Heroes, Open, Games y propios del gym) |
 
 ### Planes y membresías
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/plans` | Listar planes del gym |
-| POST | `/plans` | Crear plan |
+| POST | `/plans` | Crear plan (`priceCents` en unidad mínima ISO 4217; CLP = pesos) |
 | PUT | `/plans/:id` | Actualizar plan |
 | DELETE | `/plans/:id` | Eliminar plan |
-| POST | `/plans/:id/activate` | Activar membresía para un alumno |
+| POST | `/memberships` | Asignar membresía a un alumno (30 días) |
+| PATCH | `/memberships/:id` | Editar membresía |
+| POST | `/memberships/:userId/renew` | Renovar membresía |
 | GET | `/payments/my-memberships` | Membresías del alumno autenticado |
 
 ### Pagos
@@ -462,18 +470,18 @@ Todos los endpoints excepto `POST /auth/login` requieren `Authorization: Bearer 
 |---|---|---|
 | GET | `/payments/revenue` | KPIs financieros del gym |
 | GET | `/payments/history` | Historial de pagos |
+| POST | `/payments/transfer/receipt` | Alumno sube comprobante de transferencia |
 | GET | `/payments/transfer/pending` | Comprobantes pendientes de aprobación |
-| POST | `/payments/transfer/confirm/:id` | Confirmar transferencia |
-| POST | `/payments/transfer/reject/:id` | Rechazar transferencia |
+| PATCH | `/payments/transfer/:membershipId/confirm` | Confirmar transferencia |
+| PATCH | `/payments/transfer/:membershipId/reject` | Rechazar transferencia (`{ reason }`) |
 | POST | `/payments/manual` | Registrar pago manual (efectivo/tarjeta) |
-| GET | `/payments/gateways` | Ver config de pasarelas del gym |
-| PUT | `/payments/gateways` | Actualizar config de pasarelas |
+| GET | `/payments/gateways` | Ver config de pasarelas del gym (se edita vía `PUT /gyms/me`) |
 
 ### Configuración del gym
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/gyms/me` | Config completa del gym |
-| PUT | `/gyms/me` | Actualizar config del gym |
+| PUT | `/gyms/me` | Actualizar config del gym (incluye pasarelas y plantillas de correo) |
 | POST | `/gyms/me/logo` | Subir logo |
 | GET | `/skills` | Listar habilidades gimnásticas del gym |
 | POST | `/skills` | Crear habilidad |
@@ -483,27 +491,33 @@ Todos los endpoints excepto `POST /auth/login` requieren `Authorization: Bearer 
 ### Analytics e IA
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/analytics/retention-alerts` | Alertas de retención (IA) |
-| GET | `/analytics/ai-insights` | Insights generales del gym (IA) |
-| GET | `/analytics/athlete-projection/:userId` | Proyección de objetivos (IA) |
+| GET | `/ai/retention-alerts` | Alertas de retención (IA) |
+| GET | `/ai/insights` | Insights generales del gym (IA) |
+| GET | `/ai/athlete-projection/:userId` | Proyección de objetivos (IA) |
+| GET | `/analytics/gym-stats` | Estadísticas del gym (ADMIN y COACH) |
+| GET | `/rms/gym-evolution` | Evolución colectiva de RMs (ADMIN y COACH) |
 | GET | `/rms/user/:userId` | RMs de un alumno |
 | GET | `/gymnastic-progress/user/:userId` | Progresión gimnástica de un alumno |
 
 ### Comunicaciones
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/notifications/bulk` | Envío masivo de emails |
-| PUT | `/gyms/me/email-template` | Actualizar plantillas de correo |
+| POST | `/messages/email` | Email a alumnos (`target`: `all`, `active`, `expiring`, `inactive`, `individual` + `userId`, `plan` + `planId`) |
+| POST | `/messages/push` | Push a alumnos (mismos `target`) |
+| POST | `/gyms/me/email-blast` | Envío masivo con plantilla |
+| POST | `/gyms/me/email-test` | Correo de prueba (SMTP del gym) |
 
 ### Fintoc (conciliación bancaria)
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/payments/fintoc/link` | Guardar link de cuenta bancaria |
+| POST | `/payments/fintoc/link-intent` | Crear link intent → `widget_token` para el widget de Fintoc |
+| POST | `/payments/fintoc/link/exchange` | Canjear `exchange_token` del widget y guardar el link |
+| POST | `/payments/fintoc/link` | Guardar un link existente manualmente (alternativa al widget) |
 | GET | `/payments/fintoc/status` | Estado de la conexión Fintoc |
-| POST | `/payments/fintoc/sync` | Sincronizar movimientos bancarios |
+| POST | `/payments/fintoc/sync` | Sincronizar movimientos entrantes desde la API de Fintoc |
 | GET | `/payments/fintoc/movements` | Listar movimientos (`?status=&page=`) |
-| PATCH | `/payments/fintoc/movements/:id/confirm` | Confirmar movimiento |
-| PATCH | `/payments/fintoc/movements/:id/reject` | Rechazar movimiento |
+| PATCH | `/payments/fintoc/movements/:movementId/confirm` | Confirmar movimiento |
+| PATCH | `/payments/fintoc/movements/:movementId/reject` | Rechazar movimiento |
 
 ---
 
