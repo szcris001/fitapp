@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
-import { AlertTriangle, Clock, Sparkles, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, Clock, Sparkles, CheckCircle2, TrendingUp } from 'lucide-react'
 
 function AlertsSkeleton() {
   return (
@@ -331,7 +331,120 @@ export default function AlertsPage() {
           </div>
         </div>
       </section>
+
+      <AthleteProjection />
     </div>
   )
 }
-// coach guard added
+
+/* ─── Proyección de objetivos por alumno (spec §4.11) ───────────────────────
+   Llama a la IA solo cuando el admin lo pide (tiene costo por consulta). */
+interface Projection {
+  athlete: string
+  projections?: { movement: string; currentKg: number; projectedKg: number; weeksToGoal: number; confidence: string }[]
+  nextMilestones?: { skill: string; nextMilestone: string; estimatedWeeks: number }[]
+  coachTip?: string
+  raw?: string
+}
+
+function AthleteProjection() {
+  const [members, setMembers] = useState<{ id: string; name: string }[]>([])
+  const [userId, setUserId] = useState('')
+  const [projection, setProjection] = useState<Projection | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.get<{ id: string; name: string }[]>('/users', { params: { role: 'MEMBER' } })
+      .then(r => setMembers(r.data))
+      .catch(() => {})
+  }, [])
+
+  const generate = async () => {
+    if (!userId) return
+    setLoading(true); setError(null); setProjection(null)
+    try {
+      const { data } = await api.get<Projection>(`/ai/athlete-projection/${userId}`)
+      setProjection(data)
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'No se pudo generar la proyección')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section>
+      <div className="card rounded-xl overflow-hidden">
+        <div className="px-6 py-5 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: '1px solid var(--border-1)' }}>
+          <div className="flex items-center gap-3">
+            <div style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(14,165,233,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TrendingUp className="w-4 h-4 text-sky-500" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-base" style={{ color: 'var(--text-1)' }}>Proyección por alumno</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
+                Objetivos de fuerza y próximos hitos según su historial de RMs
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <select value={userId} onChange={e => { setUserId(e.target.value); setProjection(null) }}
+              className="text-sm px-3 py-2 rounded-lg"
+              style={{ backgroundColor: 'var(--surface)', color: 'var(--text-1)', border: '1px solid var(--border-1)' }}>
+              <option value="">Elegir alumno…</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <button onClick={generate} disabled={!userId || loading}
+              className="btn-brand disabled:opacity-50 text-sm px-4 py-2 flex items-center gap-2 shrink-0">
+              <Sparkles className="w-3.5 h-3.5" />
+              {loading ? 'Analizando...' : 'Generar proyección'}
+            </button>
+          </div>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {!projection && !loading && !error && (
+            <p className="text-sm text-center py-4" style={{ color: 'var(--text-4)' }}>
+              Elige un alumno con RMs registrados y genera su proyección.
+            </p>
+          )}
+          {projection?.raw && (
+            <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-2)' }}>{projection.raw}</p>
+          )}
+          {!!projection?.projections?.length && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-3)' }}>Fuerza</h3>
+              <div className="divide-y" style={{ borderColor: 'var(--border-1)' }}>
+                {projection.projections.map(p => (
+                  <div key={p.movement} className="flex items-center justify-between py-2 text-sm">
+                    <span style={{ color: 'var(--text-1)' }}>{p.movement}</span>
+                    <span style={{ color: 'var(--text-2)' }}>
+                      {p.currentKg} kg → <strong>{p.projectedKg} kg</strong> en ~{p.weeksToGoal} sem.
+                      <span className="ml-2 text-xs" style={{ color: 'var(--text-4)' }}>confianza {p.confidence}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {!!projection?.nextMilestones?.length && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-3)' }}>Próximos hitos</h3>
+              <ul className="space-y-1 text-sm" style={{ color: 'var(--text-2)' }}>
+                {projection.nextMilestones.map(m => (
+                  <li key={m.skill}><strong>{m.skill}:</strong> {m.nextMilestone} (~{m.estimatedWeeks} sem.)</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {projection?.coachTip && (
+            <p className="text-sm rounded-lg px-4 py-3" style={{ backgroundColor: 'rgba(14,165,233,0.08)', color: 'var(--text-2)' }}>
+              💡 {projection.coachTip}
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
