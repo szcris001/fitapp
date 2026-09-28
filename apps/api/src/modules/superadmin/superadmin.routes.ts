@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { sendWelcomeEmail } from '../../lib/email'
 import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../payments/payments.service'
+import { logger } from '../../lib/logger'
 
 const createGymSchema = z.object({
   gymName: z.string().min(2),
@@ -199,7 +200,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
       emailPreviewUrl = emailResult.previewUrl
     } catch (err: any) {
       emailError = err.message
-      console.error('[SuperAdmin] Error enviando welcome email:', err.message)
+      logger.error({ err }, '[SuperAdmin] Error enviando welcome email')
     }
 
     return reply.status(201).send({ gym, admin: gym!.users[0], emailPreviewUrl, emailError })

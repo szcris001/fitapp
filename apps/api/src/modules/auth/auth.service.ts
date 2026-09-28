@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer'
 import { prisma } from '../../lib/prisma'
 import { redis } from '../../lib/redis'
 import { RegisterInput, LoginInput } from './auth.schema'
+import { logger } from '../../lib/logger'
 
 const REFRESH_TOKEN_EXPIRES_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? '7', 10)
 
@@ -231,7 +232,7 @@ export async function forgotPassword(email: string, gymSlug?: string) {
   const gymName = gym?.name || 'FitApp'
 
   if (!smtpUser || !smtpPass) {
-    console.warn('[Auth] SMTP no configurado, no se puede enviar correo de recuperación')
+    logger.warn('[Auth] SMTP no configurado, no se puede enviar correo de recuperación')
     return
   }
 

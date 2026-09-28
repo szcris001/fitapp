@@ -7,6 +7,9 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 })
 
+// Sobrescribible por entorno para cambiar de modelo sin redeploy de código.
+const AI_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5'
+
 export async function getRetentionAlerts(gymId: string) {
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
 
@@ -119,7 +122,7 @@ Responde en formato JSON con esta estructura exacta:
 }`
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: AI_MODEL,
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -191,7 +194,7 @@ Responde en JSON con esta estructura exacta:
 }`
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: AI_MODEL,
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }],
   })

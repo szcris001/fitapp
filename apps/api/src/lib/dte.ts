@@ -1,4 +1,5 @@
 import { toMajorUnits } from './money'
+import { logger } from './logger'
 /**
  * Servicio de Facturación Electrónica (DTE) para Chile
  * Integración con Bsale API (https://api.bsale.io/v1)
@@ -111,7 +112,7 @@ export async function emitirDTE(gym: BsaleGymConfig, input: DteInput): Promise<D
       invoicePdfUrl: result.urlPdf || result.urlPublicView || '',
     }
   } catch (err) {
-    console.error('[DTE] Error emitiendo documento:', err)
+    logger.error({ err }, '[DTE] Error emitiendo documento')
     return null
   }
 }

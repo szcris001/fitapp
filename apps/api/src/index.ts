@@ -33,18 +33,19 @@ import { mediaRoutes } from './modules/media/media.routes'
 import { registerTenantContext } from './lib/tenant-hook'
 import { registerErrorHandler } from './lib/http-error'
 import { initSentry } from './lib/sentry'
+import { logger } from './lib/logger'
 
 dotenv.config()
 
 if (!process.env.JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET no configurado. La API no puede iniciar sin un secreto seguro.')
+  logger.error('FATAL: JWT_SECRET no configurado. La API no puede iniciar sin un secreto seguro.')
   process.exit(1)
 }
 
 // Monitoreo de errores (no hace nada sin SENTRY_DSN)
 initSentry()
 
-const app = Fastify({ logger: true })
+const app = Fastify({ loggerInstance: logger })
 
 // ── Cabeceras de seguridad HTTP ───────────────────────────────────────────────
 app.register(helmet, {
@@ -196,7 +197,7 @@ const start = async () => {
   try {
     const port = Number(process.env.PORT) || 3001
     await app.listen({ port, host: '0.0.0.0' })
-    console.log(`🚀 API corriendo en http://localhost:${port}`)
+    logger.info(`🚀 API corriendo en http://localhost:${port}`)
     await ensureSystemTemplates()
     await ensureFitAppPlans()
     startCronJobs()
