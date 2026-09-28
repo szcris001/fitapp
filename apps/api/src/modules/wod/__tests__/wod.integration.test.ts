@@ -10,6 +10,7 @@
  *   GET    /wods                        — listar WODs con filtro de fechas
  *   PUT    /wods/:id                    — actualizar WOD (bloques, movimientos)
  *   DELETE /wods/:id                    — eliminar WOD
+ *   POST   /wods/import                 — importación masiva (validación Zod)
  *
  * NO cubre calculateLoad (ya cubierto en calculateLoad.test.ts).
  *
@@ -1454,5 +1455,102 @@ describe('WOD: GET /api/wods/class/:classId/my-loads — calculado y recomendado
     const byName = Object.fromEntries(res.json().map((m: any) => [m.movementName, m]))
     expect(byName.Squat).toMatchObject({ rmKg: 100, calculatedKg: 50, recommendedKg: 50 })
     expect(byName.Thruster).toMatchObject({ calculatedKg: null, recommendedKg: 30 }) // 29 redondeado a 2.5
+  })
+})
+
+// =============================================================================
+// Suite: validación Zod en creación, actualización e importación masiva
+// =============================================================================
+
+describe('WOD: validación de entrada y POST /api/wods/import', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => { app = await buildApp() })
+  afterAll(async () => { await app.close() })
+
+  const post = (url: string, payload: unknown, token = adminAToken) =>
+    app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${token}` }, payload: payload as any })
+
+  it('import con body que no es array → 400', async () => {
+    const res = await post('/api/wods/import', { classTypeId: classTypeAId, date: dateString(120) })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('Datos inválidos')
+  })
+
+  it('import con fecha inválida → 400 y no crea nada', async () => {
+    const res = await post('/api/wods/import', [{ classTypeId: classTypeAId, date: 'mañana', blocks: [] }])
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('import válido crea WODs; bloque sin movements no revienta', async () => {
+    const res = await post('/api/wods/import', [
+      { classTypeId: classTypeAId, title: 'Import 1', date: dateString(121), blocks: [{ title: 'A', timecap: 12 }] },
+      { classTypeId: classTypeAId, title: 'Import 2', date: dateString(122), blocks: [] },
+    ])
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ created: 2, errors: [] })
+
+    const tz = DEFAULT_GYM_TIMEZONE
+    const wod = await prisma.wod.findFirst({
+      where: { gymId: gymAId, classTypeId: classTypeAId, date: gymDayStart(dateString(121), tz) },
+      include: { blocks: true },
+    })
+    expect(wod?.blocks[0].timecap).toBe('12')
+  })
+
+  it('import de un WOD que ya existe ese día → se reporta en errors, no se duplica', async () => {
+    const res = await post('/api/wods/import', [
+      { classTypeId: classTypeAId, title: 'Repetido', date: dateString(121), blocks: [] },
+    ])
+    expect(res.statusCode).toBe(200)
+    expect(res.json().created).toBe(0)
+    expect(res.json().errors[0]).toMatch(/Ya existe un WOD/)
+
+    const count = await prisma.wod.count({
+      where: { gymId: gymAId, classTypeId: classTypeAId, date: gymDayStart(dateString(121), DEFAULT_GYM_TIMEZONE) },
+    })
+    expect(count).toBe(1)
+  })
+
+  it('import con classTypeId de otro gym → error por fila, no crea', async () => {
+    const res = await post('/api/wods/import', [{ classTypeId: classTypeBId, date: dateString(123), blocks: [] }])
+    expect(res.statusCode).toBe(200)
+    expect(res.json().created).toBe(0)
+    expect(res.json().errors[0]).toMatch(/Tipo de clase no encontrado/)
+  })
+
+  it('MEMBER no puede importar → 403', async () => {
+    const res = await post('/api/wods/import', [{ classTypeId: classTypeAId, date: dateString(124) }], memberAToken)
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /wods respeta scoreType', async () => {
+    const res = await post('/api/wods', { classTypeId: classTypeAId, date: dateString(125), scoreType: 'TIME', blocks: [] })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().scoreType).toBe('TIME')
+  })
+
+  it('POST /wods sin classTypeId → 400', async () => {
+    const res = await post('/api/wods', { date: dateString(126), blocks: [] })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('PUT /wods/:id con scoreType inválido → 400 y conserva los bloques', async () => {
+    const created = await post('/api/wods', {
+      classTypeId: classTypeAId, date: dateString(127),
+      blocks: [{ title: 'B', movements: [{ movementName: 'Squat' }] }],
+    })
+    expect(created.statusCode).toBe(201)
+    const id = created.json().id
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/wods/${id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { scoreType: 'NOPE', blocks: [] },
+    })
+    expect(res.statusCode).toBe(400)
+    const blocks = await prisma.wodBlock.count({ where: { wodId: id } })
+    expect(blocks).toBe(1)
   })
 })

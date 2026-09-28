@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { includeBlocks, getMyLoads } from './wod.service'
 import { gymDayRange, gymDayStart, getGymTimezone } from '../../lib/gym-day'
+import { WodScoreType } from '../../generated/prisma'
 
 // Payload del JWT: { userId, gymId, role }
 interface AuthUser {
@@ -60,12 +61,36 @@ function sanitizeBlocks(blocks: any[]) {
   }))
 }
 
+const wodBlockSchema = z.object({
+  title:     z.string().max(200).nullish(),
+  scheme:    z.string().max(200).nullish(),
+  timecap:   z.union([z.string().max(50), z.number()]).transform(String).nullish(),
+  notes:     z.string().max(2000).nullish(),
+  movements: z.array(z.record(z.string(), z.unknown())).max(50).default([]),
+})
+
+const wodInputSchema = z.object({
+  classTypeId: z.string().min(1),
+  title:       z.string().max(200).nullish(),
+  date:        z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Fecha inválida (YYYY-MM-DD)'),
+  scoreType:   z.enum(WodScoreType).optional(),
+  blocks:      z.array(wodBlockSchema).max(20).default([]),
+})
+
+const wodUpdateSchema = wodInputSchema.omit({ classTypeId: true }).partial()
+
+const wodImportSchema = z.array(wodInputSchema).min(1).max(366)
+
 export async function wodRoutes(app: FastifyInstance) {
 
   // ─── CREATE ─────────────────────────────────────────────────────────────────
   app.post('/wods', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
-    const { classTypeId, title, date, blocks } = request.body as any
+    const parsed = wodInputSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
+    }
+    const { classTypeId, title, date, scoreType, blocks } = parsed.data
 
     // Verify classType belongs to this gym
     const classType = await prisma.classType.findFirst({
@@ -89,7 +114,8 @@ export async function wodRoutes(app: FastifyInstance) {
           classTypeId,
           title,
           date: gymDayStart(date, tz),
-          blocks: { create: sanitizeBlocks(blocks ?? []) },
+          ...(scoreType ? { scoreType } : {}),
+          blocks: { create: sanitizeBlocks(blocks) },
         },
         include: includeBlocks,
       })
@@ -150,22 +176,29 @@ export async function wodRoutes(app: FastifyInstance) {
   app.put('/wods/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as any
-    const { title, date, blocks, scoreType } = request.body as any
+    const parsed = wodUpdateSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
+    }
+    const { title, date, blocks, scoreType } = parsed.data
 
     const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
 
     try {
-      await prisma.wodBlock.deleteMany({ where: { wodId: id } })
-      const updated = await prisma.wod.update({
-        where: { id },
-        data: {
-          title,
-          ...(date !== undefined ? { date: gymDayStart(date, await getGymTimezone(user.gymId)) } : {}),
-          blocks: { create: sanitizeBlocks(blocks ?? []) },
-          ...(scoreType !== undefined ? { scoreType } : {}),
-        },
-        include: includeBlocks,
+      const dateValue = date !== undefined ? gymDayStart(date, await getGymTimezone(user.gymId)) : undefined
+      const updated = await prisma.$transaction(async (tx) => {
+        await tx.wodBlock.deleteMany({ where: { wodId: id } })
+        return tx.wod.update({
+          where: { id },
+          data: {
+            title,
+            ...(dateValue ? { date: dateValue } : {}),
+            blocks: { create: sanitizeBlocks(blocks ?? []) },
+            ...(scoreType !== undefined ? { scoreType } : {}),
+          },
+          include: includeBlocks,
+        })
       })
       return reply.send(updated)
     } catch (err) {
@@ -423,9 +456,13 @@ export async function wodRoutes(app: FastifyInstance) {
   // ─── IMPORT ──────────────────────────────────────────────────────────────────
   app.post('/wods/import', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
-    const wods = request.body as any[]
+    const parsed = wodImportSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
+    }
+    const wods = parsed.data
     const created = []
-    const errors = []
+    const errors: string[] = []
     const tz = await getGymTimezone(user.gymId)
 
     for (const wodData of wods) {
@@ -435,13 +472,18 @@ export async function wodRoutes(app: FastifyInstance) {
         })
         if (!classType) { errors.push(`Tipo de clase no encontrado: ${wodData.classTypeId}`); continue }
 
+        const existing = await prisma.wod.findFirst({
+          where: { gymId: user.gymId, classTypeId: wodData.classTypeId, date: gymDayRange(wodData.date, tz) },
+        })
+        if (existing) { errors.push(`Ya existe un WOD para ${classType.name} el ${wodData.date}`); continue }
+
         const wod = await prisma.wod.create({
           data: {
             gymId: user.gymId,
             classTypeId: wodData.classTypeId,
             title: wodData.title,
             date: gymDayStart(wodData.date, tz),
-            blocks: { create: sanitizeBlocks(wodData.blocks ?? []) },
+            blocks: { create: sanitizeBlocks(wodData.blocks) },
           },
         })
         created.push(wod)
