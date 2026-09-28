@@ -7,7 +7,7 @@
 - Prefijos: `[BUG]` reporte de qa, `[NEW]` feature nueva aprobada, `[CLOSE]` cierre de algo a medias
 - Cada item tiene: descripción · sección del requirements · agente responsable · estimación
 
-**Última revisión de código**: 2026-05-05 · qa-engineer + backend-dev + payments-specialist + devops
+**Última revisión de código**: 2026-09-27 · revisión de estado contra `master` (PR #35)
 
 ---
 
@@ -74,18 +74,18 @@
 
 ### Conciliación bancaria
 
-- [x] Integración con Fintoc para CL · §3.4.3 · payments-specialist — **IMPLEMENTADO 2026-05-05**: tablas `FintocLink` + `BankMovement`, 7 endpoints, matcher 2 fases, webhook HMAC. MVP sin llamada a API real de Fintoc (frontend usa Widget). 57 tests verdes.
+- [x] Integración con Fintoc para CL · §3.4.3 · payments-specialist — **IMPLEMENTADO 2026-05-05**: tablas `FintocLink` + `BankMovement`, matcher 2 fases, webhook HMAC. **2026-09**: sync server-side contra la API de Fintoc (`/v1/accounts/{id}/movements`, solo movimientos entrantes) y link vía widget.
 - [x] Lógica de matcher (monto + RUT + código de referencia) · §3.4.3 · payments-specialist — **IMPLEMENTADO**: Fase 1 exact_rut (confirma auto), Fase 2 amount_only ±72h (requiere revisión admin).
 - [x] Tests del matcher · §3.4.3 · qa-engineer — **RESUELTO**: 4 tests unit (Fase 1, Fase 2, sin match) + 57 tests integración.
-- [ ] Pantalla web de conciliación Fintoc · web-dev · 1-2 días — **PENDIENTE**: no hay UI para gestionar movimientos bancarios en el dashboard.
+- [x] Pantalla web de conciliación Fintoc · web-dev — **IMPLEMENTADO**: `apps/web/app/dashboard/fintoc/page.tsx` (conexión con widget Fintoc vía `link-intent` + `link/exchange`, sync server-side, confirmar/rechazar movimientos). Falta prueba contra sandbox real de Fintoc.
 
 ### Importación Excel
 
 - [x] `[CLOSE]` Importación de WODs por Excel (frontend) · §3.3.3 · web-dev — **IMPLEMENTADO**: `apps/web/app/dashboard/wods/import/page.tsx` parsea Excel con `xlsx` lib y sube WODs vía API
 - [x] `[CLOSE]` Importación de clases por Excel (frontend) · §3.3.3 · web-dev — **IMPLEMENTADO**: `apps/web/app/dashboard/classes/import/page.tsx`
 - [x] `[CLOSE]` Importación de tipos de clase por Excel · §3.3.3 · web-dev — **IMPLEMENTADO**: `apps/web/app/dashboard/settings/class-types/import/page.tsx`
-- [ ] `[CLOSE]` Validación de plantilla Excel en el backend (columnas, tipos) · §3.3.3 · backend-dev · 1 día — **PARCIAL**: validación existe en el frontend (parser JS), pero el backend no valida el Excel; solo recibe JSON ya parseado. Sin test de casos de error.
-- [ ] `[CLOSE]` Tests de importación (válido, columnas faltantes, datos inválidos) · qa-engineer · 1 día — **SIN TESTS**
+- [x] `[CLOSE]` Validación de la importación en el backend · §3.3.3 · backend-dev — **RESUELTO 2026-09-27 (PR #35)**: el Excel se parsea en el frontend; `POST /wods/import` valida el JSON con Zod (fechas, bloques, límites) y rechaza WODs duplicados por tipo de clase y día.
+- [x] `[CLOSE]` Tests de importación de WODs · qa-engineer — **RESUELTO 2026-09-27**: suite «validación de entrada y POST /api/wods/import» en `wod.integration.test.ts` (body inválido, fecha inválida, duplicado, classType de otro gym, rol MEMBER).
 
 ### IA de retención
 
@@ -98,9 +98,9 @@
 ## 🟢 Menor (pulir antes de release)
 
 - [x] Branding dinámico (3 colores) consistente en web y mobile · §3.6 · web-dev + mobile-dev — **IMPLEMENTADO**: `brandColors` en schema Gym, `theme-preview` en web, `ThemeDemoScreen` en mobile
-- [ ] Indicador de planificación sin WOD en dashboard · §3.1 · web-dev · 0.5 día — **NO IMPLEMENTADO** (dashboard muestra métricas pero no alerta de días sin WOD)
-- [ ] Indicador de asistencia por horario · §3.1 · web-dev · 1 día — **NO IMPLEMENTADO** claramente en `dashboard/page.tsx`
-- [ ] Panel de evolución de alumnos colectivo e individual · §3.1 · web-dev · 1-2 días — **PARCIAL**: `dashboard/evolution/page.tsx` existe, detalle a revisar
+- [x] Indicador de planificación sin WOD en dashboard · §3.1 · web-dev — **IMPLEMENTADO**: tarjeta «WOD del día» muestra «Sin WOD publicado hoy».
+- [x] Indicador de asistencia por horario · §3.1 · web-dev — **IMPLEMENTADO**: ocupación del dashboard (`GET /gyms/me/occupancy`) con horario de mayor ocupación (`topSlot`).
+- [~] Panel de evolución de alumnos colectivo e individual · §3.1 · web-dev — **PARCIAL**: `dashboard/evolution/page.tsx` (colectivo) ya está en el menú y es visible para COACH (PR #34). Falta revisar la vista individual.
 - [x] Términos y condiciones propios del centro · §3.6 · web-dev — **IMPLEMENTADO**: campo `termsAndConditions` en schema Gym, visible en settings
 - [x] Notificaciones push (Firebase/OneSignal) vía Expo · §3.5, §7 · devops + mobile-dev — **IMPLEMENTADO**: `expo-server-sdk` en API, `sendPushNotification` en `lib/push.ts`, campo `pushToken` en User, integrado en cron jobs
 - [x] Correos automatizados (nodemailer + SMTP) · §3.5, §7 · devops + backend-dev + qa-engineer — **IMPLEMENTADO + TESTEADO 2026-05-07**: `lib/email.ts` con nodemailer, SMTP configurable por gym, plantillas personalizables. 21 tests unitarios, 21/21 passing — sendExpiryReminder, sendPaymentConfirmation, sendBulkEmail, sendWelcomeEmail, sendTestEmail, sendBulkToGyms. Gotcha hoisting vi.mock() documentado.
@@ -110,13 +110,13 @@
 
 ## 🚀 Pre-release
 
-- [~] Setup de Sentry en api, web, mobile · devops — **PARCIAL 2026-05-05**: `apps/api/src/lib/sentry.ts` preparado (código comentado). `@sentry/node` en package.json. Pendiente: DSN real + activar + web + mobile.
+- [~] Setup de Sentry en api, web, mobile · devops — **PARCIAL**: API activo cuando existe `SENTRY_DSN` (errores 5xx reportados desde el error handler). Pendiente: DSN real en producción + web + mobile.
 - [ ] Configurar staging con seed completo · devops · 0.5 día — **PENDIENTE**: docker-compose.prod.yml listo, falta dominio y plataforma real.
 - [x] E2E de flujo crítico: alumno se registra → paga (transferencia) → reserva → ve WOD · qa-engineer · **COMPLETADO 2026-05-07**: `apps/api/src/__tests__/e2e.critical-flow.test.ts` — 16 pasos, 16/16 passing. Sin mocks, DB real, Fastify real. Gotcha de timezone documentado en memoria.
 - [ ] Smoke test manual de todos los flujos en staging · qa-engineer + Cristian · 0.5 día — **PENDIENTE**
 - [x] Configurar deploy a producción con aprobación manual · devops — **IMPLEMENTADO 2026-05-05**: `.github/workflows/deploy.yml` con `environment: production`. Pendiente: crear environment en GitHub y elegir plataforma.
 - [x] Configurar framework de testing (Vitest) en apps/api · qa-engineer — **RESUELTO**: vitest 4.1.5 instalado, 645/645 tests pasando.
-- [ ] Dockerfiles (API + Web) · devops · 0.5 día — **PENDIENTE**: necesarios si se elige VPS con docker-compose.prod.yml.
+- [x] Dockerfiles (API + Web) · devops — **IMPLEMENTADO**: `apps/api/Dockerfile` y `apps/web/Dockerfile` (contexto = raíz del repo, usuario `node`, migraciones + rol `fitapp_app` al arrancar). Ver `docs/devops.md`.
 - [ ] Elegir plataforma de deploy (Railway / Render / VPS) · Cristian — **DECISIÓN PENDIENTE**: descomentar bloque en deploy.yml según elección.
 
 ---
@@ -174,3 +174,5 @@
 > Nota al 2026-05-07: implementación ~90% completa. Tests: 895/895 pasando (32 suites). IA retención: 22/22 verde. E2E flujo crítico API: 16/16 verde. Lo que falta: sandboxes reales de pasarelas (MP, Flow, Khipu, MACH, Kushki), E2E web/mobile, Dockerfiles, staging, elegir plataforma de deploy.
 >
 > Nota al 2026-06-10: Mobile ~88% completo. Bug timezone bookings cerrado. ProgressScreen nueva reemplaza WOD tab. HomeScreen, ClassesScreen y ProfileScreen mejorados. Estimación global sube a ~92%.
+>
+> Nota al 2026-09-27: RLS de PostgreSQL activo (la app corre como `fitapp_app`), montos en unidad mínima ISO 4217 (CLP = pesos; las menciones antiguas a `priceCents/100` ya no aplican), membresías siempre de 30 días, días calculados en la zona horaria del gym. CI verde con Postgres real: 1035 tests. Pendiente: sandboxes reales de pasarelas y Fintoc, Sentry web/mobile, staging, plataforma de deploy, errores TypeScript preexistentes en mobile.
