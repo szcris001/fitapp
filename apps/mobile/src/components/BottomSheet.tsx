@@ -9,6 +9,7 @@ import {
   Dimensions,
   StyleSheet,
   ScrollView,
+  type DimensionValue,
 } from 'react-native'
 import { useTheme } from '../theme/ThemeContext'
 
@@ -18,7 +19,7 @@ interface Props {
   title?: string
   children: React.ReactNode
   scrollable?: boolean
-  maxHeight?: number | string
+  maxHeight?: DimensionValue
 }
 
 const SCREEN_H = Dimensions.get('window').height

@@ -703,7 +703,7 @@ export default function WODScreen() {
             style={[
               screenStyles.tab,
               !selectedTypeId && { backgroundColor: c.primary, borderColor: c.primary },
-              !selectedTypeId || { borderColor: c.border, borderWidth: 1 },
+              !!selectedTypeId && { borderColor: c.border, borderWidth: 1 },
             ]}
             onPress={() => setSelectedTypeId(null)}
           >

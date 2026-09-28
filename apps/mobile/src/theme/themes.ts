@@ -170,6 +170,10 @@ export const themes: Record<SportTheme, Theme> = {
       warning: '#F59E0B',
       error: '#F97316',
     },
+    gradients: {
+      hero: ['#0D0404', '#1A0808'],
+      card: ['#1A0808', '#2A0D0D'],
+    },
   },
 
   yoga: {
@@ -226,17 +230,6 @@ export const themes: Record<SportTheme, Theme> = {
     },
   },
 }
-
-// Fill missing gradient fallbacks
-;(Object.keys(themes) as SportTheme[]).forEach(key => {
-  const t = themes[key]
-  if (!t.gradients) {
-    ;(t as any).gradients = {
-      hero: [t.colors.background, t.colors.surface],
-      card: [t.colors.surface, t.colors.surfaceHighlight],
-    }
-  }
-})
 
 export function getTheme(id?: string | null): Theme {
   if (id && id in themes) return themes[id as SportTheme]
