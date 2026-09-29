@@ -8,37 +8,7 @@
  */
 import { test, expect, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'fs'
-import { QA, api as rawApi, API_URL, authFile, login, open, secondsLeft, type Role } from '../support/qa'
-
-// ─── Entorno compartido ───────────────────────────────────────────────────────
-// La API limita a 120 req/min por IP y varias suites corren a la vez: un 429 no es lo que
-// se prueba aquí, así que se reintenta respetando Retry-After.
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-const backoff = (retryAfter?: string | null) => sleep((Number(retryAfter) || 5) * 1000 + Math.random() * 1500)
-const api: typeof rawApi = async (role, method, path, body) => {
-  for (let i = 0; ; i++) {
-    // login() lanza si /auth/login responde 429: también se reintenta
-    const res = await rawApi(role, method, path, body).catch(err => {
-      if (i >= 12 || !/→ 429/.test(String(err))) throw err
-      return { status: 429, data: null }
-    })
-    if (res.status !== 429 || i >= 12) return res
-    await backoff()
-  }
-}
-test.beforeEach(async ({ page }) => {
-  test.slow()
-  await page.addInitScript(() => localStorage.setItem('fitapp_onboarding_done', '1'))
-  await page.route(`${API_URL}/**`, async route => {
-    if (route.request().method() !== 'GET') return route.fallback()
-    for (let i = 0; ; i++) {
-      const res = await route.fetch()
-      if (res.status() !== 429 || i >= 12) return route.fulfill({ response: res })
-      await backoff(res.headers()['retry-after'])
-    }
-  })
-})
-test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'ignoreErrors' }) })
+import { QA, api, API_URL, authFile, fetchRetry429, login, open, secondsLeft, type Role } from '../support/qa'
 
 // ─── Datos de Norte ───────────────────────────────────────────────────────────
 
@@ -216,11 +186,8 @@ async function tokens(role: Role): Promise<{ access: string; media: string }> {
 
 async function getFile(path: string, opts: { t?: string; bearer?: string } = {}) {
   const url = `${FILES_BASE}${path}${opts.t ? `?t=${encodeURIComponent(opts.t)}` : ''}`
-  for (let i = 0; ; i++) {
-    const res = await fetch(url, { headers: opts.bearer ? { Authorization: `Bearer ${opts.bearer}` } : {} })
-    if (res.status !== 429 || i >= 12) return { status: res.status, type: res.headers.get('content-type') ?? '' }
-    await backoff(res.headers.get('retry-after'))
-  }
+  const res = await fetchRetry429(url, { headers: opts.bearer ? { Authorization: `Bearer ${opts.bearer}` } : {} })
+  return { status: res.status, type: res.headers.get('content-type') ?? '' }
 }
 
 test.describe('SEC — archivos protegidos', () => {
@@ -261,12 +228,7 @@ test.describe('SEC — archivos protegidos', () => {
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
     const form = new FormData()
     form.append('file', new Blob([png], { type: 'image/png' }), 'avatar.png')
-    let upload: Response
-    for (let i = 0; ; i++) {
-      upload = await fetch(`${API_URL}/users/${target.id}/avatar`, { method: 'POST', headers: { Authorization: `Bearer ${adminN.access}` }, body: form })
-      if (upload.status !== 429 || i >= 12) break
-      await backoff(upload.headers.get('retry-after'))
-    }
+    const upload = await fetchRetry429(`${API_URL}/users/${target.id}/avatar`, { method: 'POST', headers: { Authorization: `Bearer ${adminN.access}` }, body: form })
     expect(upload.status, await upload.clone().text()).toBe(200)
     const avatarUrl = (await upload.json()).avatarUrl as string
     expect(avatarUrl).toMatch(/^\/uploads\/avatars\/avatar_[0-9a-f-]+\.png$/)

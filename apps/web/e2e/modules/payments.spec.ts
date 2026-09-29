@@ -7,31 +7,7 @@
  * sembrados (Tomás, Rita, Fernanda) solo se leen, nunca se confirman ni rechazan aquí.
  */
 import { test, expect, type Page } from '@playwright/test'
-import { API_URL, QA, api as rawApi, open, type Role } from '../support/qa'
-
-// Margen para los reintentos ante 429
-test.describe.configure({ timeout: 120_000 })
-
-/**
- * api() con reintento ante 429: el rate limit global (120 req/min por IP) lo comparten
- * todos los procesos que corren contra la API local. Solo reintenta el 429.
- */
-async function api<T = any>(role: Role, method: string, path: string, body?: unknown) {
-  for (let attempt = 0; ; attempt++) {
-    const res = await rawApi<T>(role, method, path, body)
-    if (res.status !== 429 || attempt >= 8) return res
-    await new Promise(r => setTimeout(r, 5_000))
-  }
-}
-
-/** fetch con el mismo reintento ante 429 (el body debe ser reutilizable: string o FormData) */
-async function fetchRetry(url: string, init: RequestInit): Promise<Response> {
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, init)
-    if (res.status !== 429 || attempt >= 8) return res
-    await new Promise(r => setTimeout(r, 5_000))
-  }
-}
+import { API_URL, QA, api, fetchRetry429, open, type Role } from '../support/qa'
 
 const NORTE = QA.gyms.norte
 const MENSUAL = NORTE.plans.mensual
@@ -68,7 +44,7 @@ async function createStudent(tag: string): Promise<Student> {
 
 async function loginStudent(s: Student): Promise<string> {
   if (s.token) return s.token
-  const res = await fetchRetry(`${API_URL}/auth/login`, {
+  const res = await fetchRetry429(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: s.email, password: QA.password, gymSlug: NORTE.slug }),
@@ -83,7 +59,7 @@ async function uploadReceipt(s: Student, plan: string): Promise<any> {
   const token = await loginStudent(s)
   const form = new FormData()
   form.append('file', new Blob([PNG_1PX], { type: 'image/png' }), 'comprobante.png')
-  const res = await fetchRetry(`${API_URL}/payments/transfer/receipt?planId=${plan}`, {
+  const res = await fetchRetry429(`${API_URL}/payments/transfer/receipt?planId=${plan}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -98,7 +74,7 @@ async function deleteStudent(s: Student | undefined) {
   if (!s) return
   try {
     const token = await loginStudent(s)
-    await fetchRetry(`${API_URL}/users/me`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    await fetchRetry429(`${API_URL}/users/me`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
   } catch { /* limpieza best-effort */ }
 }
 

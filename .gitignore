@@ -47,3 +47,7 @@ apps/web/public/videos/*
 
 # Secretos de producción
 .env.production
+
+# Recorridos exploratorios (capturas pesadas; el resumen se publica como Artifact)
+qa/reports/*
+!qa/reports/.gitkeep

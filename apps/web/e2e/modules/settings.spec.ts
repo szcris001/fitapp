@@ -7,41 +7,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { writeFileSync } from 'fs'
 import { crc32, deflateSync } from 'zlib'
-import { api as rawApi, API_URL, authFile, open } from '../support/qa'
-
-// ─── Entorno compartido ───────────────────────────────────────────────────────
-// La API limita a 120 req/min por IP y varios agentes/suites corren a la vez desde
-// 127.0.0.1: un 429 no es lo que se prueba aquí, así que se reintenta (API y navegador).
-// Además, si /class-types o /plans fallan, el layout abre el wizard de onboarding y tapa
-// la página: se marca como visto.
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-/** Espera lo que indica Retry-After (con jitter) para no seguir llenando la ventana */
-const backoff = (retryAfter?: string | null) => sleep((Number(retryAfter) || 5) * 1000 + Math.random() * 1500)
-const api: typeof rawApi = async (role, method, path, body) => {
-  for (let i = 0; ; i++) {
-    // login() lanza si /auth/login responde 429: también se reintenta
-    const res = await rawApi(role, method, path, body).catch(err => {
-      if (i >= 12 || !/→ 429/.test(String(err))) throw err
-      return { status: 429, data: null }
-    })
-    if (res.status !== 429 || i >= 12) return res
-    await backoff()
-  }
-}
-test.beforeEach(async ({ page }) => {
-  test.slow() // los reintentos por 429 pueden sumar hasta un minuto
-  await page.addInitScript(() => localStorage.setItem('fitapp_onboarding_done', '1'))
-  // Solo GET: route.fetch() no reenvía bien cuerpos multipart (el logo llegaba vacío)
-  await page.route(`${API_URL}/**`, async route => {
-    if (route.request().method() !== 'GET') return route.fallback()
-    for (let i = 0; ; i++) {
-      const res = await route.fetch()
-      if (res.status() !== 429 || i >= 12) return route.fulfill({ response: res })
-      await backoff(res.headers()['retry-after'])
-    }
-  })
-})
-test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'ignoreErrors' }) })
+import { api, API_URL, authFile, open } from '../support/qa'
 
 /** PNG válido de size×size (rojo), generado en el test */
 function png(size: number): Buffer {

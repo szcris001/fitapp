@@ -442,7 +442,9 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return  // el layout redirige a /login
 
-    const today = new Date().toISOString().split('T')[0]
+    // Fecha local del navegador (asumida igual a la del gym): toISOString() es UTC y en la
+    // noche chilena (desde ~21:00) ya cayó en el día siguiente, mostrando clases y WOD de mañana
+    const today = new Date().toLocaleDateString('sv')
 
     if (isCoach) {
       Promise.all([
@@ -459,11 +461,13 @@ export default function DashboardPage() {
       api.get('/gyms/me/stats'),
       api.get(`/classes?from=${today}&to=${today}`),
       api.get('/gyms/me/occupancy?period=7d'),
-    ]).then(([statsRes, classesRes, occRes]) => {
+      api.get(`/wods?from=${today}&to=${today}`).catch(() => ({ data: [] })),
+    ]).then(([statsRes, classesRes, occRes, wodRes]) => {
       setStats(statsRes.data)
       setTodayClasses(classesRes.data.sort((a: TodayClass, b: TodayClass) =>
         a.startsAt.localeCompare(b.startsAt)))
       setOccupancy(occRes.data)
+      setTodayWods(wodRes.data || [])
     }).catch(() => { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ })
       .finally(() => setLoading(false))
   }, [user])
@@ -1073,6 +1077,33 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* WOD del día */}
+          <div className="card rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Dumbbell className="w-3.5 h-3.5" style={{ color: '#f59e0b' }} />
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-4)' }}>WOD del día</p>
+            </div>
+            {todayWods.length > 0 ? (
+              <>
+                <p className="font-semibold text-sm mb-3" style={{ color: 'var(--text-1)' }}>
+                  {todayWods[0].title}
+                </p>
+                <button onClick={() => router.push('/dashboard/wods')}
+                  className="w-full btn-brand py-2 rounded-lg text-sm font-medium">
+                  Gestionar WODs
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm mb-3" style={{ color: 'var(--text-4)' }}>Sin WOD publicado hoy</p>
+                <button onClick={() => router.push('/dashboard/wods')}
+                  className="w-full btn-secondary py-2 rounded-lg text-sm font-medium">
+                  Publicar WOD
+                </button>
+              </>
             )}
           </div>
 

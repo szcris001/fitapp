@@ -55,7 +55,7 @@ export async function gymPaymentsRoutes(app: FastifyInstance) {
       paidAt:         z.string().optional(),
     })
     const parsed = schema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const gym = await prisma.gym.findUnique({ where: { id: parsed.data.gymId }, select: { country: true } })
     const payment = await prisma.gymSubscriptionPayment.create({
@@ -90,7 +90,7 @@ export async function gymPaymentsRoutes(app: FastifyInstance) {
       email:          z.string().email(),
     })
     const parsed = schema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const flowApiKey    = process.env.FLOW_API_KEY
     const flowSecretKey = process.env.FLOW_SECRET_KEY

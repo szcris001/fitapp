@@ -40,7 +40,7 @@ export async function fitAppPlansRoutes(app: FastifyInstance) {
 
   app.post('/superadmin/fitapp-plans', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const parsed = planSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     const slug = `plan_${Date.now()}`
     const plan = await prisma.fitAppPlan.create({ data: { slug, ...parsed.data, features: parsed.data.features ?? [] } })
     return reply.status(201).send(plan)
@@ -49,7 +49,7 @@ export async function fitAppPlansRoutes(app: FastifyInstance) {
   app.patch('/superadmin/fitapp-plans/:id', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const { id } = request.params as any
     const parsed = planSchema.partial().safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     const plan = await prisma.fitAppPlan.update({ where: { id }, data: parsed.data })
     return reply.send(plan)
   })

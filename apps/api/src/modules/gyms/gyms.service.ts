@@ -3,8 +3,21 @@ import { UpdateGymInput } from './gyms.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 import { gymDayRangeFromToday, getGymTimezone, gymLocalDate, startOfGymDay } from '../../lib/gym-day'
 import { atRiskMembersWhere } from '../analytics/retention'
+import { keepsStoredSecret, maskGateways, maskSecret, mergeGateways } from '../../lib/secrets'
 
-export async function getGym(gymId: string) {
+// Configuración que solo ve el staff administrativo: correo saliente, facturación y pasarelas
+const ADMIN_ONLY_FIELDS = [
+  'smtpHost', 'smtpPort', 'smtpUser', 'smtpFrom',
+  'bsaleToken', 'bsaleOfficeId', 'bsalePriceListId', 'bsaleBoletaTypeId', 'bsaleFacturaTypeId',
+  'dteRut', 'dteRazonSocial', 'dteGiro', 'dteDireccion', 'dteComuna', 'dteCiudad',
+  'paymentGateways',
+] as const
+
+/**
+ * Configuración del gym. Coach y alumno reciben solo lo operativo; el admin además recibe
+ * correo, facturación y pasarelas, con las credenciales enmascaradas (lib/secrets.ts).
+ */
+export async function getGym(gymId: string, { forAdmin = false }: { forAdmin?: boolean } = {}) {
   const gym = await prisma.gym.findUnique({
     where: { id: gymId },
     select: {
@@ -56,18 +69,31 @@ export async function getGym(gymId: string) {
       waitlistConfirmEnabled: true,
       waitlistConfirmMins: true,
       sportTheme: true,
+      paymentGateways: true,
     },
   })
   if (!gym) throw new Error('Gimnasio no encontrado')
-  return gym
+  if (!forAdmin) {
+    const operational: Record<string, unknown> = { ...gym }
+    for (const field of ADMIN_ONLY_FIELDS) delete operational[field]
+    return operational
+  }
+  return { ...gym, bsaleToken: maskSecret(gym.bsaleToken), paymentGateways: maskGateways(gym.paymentGateways) }
 }
 
-export async function updateGym(gymId: string, data: UpdateGymInput) {
+export async function updateGym(gymId: string, input: UpdateGymInput) {
+  const { paymentGateways, bsaleToken, smtpPass, ...data } = input
+  const update: Record<string, unknown> = { ...data }
+  // Credenciales: enmascarado o vacío = conservar la guardada (ver lib/secrets.ts)
+  if (!keepsStoredSecret(bsaleToken)) update.bsaleToken = bsaleToken
+  if (!keepsStoredSecret(smtpPass)) update.smtpPass = smtpPass
+  if (paymentGateways) {
+    const current = await prisma.gym.findUnique({ where: { id: gymId }, select: { paymentGateways: true } })
+    update.paymentGateways = mergeGateways(current?.paymentGateways, paymentGateways)
+  }
   try {
-    return await prisma.gym.update({
-      where: { id: gymId },
-      data,
-    })
+    await prisma.gym.update({ where: { id: gymId }, data: update })
+    return getGym(gymId, { forAdmin: true })
   } catch (err) {
     handlePrismaError(err)
   }

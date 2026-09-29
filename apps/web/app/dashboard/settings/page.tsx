@@ -187,6 +187,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  // El logo se guarda siempre como logo_<gymId>.<ext>, así que la URL no cambia entre subidas
+  // y el navegador sigue mostrando la cacheada: se agrega un parámetro que cambia en cada subida
+  const [logoVersion, setLogoVersion] = useState(0)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
@@ -336,15 +339,17 @@ export default function SettingsPage() {
     try {
       await api.put('/gyms/me', {
         name: form.name,
-        address: form.address || undefined,
-        phone: form.phone || undefined,
-        email: form.email || undefined,
-        instagram: form.instagram || undefined,
-        facebook: form.facebook || undefined,
+        // Strings tal cual (incluido '' si el admin vació el campo): `|| undefined` hacía que
+        // JSON.stringify omitiera la clave y el campo nunca se borrara en la API
+        address: form.address,
+        phone: form.phone,
+        email: form.email,
+        instagram: form.instagram,
+        facebook: form.facebook,
         bookingWindowDays: Number(form.bookingWindowDays),
         bookingCutoffMins: Number(form.bookingCutoffMins ?? 60),
         cancelCutoffMins: Number(form.cancelCutoffMins ?? 30),
-        termsAndConditions: form.termsAndConditions || undefined,
+        termsAndConditions: form.termsAndConditions,
       })
       showToast('Configuración guardada correctamente')
       fetchGym()
@@ -462,6 +467,7 @@ export default function SettingsPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       showToast('Logo actualizado correctamente')
+      setLogoVersion(v => v + 1)
       fetchGym()
     } catch (err: any) {
       showToast(err.message || 'Error al subir el logo', 'error')
@@ -492,7 +498,7 @@ export default function SettingsPage() {
               overflow: 'hidden', backgroundColor: 'var(--surface-base)', flexShrink: 0,
             }}>
               {gym?.logoUrl ? (
-                <img src={mediaUrl(gym.logoUrl)} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={`${mediaUrl(gym.logoUrl)}${mediaUrl(gym.logoUrl).includes('?') ? '&' : '?'}v=${logoVersion}`} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--border-2)' }}>{gym?.name?.[0]}</span>
               )}

@@ -10,22 +10,7 @@
  * saltan con un aviso si ya fueron procesados.
  */
 import { test, expect, type Page } from '@playwright/test'
-import { QA, api as rawApi, open, type Role } from '../support/qa'
-
-// Margen para los reintentos ante 429
-test.describe.configure({ timeout: 120_000 })
-
-/**
- * api() con reintento ante 429: el rate limit global (120 req/min por IP) lo comparten
- * todos los procesos que corren contra la API local. Solo reintenta el 429.
- */
-async function api<T = any>(role: Role, method: string, path: string, body?: unknown) {
-  for (let attempt = 0; ; attempt++) {
-    const res = await rawApi<T>(role, method, path, body)
-    if (res.status !== 429 || attempt >= 8) return res
-    await new Promise(r => setTimeout(r, 5_000))
-  }
-}
+import { QA, api, open, type Role } from '../support/qa'
 
 const NORTE = QA.gyms.norte
 const FERNANDA = NORTE.users.member4

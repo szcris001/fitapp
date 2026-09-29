@@ -10,22 +10,7 @@
  * nada si nadie tiene token de dispositivo.
  */
 import { test, expect } from '@playwright/test'
-import { API_URL, QA, api as rawApi, open, type Role } from '../support/qa'
-
-// Margen para los reintentos ante 429
-test.describe.configure({ timeout: 120_000 })
-
-async function retry429(fn: () => Promise<{ status: number }>): Promise<any> {
-  for (let attempt = 0; ; attempt++) {
-    const res = await fn()
-    if (res.status !== 429 || attempt >= 8) return res
-    await new Promise(r => setTimeout(r, 5_000))
-  }
-}
-
-/** api() con reintento ante 429 (rate limit global compartido por IP) */
-const api = <T = any>(role: Role, method: string, path: string, body?: unknown): Promise<{ status: number; data: T }> =>
-  retry429(() => rawApi<T>(role, method, path, body))
+import { API_URL, QA, api, fetchRetry429, open, type Role } from '../support/qa'
 
 const NORTE = QA.gyms.norte
 const MENSUAL = NORTE.plans.mensual
@@ -106,12 +91,12 @@ test.describe('COM — comunicaciones', () => {
     } finally {
       // Limpieza: el propio alumno borra su cuenta
       try {
-        const login = await retry429(() => fetch(`${API_URL}/auth/login`, {
+        const login = await fetchRetry429(`${API_URL}/auth/login`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password: QA.password, gymSlug: NORTE.slug }),
-        }))
+        })
         const { token } = await login.json()
-        await retry429(() => fetch(`${API_URL}/users/me`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }))
+        await fetchRetry429(`${API_URL}/users/me`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
       } catch { /* best-effort */ }
     }
   })

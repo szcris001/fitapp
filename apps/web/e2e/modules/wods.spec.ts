@@ -10,21 +10,12 @@ import { test, expect } from '@playwright/test'
 import * as XLSX from 'xlsx'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { QA, api as rawApi, authFile, open, type Role } from '../support/qa'
+import { QA, api, authFile, open, type Role } from '../support/qa'
 
 const TZ = 'America/Santiago'
 const RUN = Date.now().toString(36)
 const PREFIX = 'E2E-WOD'
 const NORTE = QA.gyms.norte.users
-
-/** api() con reintento ante 429 (la API limita a 120 req/min por IP y la IP es compartida) */
-async function api<T = any>(role: Role, method: string, path: string, body?: unknown) {
-  for (let i = 0; ; i++) {
-    const res = await rawApi<T>(role, method, path, body)
-    if (res.status !== 429 || i >= 8) return res
-    await new Promise(r => setTimeout(r, 8_000))
-  }
-}
 
 /** Fecha local 'YYYY-MM-DD' a `offset` días de hoy en la zona del gym */
 function localDay(offset = 0): string {
@@ -66,14 +57,6 @@ test.afterAll(async () => {
     if (ids.length) await api('admin', 'DELETE', '/classes/bulk', { ids })
     await api('admin', 'DELETE', `/class-types/${type.id}`)
   }
-})
-
-// El asistente de bienvenida se abre si /class-types y /plans fallan (p. ej. 429): no es parte de estos casos
-// y, si la cuota de la API está agotada, espera a que se libere antes de usar la UI
-test.beforeEach(async ({ page }) => {
-  test.setTimeout(120_000)
-  await page.addInitScript(() => localStorage.setItem('fitapp_onboarding_done', '1'))
-  await api('admin', 'GET', '/class-types')
 })
 
 // ─── WOD-01 / WOD-06 · listado (coach) ────────────────────────────────────────

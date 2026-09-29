@@ -5,37 +5,7 @@
  * navegador de este test: no toca playwright/.auth/superadmin.json.
  */
 import { test, expect } from '@playwright/test'
-import { QA, api as rawApi, API_URL, authFile, open } from '../support/qa'
-
-// ─── Entorno compartido ───────────────────────────────────────────────────────
-// La API limita a 120 req/min por IP y varias suites corren a la vez: un 429 no es lo que
-// se prueba aquí, así que se reintenta respetando Retry-After.
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-const backoff = (retryAfter?: string | null) => sleep((Number(retryAfter) || 5) * 1000 + Math.random() * 1500)
-const api: typeof rawApi = async (role, method, path, body) => {
-  for (let i = 0; ; i++) {
-    // login() lanza si /auth/login responde 429: también se reintenta
-    const res = await rawApi(role, method, path, body).catch(err => {
-      if (i >= 12 || !/→ 429/.test(String(err))) throw err
-      return { status: 429, data: null }
-    })
-    if (res.status !== 429 || i >= 12) return res
-    await backoff()
-  }
-}
-test.beforeEach(async ({ page }) => {
-  test.slow()
-  await page.addInitScript(() => localStorage.setItem('fitapp_onboarding_done', '1'))
-  await page.route(`${API_URL}/**`, async route => {
-    if (route.request().method() !== 'GET') return route.fallback()
-    for (let i = 0; ; i++) {
-      const res = await route.fetch()
-      if (res.status() !== 429 || i >= 12) return route.fulfill({ response: res })
-      await backoff(res.headers()['retry-after'])
-    }
-  })
-})
-test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'ignoreErrors' }) })
+import { QA, api, API_URL, authFile, open } from '../support/qa'
 
 const { norte, sur } = QA.gyms
 

@@ -77,7 +77,7 @@ export async function messageRoutes(app: FastifyInstance) {
   app.post('/auth/push-token', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as any
     const parsed = pushTokenSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const token = parsed.data.token
     if (!Expo.isExpoPushToken(token)) {
@@ -91,7 +91,7 @@ export async function messageRoutes(app: FastifyInstance) {
   app.post('/messages/push', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = pushSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const targets = await getTargetUsers(user.gymId, parsed.data.target, parsed.data.userId, parsed.data.planId)
     const validTokens = targets.filter(t => t.pushToken && Expo.isExpoPushToken(t.pushToken))
@@ -131,7 +131,7 @@ export async function messageRoutes(app: FastifyInstance) {
   app.post('/messages/email', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = emailSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const targets = await getTargetUsers(user.gymId, parsed.data.target, parsed.data.userId, parsed.data.planId)
 

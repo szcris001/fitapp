@@ -85,9 +85,15 @@ app.register(cors, {
 })
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
+// Límite global por IP. RATE_LIMIT_MAX solo se respeta fuera de producción: la suite E2E y
+// los agentes exploradores corren muchos navegadores desde localhost (docs/TESTING_STRATEGY.md)
+const RATE_LIMIT_MAX = process.env.NODE_ENV !== 'production' && process.env.RATE_LIMIT_MAX
+  ? Number(process.env.RATE_LIMIT_MAX)
+  : 120
+
 app.register(rateLimit, {
   global: true,
-  max: 120,
+  max: RATE_LIMIT_MAX,
   timeWindow: '1 minute',
   keyGenerator: (req) => req.ip,
   errorResponseBuilder: () => ({

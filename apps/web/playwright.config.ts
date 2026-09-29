@@ -10,12 +10,15 @@ import { defineConfig, devices } from '@playwright/test'
  * - Cada test lleva el ID de caso de la estrategia (p. ej. "PAY-02 …"): `pnpm e2e --grep PAY-`.
  *
  * Requiere la API en :3001 (con la base migrada) y levanta la web si no está corriendo.
- * Variables: PLAYWRIGHT_BASE_URL, PLAYWRIGHT_API_URL, E2E_SKIP_SEED=1.
+ * Variables: PLAYWRIGHT_BASE_URL, PLAYWRIGHT_API_URL, E2E_SKIP_SEED=1,
+ * E2E_OUTPUT_DIR (artefactos propios si corren varias suites a la vez).
+ * La API local debería tener RATE_LIMIT_MAX alto (ver apps/api/.env.example).
  */
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000'
 
 export default defineConfig({
   testDir: './e2e',
+  outputDir: process.env.E2E_OUTPUT_DIR ?? 'test-results',
   // Los specs comparten el entorno QA y algunos lo modifican: van en serie
   fullyParallel: false,
   workers: 1,

@@ -16,7 +16,10 @@ export async function listUsers(gymId: string, status?: string, role?: string) {
   const users = await prisma.user.findMany({
     where,
     include: {
+      // Membresía actual para la lista: la última que no sea una transferencia en revisión
+      // (el plan vigente sigue activo mientras el admin revisa el comprobante)
       memberships: {
+        where: { OR: [{ transferStatus: null }, { transferStatus: { not: 'PENDING_REVIEW' } }] },
         orderBy: { createdAt: 'desc' },
         take: 1,
         include: { plan: { select: { id: true, name: true } } },
@@ -42,6 +45,16 @@ export async function getUserById(gymId: string, userId: string) {
       },
       rmRecords: { orderBy: { recordedAt: 'desc' } },
       gymnasticProgress: { orderBy: { achievedAt: 'desc' } },
+      bookings: {
+        where: { status: 'ATTENDED' },
+        orderBy: { attendedAt: 'desc' },
+        take: 20,
+        select: {
+          id: true, attendedAt: true,
+          class: { select: { startsAt: true, classType: { select: { name: true } } } },
+        },
+      },
+      _count: { select: { bookings: { where: { status: 'ATTENDED' } } } },
     },
   })
   if (!user) throw new Error('Usuario no encontrado')

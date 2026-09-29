@@ -1201,9 +1201,8 @@ describe('Fintoc: PATCH /api/payments/fintoc/movements/:id/reject', () => {
     expect(body.reconciliationStatus).toBe('REJECTED')
     expect(body.reviewedBy).toBe(adminAId)
     expect(body.reviewedAt).not.toBeNull()
-    // rejectBankMovement escribe "[RECHAZADO] {reason}" en description si hay reason
-    expect(body.description).toMatch(/\[RECHAZADO\]/)
-    expect(body.description).toContain('Monto no corresponde')
+    // rejectBankMovement agrega "[RECHAZADO: {reason}]" y conserva la glosa original del banco
+    expect(body.description).toMatch(/\[RECHAZADO: Monto no corresponde\]/)
   })
 
   it('rechazar sin reason → 200, description sin prefix [RECHAZADO]', async () => {

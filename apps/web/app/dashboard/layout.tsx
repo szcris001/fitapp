@@ -240,8 +240,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Onboarding wizard: detectar si el gym es nuevo (sin class-types ni planes)
   useEffect(() => {
     if (!user) return
-    // Solo ADMIN y SUPER_ADMIN ven el wizard
+    // Solo ADMIN y SUPER_ADMIN ven el wizard, y SUPER_ADMIN solo tras elegir una sede: sin
+    // gymId, /class-types y /plans fallan (400) y el wizard se disparaba en falso sobre
+    // /dashboard/sedes, tapando el botón "Cambiar a esta sede" (ver SUP-02)
     if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') return
+    if (user.role === 'SUPER_ADMIN' && !user.gymId) return
     // Si ya fue completado/cerrado en esta sesión, no volver a mostrar
     if (typeof window !== 'undefined' && localStorage.getItem('fitapp_onboarding_done')) return
 

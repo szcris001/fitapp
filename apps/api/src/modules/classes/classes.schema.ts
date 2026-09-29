@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+// Disciplinas que ofrece la web al crear un tipo de clase (settings/class-types) y que la
+// app móvil sabe mostrar (DisciplineIcon)
+export const CLASS_DISCIPLINES = [
+  'crossfit', 'weightlifting', 'powerlifting', 'gymnastics', 'endurance', 'hyrox', 'rowing',
+  'cycling', 'mobility', 'swimming', 'boxing', 'kids', 'competition', 'open', 'manual',
+] as const
+
 const blockSchema = z.object({
   name: z.string().min(1),
   durationMins: z.number().int().min(1),
@@ -11,7 +18,7 @@ export const createClassTypeSchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  discipline: z.enum(['crossfit', 'weightlifting', 'endurance', 'hyrox', 'manual']).optional(),
+  discipline: z.enum(CLASS_DISCIPLINES).optional(),
   blocks: z.array(blockSchema).optional(),
 })
 

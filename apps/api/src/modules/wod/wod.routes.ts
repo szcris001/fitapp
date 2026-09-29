@@ -81,6 +81,15 @@ const wodUpdateSchema = wodInputSchema.omit({ classTypeId: true }).partial()
 
 const wodImportSchema = z.array(wodInputSchema).min(1).max(366)
 
+// Resultado que registra el coach: score numérico (segundos si el WOD es TIME)
+const coachResultSchema = z.object({
+  userId:    z.string().uuid(),
+  score:     z.number().min(0),
+  scoreText: z.string().max(100).nullish(),
+  rx:        z.boolean().default(false),
+  notes:     z.string().max(500).nullish(),
+})
+
 export async function wodRoutes(app: FastifyInstance) {
 
   // ─── CREATE ─────────────────────────────────────────────────────────────────
@@ -221,13 +230,11 @@ export async function wodRoutes(app: FastifyInstance) {
   app.post('/wods/:id/results', { preHandler: requireCoachOrAdmin }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user as AuthUser
     const { id } = request.params as { id: string }
-    const body = request.body as {
-      userId: string
-      score: number
-      scoreText?: string
-      rx: boolean
-      notes?: string
+    const parsed = coachResultSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     }
+    const body = parsed.data
 
     const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })

@@ -138,9 +138,10 @@ test.describe('USR — admin', () => {
     // Progresión gimnástica sembrada
     await expect(page.getByText('Pull-up estricto')).toBeVisible()
 
-    // Asistencia: Mara asistió 4 clases en la última semana
-    await expect.soft(page.getByText(/asistencia/i).first(), 'el detalle no muestra asistencia').toBeVisible()
-    await expect.soft(page.getByText(/4 (clases|asistencias)/i).first()).toBeVisible()
+    // Asistencia: Mara asistió 4 clases en la última semana (tarjeta con número y etiqueta separados)
+    const asistencias = page.locator('.stat-card').filter({ hasText: 'Asistencias' })
+    await expect(asistencias, 'el detalle no muestra la tarjeta de asistencias').toBeVisible()
+    await expect(asistencias.locator('.stat-number')).toHaveText('4')
     p.expectNoErrors()
   })
 
@@ -212,10 +213,11 @@ test.describe('USR — admin', () => {
       expect(active[0].pricePaid).toBe(NORTE.plans.mensual.priceCents)
       const firstId = active[0].id
 
-      // Renovar: nueva membresía de 30 días, la anterior queda inactiva
+      // Renovar antes del vencimiento extiende desde el vencimiento vigente (no reinicia el
+      // contador): con ~30 días restantes, tras renovar quedan ~60 (30 + 30 nuevos)
       await page.getByRole('button', { name: 'Renovar' }).first().click()
       await expect(page.getByText('Membresía renovada')).toBeVisible()
-      await expect(activa).toContainText(/(29|30)d restantes/)
+      await expect(activa).toContainText(/(59|60)d restantes/)
 
       ;({ data } = await api('admin', 'GET', `/users/${m.id}`))
       active = data.memberships.filter((x: { status: string }) => x.status === 'ACTIVE')

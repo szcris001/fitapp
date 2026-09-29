@@ -33,7 +33,7 @@ import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
 import bcrypt from 'bcryptjs'
 import { paymentRoutes } from '../payments.routes'
-import { submitTransferReceipt } from '../payments.service'
+import { submitTransferReceipt, confirmTransfer } from '../payments.service'
 import { prisma } from '../../../lib/prisma'
 
 // ─── Constantes de fixtures ───────────────────────────────────────────────────
@@ -668,7 +668,11 @@ describe('Transfer: submit desactiva membresía activa previa', () => {
     }
   })
 
-  it('si el alumno tiene una membresía ACTIVE previa, queda INACTIVE al subir comprobante', async () => {
+  it('si el alumno tiene una membresía ACTIVE previa, sigue ACTIVE mientras se revisa el comprobante', async () => {
+    // Este describe asume que memberA no tiene otra membresía ACTIVE/TRIAL vigente: otros
+    // describes del archivo comparten memberAId y (desde el fix de no desactivar al subir
+    // el comprobante) pueden dejar una activa sin confirmar/rechazar
+    await prisma.membership.updateMany({ where: { userId: memberAId, status: { in: ['ACTIVE', 'TRIAL'] } }, data: { status: 'INACTIVE' } })
     // Crear membresía activa directamente en DB
     const now = new Date()
     const endsAt = new Date(now)
@@ -698,12 +702,42 @@ describe('Transfer: submit desactiva membresía activa previa', () => {
     newTransferMembershipId = newMembership.id
     createdMembershipIds.push(newTransferMembershipId)
 
-    // Verificar que la membresía previa quedó INACTIVE
+    // La previa sigue ACTIVE: si el admin rechaza el comprobante, el alumno no se queda sin plan.
+    // Recién se desactiva al confirmar (confirmTransfer), no al subir el comprobante.
     const reloaded = await prisma.membership.findUnique({ where: { id: existingMembershipId } })
-    expect(reloaded!.status).toBe('INACTIVE')
+    expect(reloaded!.status).toBe('ACTIVE')
 
-    // La nueva es INACTIVE + PENDING_REVIEW
+    // La nueva es INACTIVE + PENDING_REVIEW, y extiende desde el vencimiento de la vigente
     expect(newMembership.status).toBe('INACTIVE')
     expect(newMembership.transferStatus).toBe('PENDING_REVIEW')
+    expect(newMembership.startsAt.getTime()).toBe(existing.endsAt.getTime())
+  })
+
+  it('al confirmar el comprobante, la membresía previa pasa a INACTIVE y la nueva extiende desde su vencimiento', async () => {
+    await prisma.membership.updateMany({ where: { userId: memberAId, status: { in: ['ACTIVE', 'TRIAL'] } }, data: { status: 'INACTIVE' } })
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+
+    const existing = await prisma.membership.create({
+      data: {
+        userId: memberAId, planId, status: 'ACTIVE',
+        startsAt: now, endsAt, pricePaid: 30000, currency: 'CLP',
+        paymentMethod: 'cash', paidAt: now,
+      },
+    })
+    createdMembershipIds.push(existing.id)
+
+    const pending = await submitTransferReceipt(
+      gymAId, memberAId, planId, `/uploads/receipts/confirm-test-${Date.now()}.jpg`,
+    )
+    createdMembershipIds.push(pending.id)
+
+    const confirmed = await confirmTransfer(gymAId, pending.id)
+
+    const reloadedExisting = await prisma.membership.findUnique({ where: { id: existing.id } })
+    expect(reloadedExisting!.status).toBe('INACTIVE')
+    expect(confirmed.status).toBe('ACTIVE')
+    expect(confirmed.startsAt.getTime()).toBe(endsAt.getTime())
   })
 })

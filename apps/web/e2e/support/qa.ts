@@ -59,9 +59,20 @@ function storedToken(role: Role): string | null {
   return token && secondsLeft(token) > 120 ? token : null
 }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+/** fetch que reintenta ante 429 respetando Retry-After (rate limit de la API) */
+export async function fetchRetry429(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, init)
+    if (res.status !== 429 || attempt >= 6) return res
+    await sleep((Number(res.headers.get('retry-after')) || 5) * 1000)
+  }
+}
+
 export async function login(role: Role): Promise<{ token: string; refreshToken: string; mediaToken?: string; user: unknown }> {
   const { gym, user } = ROLES[role]
-  const res = await fetch(`${API_URL}/auth/login`, {
+  const res = await fetchRetry429(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: user.email, password: QA.password, ...(gym ? { gymSlug: gym.slug } : {}) }),
@@ -76,7 +87,7 @@ export async function api<T = any>(role: Role, method: string, path: string, bod
     token = (await login(role)).token
     tokenCache.set(role, token)
   }
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetchRetry429(`${API_URL}${path}`, {
     method,
     headers: { Authorization: `Bearer ${token}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
