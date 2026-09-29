@@ -18,10 +18,15 @@ const createGymSchema = z.object({
   trialDays: z.number().int().min(0).default(30),
 })
 
+// Credenciales de cada cliente: el panel no las necesita para listar ni para ver un gym
+// (las pasarelas se administran en /superadmin/gym-payments con su propio endpoint)
+const GYM_SECRETS_OMIT = { smtpPass: true, bsaleToken: true, paymentGateways: true } as const
+
 export async function superAdminRoutes(app: FastifyInstance) {
   app.get('/superadmin/gyms', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const gyms = await prisma.gym.findMany({
       where: { deletedAt: null },
+      omit: GYM_SECRETS_OMIT,
       include: {
         _count: { select: { users: true, classes: true } },
         users: {
@@ -38,6 +43,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.get('/superadmin/gyms/history', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const gyms = await prisma.gym.findMany({
       where: { deletedAt: { not: null } },
+      omit: GYM_SECRETS_OMIT,
       include: {
         _count: { select: { users: true, classes: true } },
         users: {
@@ -108,7 +114,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
 
   app.post('/superadmin/gyms', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const parsed = createGymSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { gymName, gymSlug, adminName, adminEmail, adminPassword, subscriptionPlan, trialDays } = parsed.data
 
@@ -252,6 +258,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     const { id } = request.params as any
     const gym = await prisma.gym.findUnique({
       where: { id },
+      omit: GYM_SECRETS_OMIT,
       include: {
         users: {
           where: { role: { in: ['ADMIN', 'COACH'] } },
@@ -272,7 +279,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.post('/superadmin/gyms/:id/reset-password', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const { id } = request.params as any
     const parsed = resetPasswordSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { userId, newPassword } = parsed.data
 
@@ -332,7 +339,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
   app.patch('/superadmin/gyms/:id', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const { id } = request.params as any
     const parsed = editGymSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { adminName, adminEmail, ...gymData } = parsed.data
 

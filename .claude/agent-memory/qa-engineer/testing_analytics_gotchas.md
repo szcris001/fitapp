@@ -4,7 +4,7 @@ description: Gotchas de analytics RM y GymnasticProgress: bug de tenancy en /use
 type: project
 ---
 
-## Bug de tenancy en endpoints /user/:userId (2026-05-04)
+## Bug de tenancy en endpoints /user/:userId (2026-05-04) — CORREGIDO (verificado E2E 2026-09-29: ambos responden 404 "Usuario no encontrado" para un userId de otro gym)
 
 `GET /rms/user/:userId` y `GET /gymnastic-progress/user/:userId` usan `requireCoachOrAdmin` pero NO verifican que el `userId` del path param pertenezca al gym del requester. Un ADMIN de Gym B puede ver datos de un usuario de Gym A si conoce su UUID.
 

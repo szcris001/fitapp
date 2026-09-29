@@ -57,6 +57,19 @@ function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg ${className}`} style={{ backgroundColor: 'var(--surface-hover)' }} />
 }
 
+/** Puntaje ingresado → número que guarda la API. TIME acepta "m:ss" o segundos; CUSTOM, texto libre. */
+function parseScore(raw: string, scoreType: string): number | null {
+  const text = raw.trim()
+  if (scoreType === 'TIME') {
+    const mmss = text.match(/^(\d+):([0-5]\d)$/)
+    const seconds = mmss ? Number(mmss[1]) * 60 + Number(mmss[2]) : Number(text)
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null
+  }
+  if (scoreType === 'CUSTOM') return Number.parseFloat(text.replace(',', '.')) || 0
+  const n = Number(text.replace(',', '.'))
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
 /* ─── Register Result Modal ──────────────────────── */
 function RegisterModal({
   wodId,
@@ -94,13 +107,20 @@ function RegisterModal({
   const handleSave = async () => {
     if (!selectedMember) { setError('Selecciona un atleta'); return }
     if (!score.trim()) { setError('Ingresa el puntaje'); return }
+    const value = parseScore(score, scoreType)
+    if (value === null) {
+      setError(scoreType === 'TIME' ? 'Tiempo inválido: usa mm:ss (ej. 3:45) o segundos' : 'El puntaje debe ser un número')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
+      // Mismo formato que la app móvil: score numérico (segundos en TIME) y rx
       await api.post(`/wods/${wodId}/results`, {
         userId: selectedMember.id,
-        score: score.trim(),
-        isRx,
+        score: value,
+        scoreText: scoreType === 'CUSTOM' ? score.trim() : null,
+        rx: isRx,
         notes: notes.trim() || null,
       })
       onSaved()

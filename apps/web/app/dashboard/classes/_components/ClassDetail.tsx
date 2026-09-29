@@ -29,6 +29,11 @@ export interface ClassDetail {
 
 /* ─── Helpers ────────────────────────────────────── */
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+// Fecha local del navegador (asumida igual a la del gym): evita que toISOString() adelante
+// o atrase un día para horarios cercanos a la medianoche (ver CLS-07)
+const localDateStr = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
 
 /* ─── Movement Picker ────────────────────────────── */
 function MovementPicker({ value, onChange, extra = [] }: { value: string; onChange: (v: string) => void; extra?: { name: string; cat: string }[] }) {
@@ -677,11 +682,14 @@ function WodEditorModal({
 
               <div className="space-y-4">
                 {form.blocks.map((block, bi) => (
-                  <div key={bi} className="rounded-xl border overflow-hidden"
+                  // Sin overflow-hidden aquí: el autocompletado de movimientos es un dropdown
+                  // absoluto y un ancestro con overflow-hidden lo recorta pese al z-index.
+                  // El redondeo lo aporta el borde del contenedor y, en la cabecera, su propio clip.
+                  <div key={bi} className="rounded-xl border"
                     style={{ borderColor: 'var(--border-1)' }}>
 
                     {/* Cabecera del bloque */}
-                    <div className="border-b" style={{ backgroundColor: 'var(--brand-accent)' + '10', borderColor: 'var(--border-1)' }}>
+                    <div className="border-b rounded-t-xl overflow-hidden" style={{ backgroundColor: 'var(--brand-accent)' + '10', borderColor: 'var(--border-1)' }}>
                       <div className="flex items-center gap-2 px-3 py-2">
                         <input value={block.title} onChange={e => setBlock(bi, 'title', e.target.value)}
                           placeholder="A) WOD / B) STRENGTH / Warmup..."
@@ -1047,7 +1055,7 @@ export function ClassPanel({
     if (!cls) return
     setSaving(true)
     try {
-      const baseDate = new Date(cls.startsAt).toISOString().split('T')[0]
+      const baseDate = localDateStr(new Date(cls.startsAt))
       const startsAt = new Date(`${baseDate}T${editForm.startTime}:00`)
       const endsAt = new Date(`${baseDate}T${editForm.endTime}:00`)
       await api.patch(`/classes/${classId}`, {
@@ -1102,14 +1110,14 @@ export function ClassPanel({
 
   const openWodEditor = () => setWodEditMode(true)
 
-  const markAttendance = async (bookingId: string) => {
+  const markAttendance = async (bookingId: string, attended = true) => {
     setMarking(bookingId)
     try {
-      await api.patch(`/bookings/${bookingId}/attend`)
+      await api.patch(`/bookings/${bookingId}/attend`, { attended })
       const { data } = await api.get(`/classes/${classId}`)
       setCls(data)
       onRefresh()
-    } catch { alert('Error al marcar asistencia') }
+    } catch { alert(attended ? 'Error al marcar asistencia' : 'Error al desmarcar asistencia') }
     finally { setMarking(null) }
   }
 
@@ -1588,6 +1596,18 @@ export function ClassPanel({
                         {b.status === 'ATTENDED' ? (
                           <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
                             <CheckCircle className="w-3.5 h-3.5" /> Asistió
+                            {attendanceMode === 'manual' && (
+                              <button
+                                onClick={() => markAttendance(b.id, false)}
+                                disabled={marking === b.id}
+                                title="Quitar asistencia"
+                                className="w-5 h-5 flex items-center justify-center rounded transition-colors disabled:opacity-50"
+                                style={{ color: 'var(--text-4)' }}
+                                onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#fef2f2'; e.currentTarget.style.color = '#ef4444' }}
+                                onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-4)' }}>
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
                           </span>
                         ) : b.status === 'CONFIRMED' ? (
                           attendanceMode === 'manual' ? (

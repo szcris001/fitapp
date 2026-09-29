@@ -42,7 +42,7 @@ export async function platformConfigRoutes(app: FastifyInstance) {
   // PATCH — actualiza configuración
   app.patch('/superadmin/config', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const parsed = updateSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const data: any = { ...parsed.data }
 

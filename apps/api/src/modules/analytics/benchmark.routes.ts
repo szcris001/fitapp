@@ -109,7 +109,7 @@ export async function benchmarkRoutes(app: FastifyInstance) {
   app.post('/benchmarks', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = createBenchmarkSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { movimientos, ...rest } = parsed.data
     try {
@@ -136,7 +136,7 @@ export async function benchmarkRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { id } = request.params as any
     const parsed = createBenchmarkSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const existing = await prisma.benchmark.findFirst({
       where: { id, gymId: user.gymId, isOfficial: false },
@@ -184,7 +184,7 @@ export async function benchmarkRoutes(app: FastifyInstance) {
       recordedAt: z.string().optional(),
     })
     const parsed = schema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const benchmark = await prisma.benchmark.findFirst({
       where: { id, OR: [{ gymId: null, isOfficial: true }, { gymId: user.gymId }] },

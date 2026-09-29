@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma'
 import * as mpClient from '../../lib/mp-client'
 import { emitirDTE, DteInput } from '../../lib/dte'
 import { sendPaymentConfirmation } from '../../lib/email'
-import { MEMBERSHIP_DAYS } from '../../lib/membership'
+import { MEMBERSHIP_DAYS, nextMembershipPeriod } from '../../lib/membership'
 import { toMajorUnits } from '../../lib/money'
 import { HttpError } from '../../lib/http-error'
 import { logger } from '../../lib/logger'
@@ -37,15 +37,7 @@ async function activateMembership(userId: string, planId: string, paymentMethod:
   const plan = await prisma.plan.findUnique({ where: { id: planId } })
   if (!plan) throw new Error('Plan no encontrado')
 
-  // Si tiene membresía vigente, extender desde su vencimiento (no desde hoy)
-  const existing = await prisma.membership.findFirst({
-    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gt: new Date() } },
-    orderBy: { endsAt: 'desc' },
-  })
-
-  const startsAt = existing ? existing.endsAt : new Date()
-  const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -520,10 +512,9 @@ export async function handleMercadoPagoWebhook(
 
       const user = await prisma.user.findUnique({ where: { id: userId } })
       if (user) {
-        const endsAt = new Date(); endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
         sendPaymentConfirmation(gymId, {
           memberName: user.name, memberEmail: user.email, planName: plan.name,
-          amount: plan.priceCents, currency: plan.currency, paymentMethod: 'mercadopago', endsAt,
+          amount: plan.priceCents, currency: plan.currency, paymentMethod: 'mercadopago', endsAt: membership.endsAt,
         }).catch(() => {})
       }
 
@@ -1069,13 +1060,7 @@ export async function registerManualPayment(
   const plan = await getPlan(planId, gymId)
   const gym = await getGym(gymId)
 
-  const existingManual = await prisma.membership.findFirst({
-    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gt: new Date() } },
-    orderBy: { endsAt: 'desc' },
-  })
-  const startsAt = existingManual ? existingManual.endsAt : new Date()
-  const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -1178,15 +1163,9 @@ export async function submitTransferReceipt(gymId: string, userId: string, planI
   const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
   if (!user) throw new Error('Usuario no encontrado')
 
-  // Desactivar membresías activas anteriores
-  await prisma.membership.updateMany({
-    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
-    data: { status: 'INACTIVE' },
-  })
-
-  const startsAt = new Date()
-  const endsAt = new Date()
-  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
+  // La membresía vigente sigue activa mientras el admin revisa el comprobante: si se
+  // rechaza, el alumno no pierde su plan. El período real se calcula al confirmar.
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
 
   return prisma.membership.create({
     data: {
@@ -1225,25 +1204,25 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
   if (!membership) throw new Error('Membresía no encontrada')
   if (membership.transferStatus !== 'PENDING_REVIEW') throw new Error('Esta transferencia ya fue procesada')
 
-  // Extender desde membresía vigente si la hay (o desde la fecha original del comprobante)
-  const existingTransfer = await prisma.membership.findFirst({
-    where: { userId: membership.userId, id: { not: membershipId }, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gt: new Date() } },
-    orderBy: { endsAt: 'desc' },
-  })
-  const baseDate = existingTransfer ? existingTransfer.endsAt : new Date()
-  const endsAt = new Date(baseDate)
-  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
-
-  const updated = await prisma.membership.update({
-    where: { id: membershipId },
-    data: {
-      status: 'ACTIVE',
-      transferStatus: 'CONFIRMED',
-      paidAt: new Date(),
-      endsAt,
-      ...(notes && { paymentNotes: notes }),
-    },
-  })
+  // Extiende desde la membresía vigente (si la hay) y la reemplaza, igual que los otros medios de pago
+  const { startsAt, endsAt } = await nextMembershipPeriod(membership.userId, { excludeId: membershipId })
+  const [, updated] = await prisma.$transaction([
+    prisma.membership.updateMany({
+      where: { userId: membership.userId, id: { not: membershipId }, status: { in: ['ACTIVE', 'TRIAL'] } },
+      data: { status: 'INACTIVE' },
+    }),
+    prisma.membership.update({
+      where: { id: membershipId },
+      data: {
+        status: 'ACTIVE',
+        transferStatus: 'CONFIRMED',
+        paidAt: new Date(),
+        startsAt,
+        endsAt,
+        ...(notes && { paymentNotes: notes }),
+      },
+    }),
+  ])
 
   // Notificación email al alumno
   const { user, plan } = membership
@@ -1715,7 +1694,19 @@ export async function confirmBankMovement(
     throw new Error('Este movimiento ya fue procesado')
   }
 
-  // Confirm the associated transfer membership
+  // El movimiento tiene que pagar la membresía que activa: misma moneda y monto suficiente
+  // (sin esto, una transferencia de $12.345 podía activar un plan de $35.000)
+  const membership = await prisma.membership.findFirst({
+    where: { id: membershipId, user: { gymId } },
+    select: { pricePaid: true, currency: true },
+  })
+  if (!membership) throw new Error('Membresía no encontrada')
+  if (movement.currency !== membership.currency || movement.amount < membership.pricePaid) {
+    throw new Error(
+      `El monto del movimiento (${movement.amount} ${movement.currency}) no cubre la membresía (${membership.pricePaid} ${membership.currency})`,
+    )
+  }
+
   await confirmTransfer(gymId, membershipId)
 
   return prisma.bankMovement.update({
@@ -1753,7 +1744,8 @@ export async function rejectBankMovement(
       reconciliationStatus: 'REJECTED',
       reviewedBy,
       reviewedAt: new Date(),
-      ...(reason ? { description: `[RECHAZADO] ${reason}` } : {}),
+      // Se conserva la glosa original del banco y se agrega el motivo
+      ...(reason ? { description: `${movement.description ?? ''} [RECHAZADO: ${reason}]`.trim() } : {}),
     },
   })
 }

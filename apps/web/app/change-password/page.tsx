@@ -139,7 +139,7 @@ export default function ChangePasswordPage() {
 
           <button
             type="button"
-            onClick={logout}
+            onClick={() => logout()}
             style={{
               width: '100%', background: 'none',
               border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '12px',

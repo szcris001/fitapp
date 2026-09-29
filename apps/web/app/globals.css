@@ -214,6 +214,13 @@ html.dark[data-sport="running"] {
   --gradient-hero: linear-gradient(135deg, #01080C 0%, #071A24 100%);
 }
 
+/* Clases de componentes (.card, .btn-*, .input, …) en @layer components: sin esto, CSS
+ * plano queda en una capa implícita que gana a @layer utilities de Tailwind pase lo que
+ * pase el orden en el className, así que un className="input w-24" (o "card rounded-xl")
+ * ignoraba en silencio el w-24/rounded-xl. Bug real: el ancho fijo del input de reps en
+ * el editor de WOD se ignoraba y dejaba en 0px al buscador de movimientos (ver CLS-09). */
+@layer components {
+
 /* ─── Animations ─────────────────────────────────── */
 @keyframes modal-in {
   from { opacity: 0; transform: scale(0.95) translateY(10px); }
@@ -551,6 +558,8 @@ html.dark .nav-item-active {
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--border-1), transparent);
 }
+
+} /* fin @layer components */
 
 /* ─── Light mode Tailwind text overrides ────────── */
 @layer utilities {

@@ -127,7 +127,7 @@ export async function userRoutes(app: FastifyInstance) {
   app.post('/users', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = createUserSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       return reply.status(201).send(await createUser(user.gymId, parsed.data))
     } catch (err: any) {
@@ -139,7 +139,7 @@ export async function userRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { id } = request.params as any
     const parsed = updateUserSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       return reply.send(await updateUser(user.gymId, id, parsed.data))
     } catch (err: any) {

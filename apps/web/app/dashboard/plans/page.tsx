@@ -443,7 +443,7 @@ export default function PlansPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchPlans()
   }, [user])
 
@@ -460,7 +460,7 @@ export default function PlansPage() {
       const { data } = await api.get('/plans')
       setPlans(data)
     } catch {
-      router.push('/login')
+      /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */
     } finally {
       setLoading(false)
     }

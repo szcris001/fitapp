@@ -13,6 +13,7 @@ import { authenticate } from '../../middlewares/auth.middleware'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
+import { canEnterSede, sedeRole } from '../../lib/sede-access'
 import { signMediaToken } from '../../lib/media-token'
 import { logger } from '../../lib/logger'
 
@@ -37,13 +38,14 @@ export async function authRoutes(app: FastifyInstance) {
   const isDev = process.env.NODE_ENV !== 'production'
   const authRateLimit = {
     config: {
-      rateLimit: { max: isDev ? 50 : 10, timeWindow: '15 minutes' },
+      // AUTH_RATE_LIMIT_MAX (solo dev/QA) para la suite E2E y los agentes exploradores
+      rateLimit: { max: isDev ? Number(process.env.AUTH_RATE_LIMIT_MAX ?? 50) : 10, timeWindow: '15 minutes' },
     },
   }
 
   app.post('/auth/login', { ...authRateLimit }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       const user = await loginUser(parsed.data)
       // El JWT solo lleva { userId, gymId, role }; el perfil completo va en `user`
@@ -61,7 +63,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/auth/refresh', { ...authRateLimit }, async (request, reply) => {
     const parsed = refreshBodySchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       const { userId, newRaw } = await rotateRefreshToken(parsed.data.refreshToken)
       const user = await prisma.user.findUnique({
@@ -73,19 +75,16 @@ export async function authRoutes(app: FastifyInstance) {
       let payload: { userId: string; gymId: string | null; role: string } =
         { userId: user.id, gymId: user.gymId, role: user.role }
 
-      // Mantener la sede elegida con switch-sede, solo si el admin sigue siendo su dueño
+      // Mantener la sede elegida con switch-sede, con la misma regla de acceso
       const requestedGymId = parsed.data.gymId
       if (requestedGymId && requestedGymId !== user.gymId) {
         const sede = await prisma.gym.findUnique({
           where: { id: requestedGymId },
           select: { ownerEmail: true, status: true },
         })
-        const canAccess = ['ADMIN', 'SUPER_ADMIN'].includes(user.role)
-          && sede?.ownerEmail === user.email
-          && sede.status !== 'SUSPENDED'
+        const canAccess = !!sede && sede.status !== 'SUSPENDED' && canEnterSede(user, sede)
         if (!canAccess) return reply.status(401).send({ error: 'Ya no tienes acceso a esta sede' })
-        // Mismo rol que emite /gyms/switch-sede
-        payload = { userId: user.id, gymId: requestedGymId, role: 'ADMIN' }
+        payload = { userId: user.id, gymId: requestedGymId, role: sedeRole(user.role) }
       }
 
       const token = app.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
@@ -97,7 +96,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/auth/logout', { preHandler: authenticate }, async (request, reply) => {
     const parsed = refreshBodySchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     const { userId } = request.user as any
     await revokeRefreshToken(userId, parsed.data.refreshToken)
     return reply.status(200).send({ message: 'Sesión cerrada correctamente' })
@@ -105,7 +104,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/auth/forgot-password', { ...authRateLimit }, async (request, reply) => {
     const parsed = forgotSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     // Always return 200 to avoid email enumeration
     await forgotPassword(parsed.data.email, parsed.data.gymSlug).catch(err =>
       logger.error({ err }, '[Auth] forgot-password error'),
@@ -134,7 +133,7 @@ export async function authRoutes(app: FastifyInstance) {
       newPassword: z.string().min(6).optional(),
     })
     const parsed = schema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { name, email, phone, currentPassword, newPassword } = parsed.data
     const user = await prisma.user.findUnique({ where: { id: userId }, omit: { passwordHash: false } })
@@ -178,7 +177,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/auth/reset-password', { ...authRateLimit }, async (request, reply) => {
     const parsed = resetSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       await resetPassword(parsed.data.token, parsed.data.password)
       return reply.send({ message: 'Contraseña actualizada correctamente' })

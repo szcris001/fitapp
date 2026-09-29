@@ -3,7 +3,10 @@ import { BookingStatus } from '../../generated/prisma'
 import { CreateClassTypeInput, CreateClassInput, BookingInput } from './classes.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 import { sendPushNotification } from '../../lib/push'
-import { gymDayRange, getGymTimezone, DEFAULT_GYM_TIMEZONE } from '../../lib/gym-day'
+import {
+  gymDayRange, getGymTimezone, DEFAULT_GYM_TIMEZONE, startOfGymDay, gymLocalDate, gymLocalTime,
+  addLocalDays, atGymLocalTime, localWeekday,
+} from '../../lib/gym-day'
 
 export async function listClassTypes(gymId: string) {
   return prisma.classType.findMany({
@@ -62,13 +65,20 @@ export async function deleteClassType(gymId: string, classTypeId: string) {
   await prisma.classType.delete({ where: { id: classTypeId } })
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Clases entre `from` y `to`. Una fecha sin hora ('YYYY-MM-DD') es un día local del gym:
+ * `to` incluye todo ese día. Antes se tomaba como día UTC y en Chile, desde las 21:00,
+ * "hoy" mostraba clases de mañana y perdía las de la noche.
+ */
 export async function listClasses(gymId: string, from?: string, to?: string) {
-  const startsAt: any = {}
-  if (from) startsAt.gte = new Date(from)
+  const startsAt: { gte?: Date; lt?: Date; lte?: Date } = {}
+  const tz = (from && DATE_ONLY.test(from)) || (to && DATE_ONLY.test(to)) ? await getGymTimezone(gymId) : ''
+  if (from) startsAt.gte = DATE_ONLY.test(from) ? startOfGymDay(from, tz) : new Date(from)
   if (to) {
-    const toDate = new Date(to)
-    toDate.setUTCHours(23, 59, 59, 999)
-    startsAt.lte = toDate
+    if (DATE_ONLY.test(to)) startsAt.lt = gymDayRange(to, tz).lt
+    else startsAt.lte = new Date(to)
   }
 
   return prisma.class.findMany({
@@ -159,31 +169,23 @@ export async function createClass(gymId: string, data: CreateClassInput & { allo
   const baseStart = new Date(data.startsAt)
   const baseEnd = new Date(data.endsAt)
   const duration = baseEnd.getTime() - baseStart.getTime()
-  // Use end-of-day UTC so the recurringUntil date itself is included
-  const until = data.recurringUntil
-    ? new Date(data.recurringUntil + 'T23:59:59Z')
-    : new Date(Date.now() + 28 * 24 * 60 * 60 * 1000)
   const classes = []
 
-  // Use UTC methods throughout to avoid server timezone / DST issues
-  const utcHour = baseStart.getUTCHours()
-  const utcMinute = baseStart.getUTCMinutes()
+  // Días y hora en la zona del gym: los recurringDays son días locales (una clase del lunes
+  // a las 21:30 en Chile es martes en UTC) y la hora local se mantiene aunque cambie el horario
+  const tz = await getGymTimezone(gymId)
+  const { hour, minute } = gymLocalTime(baseStart, tz)
+  const firstDay = gymLocalDate(baseStart, tz)
+  const lastDay = data.recurringUntil ? gymLocalDate(data.recurringUntil, tz) : addLocalDays(firstDay, 28)
 
-  const current = new Date(baseStart)
-  // Normalize current to start of the UTC day at the same UTC hour
-  current.setUTCHours(utcHour, utcMinute, 0, 0)
-
-  while (current <= until) {
-    if (data.recurringDays.includes(current.getUTCDay())) {
-      const classStart = new Date(current)
-      const classEnd = new Date(classStart.getTime() + duration)
-      classes.push({
-        gymId, classTypeId: data.classTypeId, coachId: data.coachId,
-        startsAt: classStart, endsAt: classEnd,
-        capacity: data.capacity, frequency: 'RECURRING' as const,
-      })
-    }
-    current.setUTCDate(current.getUTCDate() + 1)
+  for (let day = firstDay; day <= lastDay; day = addLocalDays(day, 1)) {
+    if (!data.recurringDays.includes(localWeekday(day))) continue
+    const classStart = atGymLocalTime(day, hour, minute, tz)
+    classes.push({
+      gymId, classTypeId: data.classTypeId, coachId: data.coachId,
+      startsAt: classStart, endsAt: new Date(classStart.getTime() + duration),
+      capacity: data.capacity, frequency: 'RECURRING' as const,
+    })
   }
 
   // Filter out slots that already have a class of this type at the same time

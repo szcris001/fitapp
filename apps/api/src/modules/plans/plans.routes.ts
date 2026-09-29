@@ -20,7 +20,7 @@ export async function planRoutes(app: FastifyInstance) {
     const user = request.user as any
     const parsed = createPlanSchema.safeParse(request.body)
     if (!parsed.success) {
-      return reply.status(400).send({ error: parsed.error.flatten() })
+      return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     }
     try {
       const plan = await createPlan(user.gymId, parsed.data)
@@ -34,7 +34,7 @@ export async function planRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { id } = request.params as any
     const parsed = updatePlanSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       const plan = await updatePlan(user.gymId, id, parsed.data)
       return reply.send(plan)
@@ -58,7 +58,7 @@ export async function planRoutes(app: FastifyInstance) {
     const user = request.user as any
     const parsed = createMembershipSchema.safeParse(request.body)
     if (!parsed.success) {
-      return reply.status(400).send({ error: parsed.error.flatten() })
+      return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     }
     try {
       const membership = await assignMembership(user.gymId, parsed.data)

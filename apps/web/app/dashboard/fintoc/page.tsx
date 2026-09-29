@@ -609,7 +609,7 @@ export default function FintocPage() {
   useEffect(() => { loadFromStorage() }, [])
 
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     Promise.all([fetchStatus(), fetchMovements('PENDING', 0)]).finally(() => setLoading(false))
   }, [user])
 

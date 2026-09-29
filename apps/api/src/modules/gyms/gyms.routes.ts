@@ -11,6 +11,7 @@ import fs from 'fs'
 import { z } from 'zod'
 import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../payments/payments.service'
 import { signMediaToken } from '../../lib/media-token'
+import { canEnterSede, sedeRole } from '../../lib/sede-access'
 
 const createSedeSchema = z.object({
   name: z.string().min(2),
@@ -21,7 +22,7 @@ const createSedeSchema = z.object({
 // El JWT solo lleva { userId, gymId, role }: email y nombre se leen de la DB.
 // Tras un switch-sede el gymId del JWT puede no ser el del usuario, por eso se busca por id.
 async function getRequester(userId: string) {
-  return prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } })
+  return prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true, role: true } })
 }
 
 export async function gymRoutes(app: FastifyInstance) {
@@ -32,8 +33,9 @@ export async function gymRoutes(app: FastifyInstance) {
     const user = request.user as any
     const requester = await getRequester(user.userId)
     if (!requester) return reply.status(401).send({ error: 'Sesión inválida' })
+    // SUPER_ADMIN puede entrar a cualquier gym (soporte); un ADMIN, a las sedes de las que es dueño
     const sedes = await prisma.gym.findMany({
-      where: { ownerEmail: requester.email },
+      where: requester.role === 'SUPER_ADMIN' ? { deletedAt: null } : { ownerEmail: requester.email },
       select: {
         id: true, name: true, slug: true, logoUrl: true, status: true,
         address: true, createdAt: true,
@@ -48,7 +50,7 @@ export async function gymRoutes(app: FastifyInstance) {
   app.post('/gyms/my-sedes', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = createSedeSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { name, slug, address } = parsed.data
     const requester = await getRequester(user.userId)
@@ -80,7 +82,7 @@ export async function gymRoutes(app: FastifyInstance) {
     const requester = await getRequester(user.userId)
     if (!requester) return reply.status(401).send({ error: 'Sesión inválida' })
 
-    if (gym.ownerEmail !== requester.email) {
+    if (!canEnterSede(requester, gym)) {
       return reply.status(403).send({ error: 'No tienes acceso a esta sede' })
     }
 
@@ -88,16 +90,17 @@ export async function gymRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Esta sede está suspendida' })
     }
 
+    const role = sedeRole(requester.role)
     const newToken = app.jwt.sign({
       userId: user.userId,
       gymId: gym.id,
-      role: 'ADMIN',
+      role,
     }, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
 
     return reply.send({
       token: newToken,
-      mediaToken: signMediaToken(app, { userId: user.userId, gymId: gym.id, role: 'ADMIN' }),
-      user: { userId: user.userId, gymId: gym.id, email: requester.email, name: requester.name, role: 'ADMIN' },
+      mediaToken: signMediaToken(app, { userId: user.userId, gymId: gym.id, role }),
+      user: { userId: user.userId, gymId: gym.id, email: requester.email, name: requester.name, role },
       gym: { id: gym.id, name: gym.name, slug: gym.slug, logoUrl: gym.logoUrl },
     })
   })
@@ -106,7 +109,8 @@ export async function gymRoutes(app: FastifyInstance) {
   app.get('/gyms/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     try {
-      return reply.send(await getGym(user.gymId))
+      const forAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'
+      return reply.send(await getGym(user.gymId, { forAdmin }))
     } catch (err: any) {
       return reply.status(404).send({ error: err.message })
     }
@@ -115,7 +119,7 @@ export async function gymRoutes(app: FastifyInstance) {
   app.put('/gyms/me', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = updateGymSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       return reply.send(await updateGym(user.gymId, parsed.data))
     } catch (err: any) {

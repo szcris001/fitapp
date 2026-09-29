@@ -18,12 +18,13 @@ export default function NewUserPage() {
   const [form, setForm] = useState({
     name: '', email: '', password: '', phone: '',
     gender: '', birthDate: '',
-    planId: '', startsAt: new Date().toISOString().split('T')[0],
+    // Fecha local (no UTC): pasado ~21:00 en Chile, toISOString() ya cae en el día siguiente
+    planId: '', startsAt: new Date().toLocaleDateString('sv'),
   })
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     api.get('/plans').then(r => setPlans(r.data)).catch(() => {})
   }, [user])
 

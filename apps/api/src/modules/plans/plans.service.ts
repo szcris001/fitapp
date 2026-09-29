@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput } from './plans.schema'
 import { handlePrismaError } from '../../lib/prismaError'
-import { MEMBERSHIP_DAYS } from '../../lib/membership'
+import { MEMBERSHIP_DAYS, nextMembershipPeriod } from '../../lib/membership'
 
 export async function listPlans(gymId: string) {
   return prisma.plan.findMany({
@@ -95,14 +95,13 @@ export async function renewMembership(gymId: string, userId: string) {
   })
   if (!lastMembership) throw new Error('No hay membresía previa para renovar')
 
+  // Renovar antes del vencimiento no hace perder los días que quedaban
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
+
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
     data: { status: 'INACTIVE' },
   })
-
-  const startsAt = new Date()
-  const endsAt = new Date()
-  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
 
   try {
     return await prisma.membership.create({

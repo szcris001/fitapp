@@ -40,7 +40,7 @@ export async function gymSubscriptionsRoutes(app: FastifyInstance) {
       startsAt: z.string().optional(),
     })
     const parsed = schema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { gymId, planId, startsAt } = parsed.data
     const plan = await prisma.fitAppPlan.findUnique({ where: { id: planId } })

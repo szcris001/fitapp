@@ -21,7 +21,7 @@ export default function CommunicationsPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     api.get('/users').then(r => setUsers(r.data)).catch(() => {}).finally(() => setLoading(false))
     api.get('/plans').then(r => setPlans(r.data)).catch(() => {})
   }, [user])
@@ -48,15 +48,23 @@ export default function CommunicationsPage() {
     e.preventDefault()
     setSending(true); setError(''); setSuccess('')
     try {
-      await api.post('/messages/email', {
+      const { data } = await api.post('/messages/email', {
         target: emailForm.target,
         userId: emailForm.target === 'individual' ? emailForm.userId : undefined,
         planId: emailForm.target === 'plan' ? emailForm.planId : undefined,
         subject: emailForm.subject,
         body: emailForm.body,
       })
-      setSuccess('Email enviado correctamente')
-      setEmailForm({ target: 'all', userId: '', planId: '', subject: '', body: '' })
+      // La API responde 200 con sent/failed aunque todos los envíos fallen (p. ej. sin SMTP
+      // configurado): solo es éxito si de verdad no falló ninguno
+      if (data.failed > 0) {
+        setError(data.sent > 0
+          ? `Enviado a ${data.sent} de ${data.totalRecipients}; ${data.failed} fallaron. Revisa la configuración SMTP.`
+          : `No se pudo enviar a ningún destinatario (${data.failed}). Revisa la configuración SMTP en Configuración.`)
+      } else {
+        setSuccess('Email enviado correctamente')
+        setEmailForm({ target: 'all', userId: '', planId: '', subject: '', body: '' })
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al enviar el email')
     } finally { setSending(false) }

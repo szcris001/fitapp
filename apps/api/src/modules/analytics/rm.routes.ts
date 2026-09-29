@@ -27,7 +27,7 @@ export async function rmRoutes(app: FastifyInstance) {
   app.post('/rms/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const parsed = createRmSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       const rm = await createRm(user.userId, user.gymId, parsed.data)
       return reply.status(201).send(rm)
@@ -118,7 +118,7 @@ export async function rmRoutes(app: FastifyInstance) {
   app.post('/gymnastic-progress/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const parsed = createGymnasticProgressSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       const progress = await createGymnasticProgress(user.userId, user.gymId, parsed.data)
       return reply.status(201).send(progress)

@@ -5,7 +5,7 @@ import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
 import {
   ChevronRight, RefreshCw,
-  Dumbbell, Tv2, Medal, Users, ClipboardList, Plus, Upload,
+  Dumbbell, Tv2, Medal, Users, ClipboardList, Plus, Upload, Trophy,
 } from 'lucide-react'
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -163,8 +163,9 @@ function WodList() {
       ) : (
         <div className="card rounded-xl divide-y" style={{ borderColor: 'var(--border-1)' }}>
           {visible.map(w => (
-            <button key={w.id} onClick={() => openWod(w)}
-              className="flex items-center gap-4 w-full text-left px-5 py-3 transition-colors"
+            <div key={w.id} className="flex items-center">
+            <button onClick={() => openWod(w)}
+              className="flex items-center gap-4 flex-1 min-w-0 text-left px-5 py-3 transition-colors"
               onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--surface-hover)')}
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
               <span className="text-sm font-semibold w-28 shrink-0 capitalize" style={{ color: 'var(--text-2)' }}>
@@ -180,6 +181,12 @@ function WodList() {
               </span>
               <ChevronRight className="w-4 h-4 shrink-0" style={{ color: 'var(--text-4)' }} />
             </button>
+            <button onClick={() => router.push(`/dashboard/wods/${w.id}/leaderboard`)}
+              title="Resultados y leaderboard" aria-label={`Resultados de ${w.title || 'WOD'}`}
+              className="px-4 py-3 shrink-0 transition-colors" style={{ color: 'var(--text-3)' }}>
+              <Trophy className="w-4 h-4" />
+            </button>
+            </div>
           ))}
         </div>
       )}

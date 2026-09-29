@@ -370,7 +370,7 @@ export default function UsersPage() {
   // showQuickPay is triggered by SearchParamsWatcher below
 
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchUsers()
     api.get('/plans').then(r => setPlans(r.data)).catch(() => {})
   }, [user, statusFilter])
@@ -398,7 +398,7 @@ export default function UsersPage() {
       const { data } = await api.get(`/users${params}`)
       setUsers(data)
       setFiltered(data)
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoading(false) }
   }
 

@@ -39,7 +39,8 @@ export function startOfGymDay(localDate: string, timezone: string): Date {
   return new Date(Math.min(...candidates))
 }
 
-function addDays(localDate: string, days: number): string {
+/** Suma días a una fecha local 'YYYY-MM-DD' */
+export function addLocalDays(localDate: string, days: number): string {
   const [y, m, d] = localDate.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
 }
@@ -47,12 +48,12 @@ function addDays(localDate: string, days: number): string {
 /** Rango [inicio del día local, inicio del día siguiente) para filtros de Prisma */
 export function gymDayRange(input: Date | string, timezone: string): { gte: Date; lt: Date } {
   const day = gymLocalDate(input, timezone)
-  return { gte: startOfGymDay(day, timezone), lt: startOfGymDay(addDays(day, 1), timezone) }
+  return { gte: startOfGymDay(day, timezone), lt: startOfGymDay(addLocalDays(day, 1), timezone) }
 }
 
 /** Rango del día local que está a `daysAhead` días de hoy en la zona del gym */
 export function gymDayRangeFromToday(timezone: string, daysAhead = 0, now = new Date()): { gte: Date; lt: Date } {
-  return gymDayRange(addDays(gymLocalDate(now, timezone), daysAhead), timezone)
+  return gymDayRange(addLocalDays(gymLocalDate(now, timezone), daysAhead), timezone)
 }
 
 export const DEFAULT_GYM_TIMEZONE = 'America/Santiago'
@@ -60,6 +61,32 @@ export const DEFAULT_GYM_TIMEZONE = 'America/Santiago'
 /** Día canónico de un WOD: inicio del día local del gym para una fecha o un instante */
 export function gymDayStart(input: Date | string, timezone: string): Date {
   return startOfGymDay(gymLocalDate(input, timezone), timezone)
+}
+
+/** Día de la semana (0 = domingo) de una fecha local 'YYYY-MM-DD' */
+export function localWeekday(localDate: string): number {
+  return new Date(`${localDate}T12:00:00Z`).getUTCDay()
+}
+
+/** Hora y minuto locales de un instante en la zona del gym */
+export function gymLocalTime(instant: Date, timezone: string): { hour: number; minute: number } {
+  const [hour, minute] = instant
+    .toLocaleTimeString('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .split(':').map(Number)
+  return { hour, minute }
+}
+
+/**
+ * Instante de la hora local hh:mm del día local 'YYYY-MM-DD'. Si ese día cambia el horario
+ * antes de esa hora, se corrige con el offset vigente a esa hora.
+ */
+export function atGymLocalTime(localDate: string, hour: number, minute: number, timezone: string): Date {
+  const [y, m, d] = localDate.split('-').map(Number)
+  const wall = Date.UTC(y, m - 1, d, hour, minute)
+  // Primera aproximación con el offset de ese reloj de pared y corrección con el offset
+  // vigente en el instante resultante (difieren solo cerca de un cambio de horario)
+  const first = wall - offsetMinutes(new Date(wall), timezone) * 60_000
+  return new Date(wall - offsetMinutes(new Date(first), timezone) * 60_000)
 }
 
 /** Zona horaria configurada del gym (Gym.timezone) */

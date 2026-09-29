@@ -428,7 +428,7 @@ export default function UserDetailPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchData(true)
   }, [user])
 
@@ -602,10 +602,7 @@ export default function UserDetailPage() {
   const daysMember = calcDaysMember(member.createdAt)
   const bestRms = getBestRms(member.rmRecords ?? [])
   const rmCount = Object.keys(bestRms).length
-  const attendedCount = member.memberships?.reduce((acc: number, m: any) => {
-    // approximate: no direct bookings count in this endpoint; show memberships as proxy
-    return acc
-  }, 0)
+  const attendedCount = member._count?.bookings ?? member.bookings?.length ?? 0
 
   const genderLabel: Record<string, string> = { M: 'Masculino', F: 'Femenino', OTHER: 'Otro' }
 
@@ -806,12 +803,18 @@ export default function UserDetailPage() {
       {/* ══════════════════════════════════════════════
           SECCIÓN 2 — Estadísticas rápidas (full width)
       ══════════════════════════════════════════════ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
         <QuickStatCard
           icon={Activity}
           label="Membresías totales"
           value={member.memberships?.length ?? 0}
           colorVar="var(--primary)"
+        />
+        <QuickStatCard
+          icon={CheckCircle}
+          label="Asistencias"
+          value={attendedCount}
+          colorVar="#06b6d4"
         />
         <QuickStatCard
           icon={Trophy}

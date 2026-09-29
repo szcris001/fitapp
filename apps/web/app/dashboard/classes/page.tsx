@@ -58,7 +58,7 @@ export default function ClassesPage() {
         (wodData as any[]).map((w: any) => `${w.classTypeId}|${w.date.split('T')[0]}`)
       )
       setWodKeys(keys)
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoading(false) }
   }
 

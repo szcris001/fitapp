@@ -14,7 +14,7 @@ export async function classRoutes(app: FastifyInstance) {
   app.post('/class-types', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = createClassTypeSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     return reply.status(201).send(await createClassType(user.gymId, parsed.data))
   })
 
@@ -22,7 +22,7 @@ export async function classRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { id } = request.params as any
     const parsed = createClassTypeSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       return reply.send(await updateClassType(user.gymId, id, parsed.data))
     } catch (err: any) {
@@ -74,7 +74,7 @@ export async function classRoutes(app: FastifyInstance) {
   app.post('/classes', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any
     const parsed = createClassSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       return reply.status(201).send(await createClass(user.gymId, parsed.data))
     } catch (err: any) {
@@ -87,7 +87,7 @@ export async function classRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { id } = request.params as { id: string }
     const parsed = updateClassAllowedPlansSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
     if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
     try {
@@ -130,7 +130,7 @@ export async function classRoutes(app: FastifyInstance) {
   app.post('/bookings', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const parsed = bookingSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       return reply.status(201).send(await bookClass(user.gymId, user.userId, parsed.data))
     } catch (err: any) {

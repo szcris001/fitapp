@@ -56,7 +56,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
   // POST — crear nueva plantilla
   app.post('/superadmin/email-templates', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const parsed = templateSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const { name, description, subject, body, placeholders, isActive } = parsed.data
     const slug = `custom_${Date.now()}`
@@ -71,7 +71,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
   app.patch('/superadmin/email-templates/:id', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const { id } = request.params as any
     const parsed = templateSchema.partial().safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const template = await prisma.emailTemplate.findUnique({ where: { id } })
     if (!template) return reply.status(404).send({ error: 'Plantilla no encontrada' })
@@ -118,7 +118,7 @@ export async function emailTemplateRoutes(app: FastifyInstance) {
     }).optional()
 
     const parsed = filtersSchema.safeParse((request.body as any)?.filters)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
 
     const result = await sendBulkToGyms({
       subject: template.subject,
