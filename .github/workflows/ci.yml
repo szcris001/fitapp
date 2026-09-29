@@ -162,3 +162,94 @@ jobs:
       - name: Build web
         working-directory: apps/web
         run: pnpm build
+
+  # ─── E2E Web (capa 1 de docs/TESTING_STRATEGY.md) ──────────────────────────────
+  e2e-web:
+    name: E2E Web
+    runs-on: ubuntu-latest
+    needs: [test-api]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fitapp
+          POSTGRES_PASSWORD: fitapp123
+          POSTGRES_DB: fitapp_dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fitapp -d fitapp_dev"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_ADMIN_URL: "postgresql://fitapp:fitapp123@localhost:5432/fitapp_dev"
+      DATABASE_URL: "postgresql://fitapp_app:ci-app-password@localhost:5432/fitapp_dev"
+      APP_DB_PASSWORD: "ci-app-password"
+      REDIS_URL: "redis://localhost:6379"
+      JWT_SECRET: "ci-test-secret-do-not-use-in-prod"
+      NODE_ENV: test
+      PORT: 3001
+      FRONTEND_URL: "http://localhost:3000"
+      STRIPE_SECRET_KEY: "sk_test_placeholder"
+      STRIPE_WEBHOOK_SECRET: "whsec_placeholder"
+      ANTHROPIC_API_KEY: "sk-ant-placeholder"
+      # La suite resiembra y corre varios roles/páginas desde una sola IP: el límite por
+      # defecto (120/min) se agota rápido. NODE_ENV=test hace que la API respete esto.
+      RATE_LIMIT_MAX: "2000"
+      AUTH_RATE_LIMIT_MAX: "500"
+      NEXT_PUBLIC_API_URL: "http://localhost:3001/api"
+      PLAYWRIGHT_API_URL: "http://localhost:3001/api"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4  # versión: packageManager del package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright's Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        working-directory: apps/api
+        run: pnpm prisma generate
+
+      - name: Migrate DB and enable app role
+        working-directory: apps/api
+        run: |
+          pnpm prisma migrate deploy
+          pnpm exec ts-node src/scripts/setup-app-db-role.ts
+
+      - name: Build and start the API
+        working-directory: apps/api
+        run: |
+          pnpm build
+          nohup node dist/index.js > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/api/platform/assets > /dev/null && exit 0
+            sleep 2
+          done
+          echo "La API no respondió a tiempo"; cat /tmp/api.log; exit 1
+
+      - name: Run E2E suite
+        working-directory: apps/web
+        run: pnpm e2e
+
+      - name: Subir el reporte de Playwright
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+      - name: Logs de la API (si algo falló)
+        if: failure()
+        run: cat /tmp/api.log || true
