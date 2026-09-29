@@ -1,0 +1,95 @@
+{
+  "_doc": "Datos del entorno QA. Única fuente para seed-qa (apps/api/src/scripts/seed-qa.ts), la suite Playwright (apps/web/e2e) y los agentes exploradores (qa/charters). Solo para entornos locales/staging: nunca correr el seed contra producción.",
+  "password": "QaFitapp2026!",
+  "superadmin": {
+    "name": "Sara Superadmin",
+    "email": "superadmin@qa.test",
+    "role": "SUPER_ADMIN"
+  },
+  "gyms": {
+    "norte": {
+      "name": "QA Box Norte",
+      "slug": "qa-box-norte",
+      "users": {
+        "admin": {
+          "name": "Ana Admin",
+          "email": "admin@qa-norte.test",
+          "role": "ADMIN"
+        },
+        "coach": {
+          "name": "Carlos Coach",
+          "email": "coach@qa-norte.test",
+          "role": "COACH"
+        },
+        "member": {
+          "name": "Mara Miembro",
+          "email": "member@qa-norte.test",
+          "role": "MEMBER",
+          "gender": "F",
+          "rut": "11111111-1"
+        },
+        "member2": {
+          "name": "Mateo Riesgo",
+          "email": "riesgo@qa-norte.test",
+          "role": "MEMBER",
+          "gender": "M",
+          "rut": "22222222-2"
+        },
+        "member3": {
+          "name": "Tomás Transferencia",
+          "email": "transfer@qa-norte.test",
+          "role": "MEMBER",
+          "gender": "M",
+          "rut": "33333333-3"
+        },
+        "member4": {
+          "name": "Fernanda Fintoc",
+          "email": "fintoc@qa-norte.test",
+          "role": "MEMBER",
+          "gender": "F",
+          "rut": "44444444-4"
+        },
+        "member5": {
+          "name": "Rita Rechazo",
+          "email": "rechazo@qa-norte.test",
+          "role": "MEMBER",
+          "gender": "F",
+          "rut": "55555555-5"
+        }
+      },
+      "plans": {
+        "mensual": {
+          "name": "QA Mensual",
+          "priceCents": 35000
+        },
+        "ilimitado": {
+          "name": "QA Ilimitado",
+          "priceCents": 49990
+        }
+      }
+    },
+    "sur": {
+      "name": "QA Box Sur",
+      "slug": "qa-box-sur",
+      "users": {
+        "admin": {
+          "name": "Sofía Sur",
+          "email": "admin@qa-sur.test",
+          "role": "ADMIN"
+        },
+        "member": {
+          "name": "Simón Sur",
+          "email": "member@qa-sur.test",
+          "role": "MEMBER",
+          "gender": "M"
+        }
+      },
+      "plans": {
+        "mensual": {
+          "name": "QA Sur Mensual",
+          "priceCents": 30000
+        }
+      }
+    }
+  }
+}

@@ -241,7 +241,7 @@ export default function ClassTypesPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchTypes()
   }, [user])
 
@@ -250,7 +250,7 @@ export default function ClassTypesPage() {
     try {
       const { data } = await api.get('/class-types')
       setClassTypes(data)
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoading(false) }
   }
 

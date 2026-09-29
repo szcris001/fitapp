@@ -23,7 +23,7 @@ export default function NewUserPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     api.get('/plans').then(r => setPlans(r.data)).catch(() => {})
   }, [user])
 

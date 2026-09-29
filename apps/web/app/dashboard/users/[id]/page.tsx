@@ -428,7 +428,7 @@ export default function UserDetailPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchData(true)
   }, [user])
 

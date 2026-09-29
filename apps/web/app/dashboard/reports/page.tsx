@@ -241,7 +241,7 @@ export default function ReportsPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchIngresos()
   }, [user])
 
@@ -270,7 +270,7 @@ export default function ReportsPage() {
       setRevenue(revRes.data)
       setHistory(histRes.data)
       setAttendance(attRes.data)
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoadingIngresos(false) }
   }
 
@@ -279,7 +279,7 @@ export default function ReportsPage() {
     try {
       const { data } = await api.get('/ai/retention-alerts')
       setAlerts(data)
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoadingAlerts(false) }
   }
 

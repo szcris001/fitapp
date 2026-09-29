@@ -6,6 +6,7 @@
     "build": "tsc && node -e \"require('fs').cpSync('src/generated', 'dist/generated', { recursive: true })\"",
     "start": "node dist/index.js",
     "seed": "ts-node prisma/seed.ts",
+    "seed:qa": "ts-node src/scripts/seed-qa.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

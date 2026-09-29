@@ -151,7 +151,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
         {/* Right: user + actions */}
         <div className="flex items-center gap-4">
           <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{user?.email}</span>
-          <button onClick={logout}
+          <button onClick={() => logout()}
             className="flex items-center gap-1.5 text-xs transition-colors"
             style={{ color: '#64748b' }}
             onMouseEnter={e => (e.currentTarget.style.color = '#e2e8f0')}

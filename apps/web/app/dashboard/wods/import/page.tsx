@@ -173,7 +173,7 @@ export default function ImportWodsPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     api.get('/class-types').then(r => setClassTypes(r.data)).catch(() => {})
   }, [user])
 

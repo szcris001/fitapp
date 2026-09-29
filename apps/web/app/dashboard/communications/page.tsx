@@ -21,7 +21,7 @@ export default function CommunicationsPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     api.get('/users').then(r => setUsers(r.data)).catch(() => {}).finally(() => setLoading(false))
     api.get('/plans').then(r => setPlans(r.data)).catch(() => {})
   }, [user])

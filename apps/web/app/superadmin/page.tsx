@@ -97,7 +97,7 @@ export default function SuperAdminPage() {
   useEffect(() => { loadFromStorage() }, [])
 
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     if (user.role !== 'SUPER_ADMIN') { router.push('/dashboard'); return }
     fetchData()
   }, [user?.userId])
@@ -115,7 +115,7 @@ export default function SuperAdminPage() {
       setHistory(historyRes.data)
       setStats(statsRes.data)
       setFitPlans(plansRes.data)
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoading(false) }
   }
 

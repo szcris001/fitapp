@@ -34,7 +34,7 @@ export default function MovementsPage() {
   useEffect(() => { loadFromStorage() }, [])
 
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     api.get('/gyms/me/movements-library')
       .then(({ data }) => setLibrary(normalize(data ?? [])))
       .catch(() => {})

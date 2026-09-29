@@ -48,7 +48,7 @@ export default function StaffPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchStaff()
   }, [user])
 
@@ -57,7 +57,7 @@ export default function StaffPage() {
     try {
       const { data } = await api.get('/users?role=COACH,ADMIN')
       setStaff(data.filter((u: any) => u.role === 'COACH' || u.role === 'ADMIN'))
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoading(false) }
   }
 

@@ -43,8 +43,8 @@ export default function PaymentsPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
-    fetchAll().catch(() => router.push('/login')).finally(() => setLoading(false))
+    if (!user) return  // el layout redirige a /login
+    fetchAll().catch(() => { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }).finally(() => setLoading(false))
   }, [user])
 
   // Auto-switch to history tab when no pending transfers

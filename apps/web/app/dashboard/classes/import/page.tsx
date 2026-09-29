@@ -31,7 +31,7 @@ export default function ImportClassesPage() {
 
   useEffect(() => { loadFromStorage() }, [])
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     Promise.all([api.get('/class-types'), api.get('/users?role=COACH,ADMIN')])
       .then(([ct, us]) => { setClassTypes(ct.data); setCoaches(us.data) })
       .catch(() => {})

@@ -440,7 +440,7 @@ export default function DashboardPage() {
   useEffect(() => { loadFromStorage() }, [])
 
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
 
     const today = new Date().toISOString().split('T')[0]
 
@@ -464,7 +464,7 @@ export default function DashboardPage() {
       setTodayClasses(classesRes.data.sort((a: TodayClass, b: TodayClass) =>
         a.startsAt.localeCompare(b.startsAt)))
       setOccupancy(occRes.data)
-    }).catch(() => router.push('/login'))
+    }).catch(() => { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ })
       .finally(() => setLoading(false))
   }, [user])
 

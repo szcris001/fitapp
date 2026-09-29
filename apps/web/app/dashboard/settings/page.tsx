@@ -261,7 +261,7 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    if (!user) { router.push('/login'); return }
+    if (!user) return  // el layout redirige a /login
     fetchGym()
   }, [user])
 
@@ -326,7 +326,7 @@ export default function SettingsPage() {
           mach:        { enabled: gw.mach?.enabled ?? false, apiKey: gw.mach?.apiKey || '' },
         })
       }
-    } catch { router.push('/login') }
+    } catch { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ }
     finally { setLoading(false) }
   }
 

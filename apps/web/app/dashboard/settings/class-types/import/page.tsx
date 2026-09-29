@@ -41,9 +41,6 @@ export default function ImportClassTypesPage() {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
 
   useEffect(() => { loadFromStorage() }, [])
-  useEffect(() => {
-    if (!user) router.push('/login')
-  }, [user])
 
   // ── Plantilla ──────────────────────────────────────────────────────────────
 

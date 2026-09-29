@@ -16,8 +16,11 @@ interface AuthState {
   token: string | null
   refreshToken: string | null
   isLoading: boolean
+  /** true cuando ya se leyó la sesión de localStorage (haya o no usuario) */
+  hydrated: boolean
   login: (gymSlug: string, email: string, password: string) => Promise<User>
-  logout: () => Promise<void>
+  /** Cierra sesión (revoca el refresh token) y por defecto navega a /login */
+  logout: (opts?: { redirect?: boolean }) => Promise<void>
   setAuth: (token: string, refreshToken: string | null, user: User) => void
   loadFromStorage: () => void
   switchSede: (targetGymId: string) => Promise<{ name: string; logoUrl?: string }>
@@ -28,6 +31,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   refreshToken: null,
   isLoading: false,
+  hydrated: false,
 
   loadFromStorage: () => {
     if (typeof window === 'undefined') return
@@ -40,6 +44,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ token, refreshToken: refreshToken ?? null, user })
       } catch {}
     }
+    set({ hydrated: true })
   },
 
   setAuth: (token: string, refreshToken: string | null, user: User) => {
@@ -75,7 +80,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  logout: async () => {
+  logout: async ({ redirect = true } = {}) => {
     const { refreshToken } = get()
     // Best-effort: notificar al backend para invalidar el refresh token
     if (refreshToken) {
@@ -91,7 +96,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('fitapp_user')
     localStorage.removeItem('fitapp_colors')
     set({ user: null, token: null, refreshToken: null })
-    window.location.href = '/login'
+    if (redirect) window.location.href = '/login'
   },
 
   switchSede: async (targetGymId: string) => {

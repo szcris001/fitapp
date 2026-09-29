@@ -128,7 +128,7 @@ const coachAllowedHrefs = allNavItems
   .map(item => item.href)
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, loadFromStorage, logout, switchSede } = useAuthStore()
+  const { user, hydrated, loadFromStorage, logout, switchSede } = useAuthStore()
   const [gym, setGym] = useState<any>(null)
   const [collapsed, setCollapsed] = useState(false)
   const [isDark, setIsDark] = useState(false)
@@ -149,6 +149,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+
+  // Única redirección a /login del panel: espera a leer la sesión guardada. Si cada
+  // página redirigía con user=null, al recargar (F5) o abrir un link directo se perdía
+  // la sesión, porque el efecto de la página corre antes que loadFromStorage.
+  useEffect(() => {
+    if (!hydrated) return
+    if (!user) router.replace('/login')
+    else if (user.role === 'MEMBER') logout()
+  }, [hydrated, user, router, logout])
 
   useEffect(() => {
     loadFromStorage()
@@ -640,7 +649,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-3)', display: user?.avatarUrl ? 'none' : 'flex' }}
                 title={user?.email}
               >{userInitials}</div>
-              <button onClick={logout} title="Cerrar sesión"
+              <button onClick={() => logout()} title="Cerrar sesión"
                 className="w-8 h-8 flex items-center justify-center rounded-md transition-colors"
                 style={{ color: 'var(--text-4)' }}
                 onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--brand-accent) 10%, transparent)')}
@@ -678,7 +687,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   {isDark ? <Sun className="w-3 h-3" /> : <Moon className="w-3 h-3" />}
                   {isDark ? 'Claro' : 'Oscuro'}
                 </button>
-                <button onClick={logout} title="Cerrar sesión"
+                <button onClick={() => logout()} title="Cerrar sesión"
                   className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs transition-colors mt-1"
                   style={{ color: 'var(--text-4)' }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--brand-accent) 10%, transparent)')}

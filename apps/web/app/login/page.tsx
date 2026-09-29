@@ -62,6 +62,12 @@ export default function LoginPage() {
     setError('')
     try {
       const user = await login(gymSlug, email, password)
+      // El panel es para el staff del gym; los alumnos usan la app móvil
+      if (user.role === 'MEMBER') {
+        await useAuthStore.getState().logout({ redirect: false })
+        setError('Esta cuenta es de alumno: ingresa desde la app móvil de tu gimnasio.')
+        return
+      }
       if (user.mustChangePassword) {
         router.push('/change-password')
       } else {
