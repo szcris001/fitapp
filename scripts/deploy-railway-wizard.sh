@@ -39,11 +39,11 @@ _clear() {
 banner() {
   _clear
   printf '\n%s%s  %s%s\n' "$BOLD" "$BLUE" "$1" "$RESET"
-  printf '%s  %s stages%s\n\n' "$DIM" "$TOTAL_STAGES" "$RESET"
-  printf '%s  You drive the browser; this wizard tells you exactly what to do and\n' "$DIM"
-  printf '  captures the values you copy back. Stop any time with Ctrl-C and re-run\n'
-  printf '  later, since it remembers values already saved.%s\n' "$RESET"
-  pause "Ready to start?"
+  printf '%s  %s pasos%s\n\n' "$DIM" "$TOTAL_STAGES" "$RESET"
+  printf '%s  Tú manejas el navegador; este wizard te dice exactamente qué hacer y\n' "$DIM"
+  printf '  guarda los valores que vas pegando de vuelta. Puedes parar en cualquier\n'
+  printf '  momento con Ctrl-C y retomarlo después: recuerda lo que ya guardaste.%s\n' "$RESET"
+  pause "¿Listo para empezar?"
 }
 
 # stage "Name" clears the screen, then announces a stage and shows progress.
@@ -51,7 +51,7 @@ banner() {
 stage() {
   _clear
   _STAGE_INDEX=$((_STAGE_INDEX + 1))
-  printf '\n%s%s▸ Stage %s/%s · %s%s\n' \
+  printf '\n%s%s▸ Paso %s/%s · %s%s\n' \
     "$BOLD" "$BLUE" "$_STAGE_INDEX" "$TOTAL_STAGES" "$1" "$RESET"
 }
 
@@ -65,18 +65,18 @@ warn() { printf '  %s⚠ %s%s\n' "$YELLOW" "$1" "$RESET"; }
 # open_url URL opens it in the human's browser, cross-platform incl. WSL.
 open_url() {
   local url="$1"
-  printf '  %s↗ opening%s %s\n' "$GREEN" "$RESET" "$url"
+  printf '  %s↗ abriendo%s %s\n' "$GREEN" "$RESET" "$url"
   { if   command -v wslview     >/dev/null 2>&1; then wslview "$url"
     elif command -v explorer.exe >/dev/null 2>&1; then explorer.exe "$url"
     elif command -v xdg-open    >/dev/null 2>&1; then xdg-open "$url"
     elif command -v open        >/dev/null 2>&1; then open "$url"
-    else warn "couldn't open a browser; visit it manually: $url"; fi
-  } >/dev/null 2>&1 || warn "couldn't open a browser, so visit it manually: $url"
+    else warn "no se pudo abrir un navegador; entra manualmente: $url"; fi
+  } >/dev/null 2>&1 || warn "no se pudo abrir un navegador; entra manualmente: $url"
 }
 
 # pause "msg" waits for the human to confirm they've done the manual part.
 pause() {
-  printf '  %s%s%s ' "$DIM" "${1:-Press Enter to continue}" "$RESET"
+  printf '  %s%s%s ' "$DIM" "${1:-Presiona Enter para continuar}" "$RESET"
   read -r _ || true
 }
 
@@ -150,7 +150,7 @@ set_secret() {
     fi
   fi
   SKIPPED+=("GitHub secret $name (set it manually: gh secret set $name)")
-  warn "skipped GitHub secret $name: gh not ready; set it later"
+  warn "se omitió el secret de GitHub $name: gh no está listo; configúralo después"
 }
 
 # set_var NAME VALUE sets a GitHub Actions repo variable (non-secret).
@@ -163,17 +163,17 @@ set_var() {
     fi
   fi
   SKIPPED+=("GitHub variable $name")
-  warn "skipped GitHub variable $name, gh not ready; set it later"
+  warn "se omitió la variable de GitHub $name; gh no está listo; configúrala después"
 }
 
 # finish clears, then shows a closing summary of everything configured.
 finish() {
   _clear
-  printf '\n%s%s  ✓ Setup complete%s\n' "$BOLD" "$GREEN" "$RESET"
-  (( ${#WRITTEN_ENV[@]} ))    && note "wrote ${#WRITTEN_ENV[@]} value(s) to $ENV_FILE: ${WRITTEN_ENV[*]}"
-  (( ${#WRITTEN_SECRET[@]} )) && note "set ${#WRITTEN_SECRET[@]} GitHub secret(s): ${WRITTEN_SECRET[*]}"
+  printf '\n%s%s  ✓ Configuración completa%s\n' "$BOLD" "$GREEN" "$RESET"
+  (( ${#WRITTEN_ENV[@]} ))    && note "se guardaron ${#WRITTEN_ENV[@]} valor(es) en $ENV_FILE: ${WRITTEN_ENV[*]}"
+  (( ${#WRITTEN_SECRET[@]} )) && note "se configuraron ${#WRITTEN_SECRET[@]} secret(s) de GitHub: ${WRITTEN_SECRET[*]}"
   if (( ${#SKIPPED[@]} )); then
-    printf '\n'; warn "still to do by hand:"
+    printf '\n'; warn "queda pendiente hacer a mano:"
     for s in "${SKIPPED[@]}"; do note "  - $s"; done
   fi
   printf '\n'
@@ -200,7 +200,7 @@ step "Elige 'Deploy from GitHub repo' → autoriza Railway sobre tu cuenta si lo
 step "→ selecciona el repo 'szcris001/fitapp'."
 step "Railway va a intentar detectar un servicio automáticamente: cuando te pregunte"
 step "qué desplegar, cancela/ignora esa detección — los servicios los agregamos a mano"
-step "en los siguientes stages, porque este repo tiene dos Dockerfiles distintos"
+step "en los siguientes pasos, porque este repo tiene dos Dockerfiles distintos"
 step "(apps/api/Dockerfile y apps/web/Dockerfile), no uno solo en la raíz."
 step "Ponle un nombre al proyecto, por ejemplo 'fitapp-production'."
 confirm "¿Ya tienes el proyecto vacío creado y abierto en el dashboard?" || true
