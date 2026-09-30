@@ -187,6 +187,11 @@ Railway los detecta y construye automaticamente desde GitHub.
 
 ### Pasos para el primer deploy (acciones de Cristian)
 
+> Los pasos de abajo están automatizados como wizard interactivo en
+> `scripts/deploy-railway-wizard.sh` — corre `bash scripts/deploy-railway-wizard.sh` desde
+> la raíz del repo y te va guiando pantalla por pantalla, generando los secretos y
+> verificando cada servicio con curl. Esta sección queda como referencia de lo que hace.
+
 #### 1. Crear proyecto en Railway
 1. Ir a https://railway.app → New Project
 2. Agregar 4 servicios: PostgreSQL, Redis, API (Docker), Web (Docker)
@@ -195,10 +200,22 @@ Railway los detecta y construye automaticamente desde GitHub.
 #### 2. Configurar variables de entorno en Railway
 
 **API Service → Variables**:
+
+> ⚠️ **RLS (desde 2026-09-27):** `${{Postgres.DATABASE_URL}}` es la conexión de
+> **superusuario** del plugin de Railway. Usarla como `DATABASE_URL` haría que la API
+> corriera sin RLS — el mismo riesgo que se cerró en `20260927010000_rls_enforced`
+> (ver `docs/SECURITY.md` §7). `DATABASE_ADMIN_URL` sí es esa conexión de superusuario
+> (la usa el `CMD` del Dockerfile solo para migrar y crear el rol `fitapp_app`, y la
+> API arranca sin ella). `DATABASE_URL` se arma aparte con el rol `fitapp_app` y un
+> password propio, usando las variables sueltas que expone el plugin (`PGHOST`,
+> `PGPORT`, `PGDATABASE`), no la `DATABASE_URL` completa del plugin.
+
 ```
 NODE_ENV=production
 JWT_SECRET=cb2f24e2fdd333db1fd4a0b4515ce961299e30a7f4e35960ad4899730a3ef5a9
-DATABASE_URL=${{Postgres.DATABASE_URL}}
+DATABASE_ADMIN_URL=${{Postgres.DATABASE_URL}}
+APP_DB_PASSWORD=<generar con: openssl rand -hex 24>
+DATABASE_URL=postgresql://fitapp_app:${{APP_DB_PASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
 REDIS_URL=${{Redis.REDIS_URL}}
 PORT=3001
 FRONTEND_URL=https://app.tudominio.com
@@ -210,6 +227,10 @@ SMTP_PORT=587
 SMTP_USER=...
 SMTP_PASS=...
 ```
+
+**API Service → Volume:** montar un volumen persistente en `/app/apps/api/uploads`.
+Sin esto, avatares, logos y comprobantes de transferencia se pierden en cada redeploy
+(el filesystem del contenedor es efímero).
 
 **Web Service → Variables**:
 ```
@@ -259,7 +280,9 @@ Para activar deploy automático desde CI:
 - [x] Elegir plataforma de backend: **Railway** (decidido 2026-06-15)
 - [x] Crear `apps/api/Dockerfile` y `apps/web/Dockerfile` (completado 2026-06-15)
 - [ ] Crear proyecto en Railway y configurar 4 servicios
-- [ ] Configurar variables de entorno en Railway (ver seccion arriba)
+- [ ] Configurar variables de entorno en Railway (ver seccion arriba) — corregido
+      2026-09-29: DATABASE_URL ya no puede ser la conexión de superusuario del plugin
+- [ ] Montar volumen persistente en el servicio API (`/app/apps/api/uploads`)
 - [ ] Comprar dominio en Cloudflare y apuntar DNS
 - [ ] Configurar environment `production` en GitHub con aprobacion manual
 - [ ] Crear proyecto en Sentry y obtener DSN
