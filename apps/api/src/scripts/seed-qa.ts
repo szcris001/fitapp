@@ -59,6 +59,12 @@ function atLocalHour(offsetDays: number, hour: number): Date {
 
 const daysFromNow = (n: number) => new Date(Date.now() + n * DAY_MS)
 
+// Días atrás sin cruzar al mes anterior (gym-local vía Date local del proceso):
+// usado para el pago de Mara, que /gyms/me/stats cuenta como "ingresos del mes" solo si
+// cae en el mes calendario actual. Sin este clamp, corrido el día 1-4 del mes el pago
+// "de hace 5 días" caía en el mes anterior y el KPI daba 0.
+const daysAgoThisMonth = (maxDaysAgo: number) => -Math.min(maxDaysAgo, new Date().getDate() - 1)
+
 // ─── Limpieza ─────────────────────────────────────────────────────────────────
 
 async function wipeQaGyms() {
@@ -211,10 +217,13 @@ async function seedNorteScenarios(ctx: Awaited<ReturnType<typeof createGym>>) {
   const mensual = plans.mensual
 
   // member: membresía activa pagada, asistencia la última semana, reserva mañana
+  const paidOffset = daysAgoThisMonth(5)
   await prisma.membership.create({
     data: {
       userId: users.member.id, planId: mensual.id, status: 'ACTIVE',
-      startsAt: daysFromNow(-5), endsAt: daysFromNow(25), paidAt: daysFromNow(-5),
+      // endsAt queda fijo en +25 días (USR-04 espera "vence en ~25 días" con rango fijo);
+      // solo el pago/inicio se ajusta para no cruzar al mes anterior (ver daysAgoThisMonth)
+      startsAt: daysFromNow(paidOffset), endsAt: daysFromNow(25), paidAt: daysFromNow(paidOffset),
       pricePaid: mensual.priceCents, paymentMethod: 'manual',
     },
   })
