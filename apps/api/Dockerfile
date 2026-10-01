@@ -38,10 +38,15 @@ COPY --from=builder --chown=node:node /app/apps/api/dist ./apps/api/dist
 WORKDIR /app/apps/api
 # uploads/ es relativo al cwd: montar el volumen persistente en /app/apps/api/uploads
 RUN mkdir -p uploads/avatars uploads/assets uploads/evidence uploads/receipts && chown -R node:node uploads
-USER node
+# su-exec para bajar privilegios en el CMD (ver nota abajo): el contenedor arranca
+# como root únicamente para corregir el dueño del volumen, no para correr la app
+RUN apk add --no-cache su-exec
 
 EXPOSE 3001
 
-# Migraciones y rol de la app con el usuario admin; la API arranca SIN las credenciales
-# de admin en su entorno (solo DATABASE_URL = rol fitapp_app, sujeto a RLS)
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js && exec env -u DATABASE_ADMIN_URL -u APP_DB_PASSWORD node dist/index.js"]
+# Arranca como root (sin USER): un volumen montado en runtime llega con su propio dueño
+# (normalmente root), que pisa el chown hecho arriba en build time — sin esto, mkdir
+# dentro de uploads/ falla con EACCES en cualquier plataforma que monte un volumen ahí.
+# Se corrige el dueño en cada arranque y recién ahí se baja a "node" con su-exec para
+# correr migraciones, crear el rol de la app y lanzar el servidor sin privilegios.
+CMD ["sh", "-c", "chown -R node:node uploads && exec su-exec node sh -c 'npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js && exec env -u DATABASE_ADMIN_URL -u APP_DB_PASSWORD node dist/index.js'"]
