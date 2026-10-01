@@ -289,4 +289,15 @@ Para activar deploy automático desde CI:
 - [ ] Actualizar URL de API en apps/mobile antes de publicar en stores
 - [ ] Configurar EAS Build para Google Play y App Store
 - [x] RLS aplicado: la API se conecta como `fitapp_app` (`DATABASE_URL`); migraciones con `DATABASE_ADMIN_URL`; `APP_DB_PASSWORD` para `setup-app-db-role` (ver docs/SECURITY.md §7)
-- [ ] Configurar staging: rama `develop` + environment separado en Railway
+- [ ] Configurar staging: ambiente separado dentro del mismo proyecto de Railway
+      (Environments — disponible en el plan Hobby, no requiere plan superior). Cada
+      ambiente corre su propia copia de los 4 servicios (Postgres/Redis/API/Web) y su
+      propio consumo/costo. Sirve además para probar webhooks de pasarelas (Stripe,
+      Mercado Pago, Fintoc), que necesitan una URL pública real — hoy no se puede
+      probar bien en local. (2026-10-01, pendiente de decidir cuándo armarlo)
+- [ ] Prueba de carga antes de sumar muchos gyms reales a producción: no se ha hecho
+      ninguna. La arquitectura es multi-tenant sin límite de gyms en el código (todo
+      queda filtrado por `gymId` + RLS), así que el techo real es de infraestructura
+      (CPU/RAM de la instancia de Postgres y del contenedor de la API en Railway), no
+      de la app. Hacerla contra el ambiente de Railway una vez armado — no tiene
+      sentido contra local. (2026-10-01, pedido por Cristian)
