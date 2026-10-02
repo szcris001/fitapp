@@ -2,13 +2,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
-import api, { mediaUrl } from '../../lib/api'
+import api, { API_BASE, mediaUrl } from '../../lib/api'
 import { isCoachAllowedPath } from '../../lib/coach-access'
 import OnboardingWizard from './onboarding/OnboardingWizard'
 import CommandPalette from './components/CommandPalette'
 
 const DEFAULT_DASHBOARD_BG = 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1920&q=80'
-const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? 'http://localhost:3001'
 import {
   House, Users, CalendarDays, Trophy,
   Layers, BarChart3, Send, TrendingUp,

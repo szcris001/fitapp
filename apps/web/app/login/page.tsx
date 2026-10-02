@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
+import { API_BASE } from '../../lib/api'
 import { CalendarDays, TrendingUp, CreditCard } from 'lucide-react'
 
 // ── Cambia VIDEO_URL para probar diferentes videos ──────────────────────────
@@ -18,9 +19,6 @@ const VIDEO_URL = '/videos/crossfit-community.mp4' // ← activo ahora
 // '/videos/pullups.mp4'           → pull-ups en barra
 // '/videos/box-jumps.mp4'         → box jumps
 // ───────────────────────────────────────────────────────────────────────────
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? 'http://localhost:3001'
-
 
 export default function LoginPage() {
   const [gymSlug, setGymSlug]   = useState('')
