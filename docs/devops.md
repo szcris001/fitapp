@@ -279,12 +279,17 @@ Para activar deploy automático desde CI:
 
 - [x] Elegir plataforma de backend: **Railway** (decidido 2026-06-15)
 - [x] Crear `apps/api/Dockerfile` y `apps/web/Dockerfile` (completado 2026-06-15)
-- [ ] Crear proyecto en Railway y configurar 4 servicios
-- [ ] Configurar variables de entorno en Railway (ver seccion arriba) — corregido
-      2026-09-29: DATABASE_URL ya no puede ser la conexión de superusuario del plugin
-- [ ] Montar volumen persistente en el servicio API (`/app/apps/api/uploads`)
+- [x] Crear proyecto en Railway y configurar 4 servicios (api, web, Postgres, Redis —
+      completado 2026-10-02; URLs: ver RAILWAY_API_URL/RAILWAY_WEB_URL en .env.production local)
+- [x] Configurar variables de entorno en Railway (completado 2026-10-02)
+- [x] Montar volumen persistente en el servicio API (`/app/apps/api/uploads`) — completado
+      2026-10-02, requirió el fix de permisos en `apps/api/Dockerfile` (PR #42)
 - [ ] Comprar dominio en Cloudflare y apuntar DNS
-- [ ] Configurar environment `production` en GitHub con aprobacion manual
+- [x] Configurar environment `production` en GitHub con aprobacion manual (completado
+      2026-10-02: required reviewer = szcris001). Falta el secret `RAILWAY_TOKEN` para
+      activar el bloque de deploy en `deploy.yml` — el modo automático de Claude Code
+      bloquea la creación de tokens/secrets, así que ese paso lo genera Cristian
+      (Railway dashboard → Tokens) y lo sube con `gh secret set RAILWAY_TOKEN`
 - [ ] Crear proyecto en Sentry y obtener DSN
 - [ ] Actualizar URL de API en apps/mobile antes de publicar en stores
 - [ ] Configurar EAS Build para Google Play y App Store
