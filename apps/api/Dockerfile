@@ -35,6 +35,12 @@ COPY --from=builder --chown=node:node /app/apps/api/package.json /app/apps/api/p
 COPY --from=builder --chown=node:node /app/apps/api/prisma ./apps/api/prisma
 COPY --from=builder --chown=node:node /app/apps/api/dist ./apps/api/dist
 
+# fixtures.json del entorno QA: seed-qa.ts lo resuelve con __dirname relativo a la raíz
+# del monorepo (/app/qa/fixtures.json), que esta imagen no trae por defecto. Sin esto,
+# `node dist/scripts/seed-qa.js` falla con ENOENT en cualquier entorno (p. ej. staging
+# vía preDeployCommand) que no sea un checkout completo del repo.
+COPY --chown=node:node qa/fixtures.json ./qa/fixtures.json
+
 WORKDIR /app/apps/api
 # uploads/ es relativo al cwd: montar el volumen persistente en /app/apps/api/uploads
 RUN mkdir -p uploads/avatars uploads/assets uploads/evidence uploads/receipts && chown -R node:node uploads
