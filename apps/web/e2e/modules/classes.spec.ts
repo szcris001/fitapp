@@ -301,9 +301,6 @@ test.describe('CLS — detalle de clase (admin)', () => {
 test.describe('CLS — asistencia (coach)', () => {
   test.use({ storageState: authFile('coach') })
 
-  // BUG: la web no permite desmarcar. Una vez marcada, la fila solo muestra el texto «Asistió»
-  // (ClassDetail.tsx ~L1588) sin acción; la API sí lo soporta (PATCH /bookings/:id/attend con
-  // { attended: false }, classes.routes.ts ~L261).
   test('CLS-04 marcar y desmarcar asistencia', async ({ page }) => {
     const type = await createClassType(`${PREFIX} Asistencia ${RUN}`)
     const day = localDay(farOffset(3))
@@ -320,14 +317,18 @@ test.describe('CLS — asistencia (coach)', () => {
     const p = await open(page, `/dashboard/classes/${cls.id}`)
     const row = page.locator('div.rounded-lg').filter({ hasText: student.email }).last()
     await expect(row).toBeVisible()
-    await row.getByRole('button', { name: 'Asistencia' }).click()
+    await row.getByRole('button', { name: 'Asistencia', exact: true }).click()
     await expect(row.getByText('Asistió')).toBeVisible()
     await expect(page.getByText('1 asistieron').first()).toBeVisible()
     expect(await bookingStatus()).toBe('ATTENDED')
 
-    // Desmarcar: la fila vuelve a ofrecer «Asistencia» y la reserva queda CONFIRMED
-    await row.getByRole('button', { name: /Asistió|Desmarcar|Quitar asistencia/ }).click({ timeout: 5_000 })
-    await expect(row.getByRole('button', { name: 'Asistencia' })).toBeVisible()
+    // Desmarcar: la fila vuelve a ofrecer «Asistencia» y la reserva queda CONFIRMED.
+    // name:'Asistencia' sin exact:true matchea por substring: también matchea el botón
+    // "Quitar asistencia" que sigue visible, así que el toBeVisible() de abajo quedaba
+    // satisfecho de inmediato sin esperar a que el PATCH de desmarcar terminara — la
+    // causa real del flake (CLS-04), no una carrera en la app.
+    await row.getByRole('button', { name: 'Quitar asistencia' }).click({ timeout: 5_000 })
+    await expect(row.getByRole('button', { name: 'Asistencia', exact: true })).toBeVisible()
     expect(await bookingStatus()).toBe('CONFIRMED')
     p.expectNoErrors()
   })
