@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
-import api from '../../../lib/api'
+import api, { API_BASE } from '../../../lib/api'
 import { Send, FlaskConical, Save, Plus, Trash2, ChevronDown, ChevronUp, X, Check, Mail, Image, Upload, RotateCcw } from 'lucide-react'
 
 function apiError(err: any, fallback = 'Error inesperado'): string {
@@ -40,8 +40,6 @@ type GymOption = { id: string; name: string; status: string; subscriptionPlan: s
 
 type AssetSlot = { key: string; label: string; page: string; width: number; height: number; note: string; group?: string }
 type AssetInfo = { id: string; key: string; url: string; filename: string; sizeBytes: number; mimeType: string; updatedAt: string }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') ?? 'http://localhost:3001'
 
 const STATUSES = ['ACTIVE', 'TRIAL', 'SUSPENDED']
 const PLANS = ['trial', 'go_pro', 'business', 'business_pro']
