@@ -294,6 +294,38 @@ test.describe('CLS — detalle de clase (admin)', () => {
     await expect(page.getByText('1 movimientos')).toBeVisible()
     p.expectNoErrors()
   })
+
+  test('CLS-10 editar WOD sin tocar un movimiento con sets×reps sembrados conserva el multiplicador', async ({ page }) => {
+    const type = await createClassType(`${PREFIX} WOD SetsReps ${RUN}`)
+    const day = localDay(farOffset(5))
+    const cls = await createClass(type.id, day, '18:00', '19:00')
+    const title = `E2E SetsReps ${RUN}`
+
+    // Movimiento sembrado con sets/reps estructurados (como hace seed-qa.ts), sin repScheme —
+    // el editor de WOD nunca escribe estos campos, solo los lee al inicializar el formulario.
+    const { status } = await api('admin', 'POST', '/wods', {
+      classTypeId: type.id,
+      title,
+      date: day,
+      scoreType: 'REPS',
+      blocks: [{ title: 'Fuerza', movements: [{ movementName: 'Back Squat', sets: 5, reps: 5, percentage: 75 }] }],
+    })
+    expect(status).toBe(201)
+
+    const p = await open(page, `/dashboard/classes/${cls.id}`)
+    await expect(page.getByText('5×5', { exact: true })).toBeVisible()
+
+    // Editar: tocar solo el título, sin abrir ni modificar el bloque de Back Squat
+    await page.getByTitle('Editar WOD').click()
+    await expect(page.getByRole('heading', { name: 'Editar planificación' })).toBeVisible()
+    await page.getByPlaceholder('Ej. Fran, AMRAP 20, For Time, Día de fuerza...').fill(`${title} v2`)
+    await page.getByRole('button', { name: 'Guardar cambios' }).click()
+    await expect(page.getByRole('heading', { name: `WOD — ${title} v2` })).toBeVisible()
+
+    await page.reload()
+    await expect(page.getByText('5×5', { exact: true })).toBeVisible()
+    p.expectNoErrors()
+  })
 })
 
 // ─── CLS-04 · asistencia (coach) ──────────────────────────────────────────────
