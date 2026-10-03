@@ -139,7 +139,10 @@ function WodEditorModal({
 
   const mapMov = (m: any): MovRow => ({
     movementName:   m.movementName ?? '',
-    repScheme:      m.repScheme ?? (m.reps != null ? String(m.reps) : ''),
+    // m.sets/m.reps son el formato estructurado del seed (p. ej. sets:5, reps:5 → "5×5");
+    // el editor solo guarda repScheme (texto libre), así que hay que reconstruir "N×M" acá
+    // o se pierde el multiplicador de series la primera vez que se edita y guarda.
+    repScheme:      m.repScheme ?? (m.sets != null && m.reps != null ? `${m.sets}×${m.reps}` : m.reps != null ? String(m.reps) : ''),
     percentage:     m.percentage != null ? String(m.percentage) : '',
     weightRookieM:  m.weightRookieM != null ? String(m.weightRookieM) : '',
     weightRookieF:  m.weightRookieF != null ? String(m.weightRookieF) : '',
