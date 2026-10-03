@@ -856,6 +856,23 @@ describe('Class: POST /api/classes — crear instancia única', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('Caso 23b — endsAt antes (o igual) que startsAt → 400, no 201 con una clase corrupta', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/classes',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        classTypeId: baseClassTypeAId,
+        coachId: coachAId,
+        startsAt: futureDate(7, 23),
+        endsAt: futureDate(7, 0), // mismo día calendario: "00:00" queda antes que "23:00", sin rollover
+        capacity: 10,
+        frequency: 'ONCE',
+      },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('Caso 24 — ADMIN crea clase (frequency=ONCE) → 201, todos los campos persistidos', async () => {
     const startsAt = futureDate(6, 9)
     const endsAt = futureDate(6, 10)
@@ -1010,6 +1027,30 @@ describe('Class: PATCH /api/classes/:id — actualizar', () => {
       payload: { capacity: 99 },
     })
     expect(res.statusCode).toBe(403)
+  })
+
+  it('Caso 29b — PATCH que deja endsAt antes que el startsAt actual → 400, no se aplica', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/classes/${classId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      // Solo se toca endsAt: debe compararse contra el startsAt ya guardado (14:00), no omitir la validación
+      payload: { endsAt: new Date('2020-01-01T10:00:00.000Z').toISOString() },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('Caso 29c — PATCH que toca ambos campos pero invierte el orden → 400', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/classes/${classId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        startsAt: new Date('2030-06-01T15:00:00.000Z').toISOString(),
+        endsAt: new Date('2030-06-01T14:00:00.000Z').toISOString(),
+      },
+    })
+    expect(res.statusCode).toBe(400)
   })
 })
 

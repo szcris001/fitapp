@@ -32,7 +32,10 @@ export const createClassSchema = z.object({
   recurringDays: z.array(z.number().int().min(0).max(6)).optional(),
   recurringUntil: z.string().optional(),
   allowedPlanIds: z.array(z.string().uuid()).optional(),
-})
+}).refine(
+  data => new Date(data.endsAt).getTime() > new Date(data.startsAt).getTime(),
+  { error: 'La hora de término debe ser posterior a la de inicio', path: ['endsAt'] },
+)
 
 export const bookingSchema = z.object({
   classId: z.string().uuid(),

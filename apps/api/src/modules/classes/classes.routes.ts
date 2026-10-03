@@ -215,6 +215,17 @@ export async function classRoutes(app: FastifyInstance) {
       }
     }
 
+    // Si el PATCH toca startsAt y/o endsAt, validar el par resultante (el que no se
+    // envía mantiene su valor actual) — sin esto se puede dejar una clase con el fin
+    // antes del inicio, invisible en el calendario (FullCalendar descarta end<=start).
+    if (body.startsAt || body.endsAt) {
+      const effectiveStartsAt = body.startsAt ? new Date(body.startsAt) : cls.startsAt
+      const effectiveEndsAt = body.endsAt ? new Date(body.endsAt) : cls.endsAt
+      if (effectiveEndsAt.getTime() <= effectiveStartsAt.getTime()) {
+        return reply.status(400).send({ error: 'La hora de término debe ser posterior a la de inicio' })
+      }
+    }
+
     try {
       const updated = await prisma.class.update({
         where: { id },
