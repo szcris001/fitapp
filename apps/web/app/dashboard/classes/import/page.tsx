@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api from '../../../../lib/api'
+import { gymLocalToIso } from '../../../../lib/gym-timezone'
 import * as XLSX from 'xlsx'
 
 interface PreviewRow {
@@ -131,8 +132,9 @@ export default function ImportClassesPage() {
 
     for (const row of valid) {
       try {
-        const startsAt = new Date(`${row.fecha}T${row.horaInicio}:00`).toISOString()
-        const endsAt = new Date(`${row.fecha}T${row.horaFin}:00`).toISOString()
+        // Hora de pared en la zona del gym, no la del navegador de quien importa (ver gym-timezone.ts)
+        const startsAt = gymLocalToIso(row.fecha, row.horaInicio)
+        const endsAt = gymLocalToIso(row.fecha, row.horaFin)
         await api.post('/classes', {
           classTypeId: row.classTypeId,
           coachId: row.coachId,
