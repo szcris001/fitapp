@@ -13,6 +13,7 @@ import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
 import { authRoutes } from '../auth.routes'
 import { prisma } from '../../../lib/prisma'
+import { registerTenantContext } from '../../../lib/tenant-hook'
 
 // ─── Constantes de fixtures ───────────────────────────────────────────────────
 
@@ -554,5 +555,93 @@ describe('Auth Integration — PUT /api/auth/me (actualizar perfil)', () => {
     expect(response.statusCode).toBe(400)
     const body = response.json()
     expect(body.error).toMatch(/contraseña actual/i)
+  })
+})
+
+// ─── Suite: tenant-hook.ts — login ignora Authorization ajeno ────────────────
+//
+// buildApp() de arriba usa un hook de prueba simplificado que nunca restringe el
+// contexto de tenant, así que no puede reproducir este bug. Esta suite registra
+// el hook real (registerTenantContext) para probar contra la misma RLS que corre
+// en producción.
+
+describe('Auth Integration — /auth/login ignora un JWT ajeno en el header', () => {
+  let app: FastifyInstance
+  let gymBId: string
+  let gymBAdminId: string
+  let tokenFromGymB: string
+
+  async function buildAppWithRealTenantHook(): Promise<FastifyInstance> {
+    const realApp = Fastify({ logger: false })
+    await realApp.register(jwt, { secret: JWT_SECRET })
+    registerTenantContext(realApp)
+    await realApp.register(authRoutes, { prefix: '/api' })
+    await realApp.ready()
+    return realApp
+  }
+
+  beforeAll(async () => {
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const gymB = await prisma.gym.upsert({
+      where: { slug: 'qa-auth-test-gym-b' },
+      update: {},
+      create: { name: 'QA Auth Test Gym B', slug: 'qa-auth-test-gym-b', status: 'ACTIVE' },
+    })
+    gymBId = gymB.id
+    await prisma.user.deleteMany({ where: { gymId: gymBId, email: 'qa-admin-b@auth-test.local' } })
+    const adminB = await prisma.user.create({
+      data: { gymId: gymBId, name: 'QA Admin B', email: 'qa-admin-b@auth-test.local', passwordHash, role: 'ADMIN' },
+    })
+    gymBAdminId = adminB.id
+
+    app = await buildAppWithRealTenantHook()
+    tokenFromGymB = app.jwt.sign({ userId: gymBAdminId, gymId: gymBId, role: 'ADMIN' })
+  })
+
+  afterAll(async () => {
+    await app.close()
+    await prisma.user.deleteMany({ where: { id: gymBAdminId } })
+    await prisma.gym.deleteMany({ where: { id: gymBId } })
+  })
+
+  it('login válido de ADMIN del gym A sigue funcionando con un token del gym B adjunto', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { Authorization: `Bearer ${tokenFromGymB}` },
+      payload: { email: TEST_ADMIN_EMAIL, password: TEST_PASSWORD, gymSlug: TEST_GYM_SLUG },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().user.email).toBe(TEST_ADMIN_EMAIL)
+  })
+
+  it('login válido de SUPER_ADMIN sigue funcionando con un token de un ADMIN de gym adjunto', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { Authorization: `Bearer ${tokenFromGymB}` },
+      payload: { email: TEST_SUPERADMIN_EMAIL, password: TEST_PASSWORD },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().user.email).toBe(TEST_SUPERADMIN_EMAIL)
+  })
+
+  it('sin ningún Authorization, el mismo login funciona igual (control)', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: TEST_ADMIN_EMAIL, password: TEST_PASSWORD, gymSlug: TEST_GYM_SLUG },
+    })
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('POST /auth/forgot-password también ignora un token ajeno (no revienta ni filtra el gym equivocado)', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/forgot-password',
+      headers: { Authorization: `Bearer ${tokenFromGymB}` },
+      payload: { email: TEST_ADMIN_EMAIL, gymSlug: TEST_GYM_SLUG },
+    })
+    expect(response.statusCode).toBe(200)
   })
 })
