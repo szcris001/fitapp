@@ -960,3 +960,111 @@ describe('Plans: POST /api/memberships/:userId/renew — renewMembership', () =>
     expect(res.json().error).toMatch(/usuario no encontrado/i)
   })
 })
+
+describe('Plans: PATCH /api/memberships/:id — updateMembership', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => { app = await buildApp() })
+  afterAll(async () => { await app.close() })
+
+  it('activar una membresía INACTIVE desactiva otras ACTIVE/TRIAL del mismo usuario', async () => {
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+
+    // Membresía ACTIVE vigente...
+    const currentlyActive = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'ACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(currentlyActive.id)
+
+    // ...y una INACTIVE que el admin decide reactivar a mano (botón "Activar")
+    const toActivate = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'INACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(toActivate.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/memberships/${toActivate.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { status: 'ACTIVE' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().status).toBe('ACTIVE')
+
+    const reloadedActive = await prisma.membership.findUnique({ where: { id: currentlyActive.id } })
+    expect(reloadedActive!.status).toBe('INACTIVE')
+
+    // Solo una ACTIVE/TRIAL debe quedar para este usuario
+    const stillActive = await prisma.membership.count({ where: { userId: memberAId, status: { in: ['ACTIVE', 'TRIAL'] } } })
+    expect(stillActive).toBe(1)
+  })
+
+  it('extender días (sin status explícito) también desactiva otras ACTIVE/TRIAL', async () => {
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+
+    const otherActive = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'ACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(otherActive.id)
+
+    const toExtend = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'INACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(toExtend.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/memberships/${toExtend.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { extendDays: 10 },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().status).toBe('ACTIVE')
+
+    const reloadedOther = await prisma.membership.findUnique({ where: { id: otherActive.id } })
+    expect(reloadedOther!.status).toBe('INACTIVE')
+  })
+
+  it('poner INACTIVE no toca otras membresías del usuario', async () => {
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+
+    const active = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'ACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(active.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/memberships/${active.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { status: 'INACTIVE' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().status).toBe('INACTIVE')
+  })
+
+  it('membresía de otro gym → 400 "no encontrada"', async () => {
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+    const m = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'INACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(m.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/memberships/${m.id}`,
+      headers: { authorization: `Bearer ${adminBToken}` },
+      payload: { status: 'ACTIVE' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/no encontrada/i)
+  })
+})
