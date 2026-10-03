@@ -103,11 +103,23 @@ export async function createUser(gymId: string | null, data: CreateUserInput) {
   }
 }
 
+// Cuenta los ADMIN del gym sin contar a userId — usado antes de bajarle el rol a un
+// ADMIN o de borrar su cuenta, para no dejar el gym sin nadie que lo administre.
+export async function countOtherAdmins(gymId: string, userId: string) {
+  return prisma.user.count({ where: { gymId, role: 'ADMIN', NOT: { id: userId } } })
+}
+
 export async function updateUser(gymId: string | null, userId: string, data: UpdateUserInput) {
   if (!gymId) throw new Error('Operación no permitida: el usuario no tiene un gimnasio asignado')
 
   const user = await prisma.user.findFirst({ where: { id: userId, gymId } })
   if (!user) throw new Error('Usuario no encontrado')
+
+  if (user.role === 'ADMIN' && data.role && data.role !== 'ADMIN') {
+    if (await countOtherAdmins(gymId, userId) === 0) {
+      throw new Error('No puedes quitarle el rol de administrador: es el único administrador del gimnasio')
+    }
+  }
 
   if (data.email) {
     const existing = await prisma.user.findFirst({ where: { gymId, email: data.email, NOT: { id: userId } } })

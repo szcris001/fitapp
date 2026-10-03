@@ -703,6 +703,86 @@ describe('Users: PUT /api/users/:id — actualizar usuario', () => {
     expect(res.statusCode).toBe(404)
     expect(res.json().error).toMatch(/RUT ya está registrado/i)
   })
+
+  it('bajarle el rol al único ADMIN del gym → 404 (bloqueado), su rol no cambia', async () => {
+    // adminA es el único ADMIN de gymA (fixture de este archivo)
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/users/${adminAId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { role: 'COACH' },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toMatch(/único administrador/i)
+
+    const stillAdmin = await prisma.user.findUnique({ where: { id: adminAId } })
+    expect(stillAdmin?.role).toBe('ADMIN')
+  })
+
+  it('bajarle el rol a un ADMIN cuando hay otro → 200 (permitido)', async () => {
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const secondAdmin = await prisma.user.create({
+      data: { gymId: gymAId, name: 'Segundo Admin', email: 'qa-users-second-admin@test.local', passwordHash, role: 'ADMIN' },
+    })
+    createdUserIds.push(secondAdmin.id)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/users/${secondAdmin.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { role: 'COACH' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().role).toBe('COACH')
+  })
+})
+
+// ─── Suite 5b: DELETE /users/me — protección de último ADMIN ────────────────
+
+describe('Users: DELETE /api/users/me — no deja al gym sin ningún ADMIN', () => {
+  let app: FastifyInstance
+  let gymId: string
+  let soloAdminId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const gym = await prisma.gym.create({ data: { name: 'QA Users Last Admin Gym', slug: 'qa-users-last-admin-gym', status: 'ACTIVE' } })
+    gymId = gym.id
+    const soloAdmin = await prisma.user.create({
+      data: { gymId: gym.id, name: 'Solo Admin', email: 'qa-users-solo-admin@test.local', passwordHash, role: 'ADMIN' },
+    })
+    soloAdminId = soloAdmin.id
+  })
+
+  // En try/finally dentro del test, no acá: si la ruta llega a borrar al usuario de
+  // verdad (p. ej. si esta protección se rompe de nuevo), deleteMany sobre un id que
+  // ya no existe es un no-op — nunca deja un gym húerfano sin usuarios por un assert
+  // que lanzó antes de limpiar.
+  afterAll(async () => {
+    await app.close()
+    await prisma.user.deleteMany({ where: { id: soloAdminId } })
+    await prisma.gym.deleteMany({ where: { id: gymId } })
+  })
+
+  it('el único ADMIN del gym intenta eliminarse → 400, su cuenta sigue existiendo', async () => {
+    const tempApp = Fastify({ logger: false })
+    await tempApp.register(jwt, { secret: JWT_SECRET })
+    await tempApp.ready()
+    const soloAdminToken = tempApp.jwt.sign({ userId: soloAdminId, gymId, role: 'ADMIN' })
+    await tempApp.close()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/users/me',
+      headers: { authorization: `Bearer ${soloAdminToken}` },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/único administrador/i)
+
+    const stillExists = await prisma.user.findUnique({ where: { id: soloAdminId } })
+    expect(stillExists).not.toBeNull()
+  })
 })
 
 // ─── Suite 6: POST /users/:id/reset-password ─────────────────────────────────
