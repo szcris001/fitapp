@@ -14,22 +14,35 @@ const AVATAR_MIME: Record<string, string> = {
   'image/webp': '.webp',
 }
 
-// Guarda uploads/avatars/avatar_<userId>.<ext> y devuelve su URL; null si el tipo no está permitido
+// Firma de bytes real del archivo — el Content-Type del multipart lo declara el cliente,
+// así que un .txt o .pdf renombrado con type=image/png pasaba el filtro anterior
+// (solo miraba data.mimetype). Devuelve la extensión real, o null si no es ninguna
+// de las 3 imágenes soportadas, sin importar qué haya declarado el cliente.
+function detectImageExt(buf: Buffer): string | null {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
+    && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return '.png'
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return '.jpg'
+  if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return '.webp'
+  return null
+}
+
+// Guarda uploads/avatars/avatar_<userId>.<ext> y devuelve su URL; null si el tipo declarado
+// no está permitido, o si el contenido real no es ninguna de las 3 imágenes soportadas
+// (sin importar el Content-Type declarado). Un archivo que supera el límite global de
+// @fastify/multipart hace que toBuffer() lance RequestFileTooLargeError (413) antes de
+// llegar aquí — no hace falta chequear data.file.truncated a mano.
 async function saveAvatarFile(data: MultipartFile, userId: string): Promise<string | null> {
-  const ext = AVATAR_MIME[data.mimetype]
-  if (!ext) {
+  if (!AVATAR_MIME[data.mimetype]) {
     data.file.resume()
     return null
   }
+  const buf = await data.toBuffer()
+  const ext = detectImageExt(buf)
+  if (!ext) return null
   const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars')
   await fs.promises.mkdir(uploadsDir, { recursive: true })
   const filename = `avatar_${userId}${ext}`
-  await new Promise<void>((resolve, reject) => {
-    const writeStream = fs.createWriteStream(path.join(uploadsDir, filename))
-    data.file.pipe(writeStream)
-    writeStream.on('finish', resolve)
-    writeStream.on('error', reject)
-  })
+  await fs.promises.writeFile(path.join(uploadsDir, filename), buf)
   return `/uploads/avatars/${filename}`
 }
 
