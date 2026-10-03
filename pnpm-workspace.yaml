@@ -34,6 +34,7 @@ overrides:
   "@xmldom/xmldom@0.8": ">=0.8.13 <0.9"
   browserslist@4: ">=4.28.7 <5"
   mysql2@3: ">=3.22.0 <4"
+  "@fastify/busboy@3": ">=3.2.2 <4"
 
 # Excepciones de pnpm audit (revisar en cada actualización de prisma/expo):
 # - GHSA-ggr8-5vv4-36mx deepmerge-ts: solo lo usa el CLI de Prisma al leer
@@ -42,9 +43,12 @@ overrides:
 #   mobile) sobre los assets del propio repo; el fix requiere image-size 2.
 # - GHSA-86w9-cpqp-85rv node-forge: lo usa @expo/cli (tooling de build de mobile, no
 #   corre en producción); sin versión parcheada todavía ("Patched versions: <0.0.0").
+# - GHSA-vfj7-8cjw-p6xm braces: solo lo usa nodemon (dev, no corre en producción);
+#   sin versión parcheada todavía ("Patched versions: <0.0.0").
 auditConfig:
   ignoreGhsas:
     - GHSA-ggr8-5vv4-36mx
     - GHSA-5p2g-fcmc-qvqq
     - GHSA-w3rx-r6r6-pgpr
     - GHSA-86w9-cpqp-85rv
+    - GHSA-vfj7-8cjw-p6xm

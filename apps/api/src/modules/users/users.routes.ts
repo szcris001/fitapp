@@ -89,7 +89,11 @@ export async function userRoutes(app: FastifyInstance) {
       const createdAt = new Date(u.createdAt).toLocaleDateString('es-CL')
 
       const escape = (val: any) => {
-        const str = String(val ?? '')
+        // Previene CSV Injection (OWASP): si Excel/Sheets abre una celda que empieza con
+        // = + - @ (o tab/CR) como fórmula, puede ejecutar código o llamar a una URL externa.
+        // Un '-prefijo neutraliza eso sin cambiar el valor visible en un editor de texto plano.
+        let str = String(val ?? '')
+        if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`
         return str.includes(',') || str.includes('"') || str.includes('\n')
           ? `"${str.replace(/"/g, '""')}"`
           : str
