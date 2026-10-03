@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify'
 import { MultipartFile } from '@fastify/multipart'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { createUserSchema, updateUserSchema } from './users.schema'
-import { listUsers, getUserById, createUser, updateUser } from './users.service'
+import { listUsers, getUserById, createUser, updateUser, countOtherAdmins } from './users.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import path from 'path'
@@ -169,6 +169,11 @@ export async function userRoutes(app: FastifyInstance) {
   // Cualquier usuario autenticado puede eliminar su propia cuenta y todos sus datos
   app.delete('/users/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
+    if (user.role === 'ADMIN' && user.gymId) {
+      if (await countOtherAdmins(user.gymId, user.userId) === 0) {
+        return reply.status(400).send({ error: 'No puedes eliminar tu cuenta: eres el único administrador del gimnasio' })
+      }
+    }
     await prisma.$transaction([
       prisma.booking.deleteMany({ where: { userId: user.userId } }),
       prisma.rmRecord.deleteMany({ where: { userId: user.userId } }),
