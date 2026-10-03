@@ -40,6 +40,11 @@ export async function authRoutes(app: FastifyInstance) {
     config: {
       // AUTH_RATE_LIMIT_MAX (solo dev/QA) para la suite E2E y los agentes exploradores
       rateLimit: { max: isDev ? Number(process.env.AUTH_RATE_LIMIT_MAX ?? 50) : 10, timeWindow: '15 minutes' },
+      // tenant-hook.ts: estas rutas corren siempre en bypass, aunque llegue un
+      // Authorization de otra sesión (p. ej. el interceptor de axios lo adjunta a
+      // toda request) — si no, ese token ajeno restringe la query de login/reset al
+      // gym equivocado y el usuario correcto "no existe" (ver CLAUDE.md § login en bypass).
+      publicAuth: true,
     },
   }
 

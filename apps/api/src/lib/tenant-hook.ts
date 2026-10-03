@@ -15,6 +15,10 @@ export function registerTenantContext(app: FastifyInstance) {
   })
 
   app.addHook('preHandler', async (request) => {
+    // Rutas marcadas config.publicAuth (login, refresh, forgot/reset-password) ignoran
+    // cualquier Authorization presente: siempre corren en bypass, sin importar si viene
+    // un JWT válido de otra sesión (ver auth.routes.ts).
+    if ((request.routeOptions?.config as { publicAuth?: boolean } | undefined)?.publicAuth) return
     if (!request.headers.authorization) return
     try {
       await request.jwtVerify()
