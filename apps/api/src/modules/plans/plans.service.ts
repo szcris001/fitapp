@@ -160,6 +160,16 @@ export async function updateMembership(
     updateData.status = 'INACTIVE'
   }
 
+  // Si esta membresía queda ACTIVE/TRIAL, desactivar cualquier otra del mismo usuario que
+  // también lo esté — assignMembership/renewMembership ya hacen esto; a este PATCH genérico
+  // (botón "Activar"/extender) le faltaba, y permitía dos membresías ACTIVE simultáneas.
+  if (updateData.status === 'ACTIVE' || updateData.status === 'TRIAL') {
+    await prisma.membership.updateMany({
+      where: { userId: membership.userId, status: { in: ['ACTIVE', 'TRIAL'] }, NOT: { id: membershipId } },
+      data: { status: 'INACTIVE' },
+    })
+  }
+
   return prisma.membership.update({
     where: { id: membershipId },
     data: updateData,
