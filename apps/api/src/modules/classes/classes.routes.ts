@@ -280,8 +280,12 @@ export async function classRoutes(app: FastifyInstance) {
     try {
       const booking = await prisma.booking.findFirst({
         where: { id: bookingId, class: { gymId: user.gymId } },
+        include: { class: { select: { startsAt: true } } },
       })
       if (!booking) return reply.status(404).send({ error: 'Reserva no encontrada' })
+      if (attended && booking.class.startsAt > new Date()) {
+        return reply.status(409).send({ error: 'No se puede marcar asistencia antes de que la clase comience' })
+      }
       try {
         const updated = await prisma.booking.update({
           where: { id: bookingId },
