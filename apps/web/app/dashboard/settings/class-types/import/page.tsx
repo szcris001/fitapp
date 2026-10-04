@@ -5,6 +5,7 @@ import { useAuthStore } from '../../../../../store/auth.store'
 import api from '../../../../../lib/api'
 import * as XLSX from 'xlsx'
 import { Upload, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { DISCIPLINES as DISCIPLINE_DEFS } from '../page'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +26,10 @@ interface ParsedClassType {
   errors: string[]
 }
 
-const DISCIPLINES = ['crossfit', 'weightlifting', 'endurance', 'hyrox', 'gymnastics', 'manual']
+// Misma fuente que el selector de "Nueva clase" (DISCIPLINES en ../page.tsx) — antes esta
+// lista repetía solo 6 de las 15 disciplinas reales, así que el importador rechazaba
+// valores perfectamente válidos (p. ej. "powerlifting", "boxing") con "no válida".
+const DISCIPLINES = DISCIPLINE_DEFS.map(d => d.value)
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -75,15 +79,10 @@ export default function ImportClassTypesPage() {
     ws['!freeze'] = { xSplit: 0, ySplit: 1 }
     XLSX.utils.book_append_sheet(wb, ws, 'Tipos de clase')
 
-    // Sheet 2: referencia de disciplinas
+    // Sheet 2: referencia de disciplinas — misma fuente que el selector de "Nueva clase"
     const discData = [
       ['disciplina', 'descripción'],
-      ['crossfit', 'CrossFit / Functional fitness'],
-      ['weightlifting', 'Halterofilía olímpica'],
-      ['endurance', 'Running, remo, bike, triatlón'],
-      ['hyrox', 'HYROX'],
-      ['gymnastics', 'Gimnasia / Calistenia'],
-      ['manual', 'Sin bloques predefinidos (libre)'],
+      ...DISCIPLINE_DEFS.map(d => [d.value, d.description]),
     ]
     const wsDisc = XLSX.utils.aoa_to_sheet(discData)
     wsDisc['!cols'] = [{ wch: 18 }, { wch: 35 }]
