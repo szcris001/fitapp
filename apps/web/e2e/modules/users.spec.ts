@@ -95,6 +95,19 @@ test.describe('USR — admin', () => {
     p.expectNoErrors()
   })
 
+  test('USR-02b buscar sin tildes encuentra alumnos con tildes en el nombre', async ({ page }) => {
+    const u = uid()
+    const name = `QA E2E José Pérez ${u}`
+    const email = `qa-e2e-tildes-${u}@qa-norte.test`
+    const res = await api('admin', 'POST', '/users', { name, email, password: 'QaE2e2026!', role: 'MEMBER' })
+    expect(res.status, JSON.stringify(res.data)).toBe(201)
+
+    const p = await open(page, '/dashboard/users')
+    await page.getByPlaceholder('Buscar alumno...').fill(`jose perez ${u}`)
+    await expect(page.getByRole('row').filter({ hasText: email })).toContainText(name)
+    p.expectNoErrors()
+  })
+
   test('USR-03 email duplicado en el mismo gym → error claro', async ({ page }) => {
     const dup = NORTE.users.member.email
     const p = await open(page, '/dashboard/users/new')

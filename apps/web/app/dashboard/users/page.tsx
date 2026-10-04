@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api, { API_BASE } from '../../../lib/api'
 import { toMajorUnits } from '../../../lib/money'
+import { normalizeSearch } from '../../../lib/search'
 import {
   Users, Search, UserPlus, Upload, X, CheckCircle, AlertCircle,
   Wallet, CreditCard, Banknote, RefreshCw, ExternalLink,
@@ -256,10 +257,10 @@ function QuickPaySelectModal({ users, onSelect, onClose }: {
 }) {
   const [search, setSearch] = useState('')
   const filtered = search.trim()
-    ? users.filter(u =>
-        u.name.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase())
-      )
+    ? users.filter(u => {
+        const q = normalizeSearch(search)
+        return normalizeSearch(u.name).includes(q) || normalizeSearch(u.email).includes(q)
+      })
     : users
 
   return (
@@ -378,10 +379,10 @@ export default function UsersPage() {
   useEffect(() => {
     let result = users
     if (search.trim()) {
-      const q = search.toLowerCase()
+      const q = normalizeSearch(search)
       result = result.filter(u =>
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
+        normalizeSearch(u.name).includes(q) ||
+        normalizeSearch(u.email).includes(q) ||
         u.phone?.includes(q)
       )
     }
