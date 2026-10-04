@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../lib/api'
 import { CF_MOVEMENTS } from '../../../../lib/movements'
+import { GYM_TIMEZONE } from '../../../../lib/gym-timezone'
 import {
   ChevronLeft, ChevronRight,
   Clock, Users, Dumbbell, CheckCircle, Circle, Pencil, Trash2, Save,
@@ -28,7 +29,10 @@ export interface ClassDetail {
 }
 
 /* ─── Helpers ────────────────────────────────────── */
-const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+// timeZone explícito: sin esto, la hora se muestra en la zona del navegador de quien
+// mira la pantalla, no en la del gym — la misma clase se ve a horas distintas según
+// el dispositivo (ver gym-timezone.ts).
+const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: GYM_TIMEZONE })
 // Fecha local del navegador (asumida igual a la del gym): evita que toISOString() adelante
 // o atrase un día para horarios cercanos a la medianoche (ver CLS-07)
 const localDateStr = (d: Date) =>
@@ -490,7 +494,7 @@ function WodEditorModal({
               {wod ? 'Editar planificación' : 'Nueva planificación'}
             </h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--text-4)' }}>
-              {cls.classType.name} — {new Date(cls.startsAt).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {cls.classType.name} — {new Date(cls.startsAt).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: GYM_TIMEZONE })}
             </p>
             <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: '#f59e0b' }}>
               <span>⚡</span>
@@ -1203,7 +1207,7 @@ export function ClassPanel({
           )}
           {cls && !editMode && (
             <p className="text-xs mt-0.5 capitalize" style={{ color: 'var(--text-4)' }}>
-              {new Date(cls.startsAt).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {new Date(cls.startsAt).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: GYM_TIMEZONE })}
             </p>
           )}
         </div>

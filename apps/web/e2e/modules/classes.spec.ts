@@ -200,6 +200,36 @@ test.describe('CLS — crear clases (admin)', () => {
   })
 })
 
+test.describe('CLS — crear clase con el navegador en otra zona horaria (admin)', () => {
+  // El bug (ClassDetail.tsx fmtTime, new/page.tsx, import/page.tsx) solo se nota con el
+  // navegador en una zona distinta a Chile — en local/CI, siempre en America/Santiago,
+  // nunca lo habría atrapado. Forzamos UTC acá; local() sigue leyendo en America/Santiago
+  // (corre en el proceso de Node del test, no en el navegador, así que no se ve afectado).
+  test.use({ timezoneId: 'UTC' })
+
+  test('CLS-11 crear clase con navegador en UTC → la hora guardada es la de Chile, no la de UTC', async ({ page }) => {
+    const type = await createClassType(`${PREFIX} TZ ${RUN}`)
+    const weeks = 6
+    const monday = mondayIn(weeks)
+    const thursday = addDays(monday, 3)
+
+    const daysCard = await openNewClass(page, type.name, weeks)
+    await daysCard.getByRole('button').filter({ hasText: 'Jue' }).click()
+    await page.locator('input[type="time"]').nth(0).fill('14:00')
+    await page.locator('input[type="time"]').nth(1).fill('15:00')
+    await page.locator('input[type="date"]').fill(thursday)
+    await page.getByRole('button', { name: /^Crear ~\d+ clases$/ }).click()
+    await expect(page.getByText(/^1 clases? creadas?/)).toBeVisible()
+
+    const created = await classesOf(type.id, monday, addDays(monday, 6))
+    expect(created).toHaveLength(1)
+    // Si el bug estuviera de vuelta, esto leería 11:00 (14:00 UTC interpretado como si
+    // fuera hora de Chile al revés) en vez de 14:00.
+    expect(local(created[0].startsAt)).toEqual({ day: thursday, time: '14:00' })
+    expect(local(created[0].endsAt)).toEqual({ day: thursday, time: '15:00' })
+  })
+})
+
 // ─── CLS-03 / CLS-07 · detalle de clase ───────────────────────────────────────
 
 test.describe('CLS — detalle de clase (admin)', () => {

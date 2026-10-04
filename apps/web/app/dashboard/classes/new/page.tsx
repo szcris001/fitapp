@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api from '../../../../lib/api'
+import { gymLocalToIso } from '../../../../lib/gym-timezone'
 import { ArrowLeft, Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
@@ -110,8 +111,11 @@ export default function NewClassPage() {
 
     for (const block of form.timeBlocks) {
       try {
-        const startsAt = new Date(`${form.startDate}T${block.start}:00`).toISOString()
-        const endsAt   = new Date(`${form.startDate}T${block.end}:00`).toISOString()
+        // Hora de pared en la zona del gym, no la del navegador de quien crea la clase
+        // (ver gym-timezone.ts) — si no, dos admins en zonas distintas crean/ven la
+        // "misma" clase en horas reales distintas.
+        const startsAt = gymLocalToIso(form.startDate, block.start)
+        const endsAt   = gymLocalToIso(form.startDate, block.end)
         const result = await api.post('/classes', {
           classTypeId: form.classTypeId,
           coachId: form.coachId,
