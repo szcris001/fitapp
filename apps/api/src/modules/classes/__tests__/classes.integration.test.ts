@@ -309,6 +309,16 @@ describe('ClassType: POST /api/class-types — crear', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('Caso 7b — ADMIN con nombre de más de 100 caracteres → 400 Zod', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/class-types',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'A'.repeat(101) },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('Caso 8 — ADMIN crea ClassType sin bloques → 201 con campos correctos', async () => {
     const res = await app.inject({
       method: 'POST',

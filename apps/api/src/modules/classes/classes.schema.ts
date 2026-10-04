@@ -15,8 +15,8 @@ const blockSchema = z.object({
 })
 
 export const createClassTypeSchema = z.object({
-  name: z.string().min(2),
-  description: z.string().optional(),
+  name: z.string().min(2).max(100),
+  description: z.string().max(500).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   discipline: z.enum(CLASS_DISCIPLINES).optional(),
   blocks: z.array(blockSchema).optional(),
