@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../payments/payments.service'
 import { signMediaToken } from '../../lib/media-token'
 import { canEnterSede, sedeRole } from '../../lib/sede-access'
+import { detectImageExt } from '../../lib/image-sniff'
 
 const createSedeSchema = z.object({
   name: z.string().min(2),
@@ -162,22 +163,24 @@ export async function gymRoutes(app: FastifyInstance) {
       const data = await (request as any).file() as MultipartFile
       if (!data) return reply.status(400).send({ error: 'No se recibió archivo' })
 
+      // Nada de SVG/HTML (se servirían desde el origen de la API). data.toBuffer() lanza
+      // RequestFileTooLargeError (413) si el archivo supera el límite global de
+      // @fastify/multipart (5MB) en vez de truncarlo silenciosamente — mismo fix que
+      // saveAvatarFile en users.routes.ts. La extensión se decide por la firma real de
+      // bytes, no por el Content-Type declarado por el cliente.
+      const LOGO_MIME: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' }
+      if (!LOGO_MIME[data.mimetype]) {
+        data.file.resume()
+        return reply.status(400).send({ error: 'Formato no permitido (PNG, JPG o WEBP)' })
+      }
+      const buf = await data.toBuffer()
+      const ext = detectImageExt(buf)
+      if (!ext) return reply.status(400).send({ error: 'Formato no permitido (PNG, JPG o WEBP)' })
+
       const uploadsDir = path.join(process.cwd(), 'uploads')
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
-
-      // Extensión según el MIME declarado: nada de SVG/HTML (se servirían desde el origen de la API)
-      const LOGO_MIME: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp' }
-      const ext = LOGO_MIME[data.mimetype]
-      if (!ext) return reply.status(400).send({ error: 'Formato no permitido (PNG, JPG o WEBP)' })
       const filename = `logo_${user.gymId}${ext}`
-      const filepath = path.join(uploadsDir, filename)
-
-      await new Promise<void>((resolve, reject) => {
-        const writeStream = fs.createWriteStream(filepath)
-        data.file.pipe(writeStream)
-        writeStream.on('finish', resolve)
-        writeStream.on('error', reject)
-      })
+      await fs.promises.writeFile(path.join(uploadsDir, filename), buf)
 
       const logoUrl = `/uploads/${filename}`
       try {
