@@ -92,6 +92,19 @@ test.describe('CFG — admin Norte', () => {
     }
   })
 
+  test('CFG-08 la cuenta bancaria sembrada muestra el nombre del titular (bankAccount.ownerName)', async ({ page }) => {
+    const before = (await api('admin', 'GET', '/gyms/me')).data
+    // seed-qa.ts guardaba esto bajo la clave "holder", que ningún consumidor lee
+    // (gyms.schema.ts, la UI web y PlanesScreen en mobile usan "ownerName") — el campo
+    // quedaba vacío en la práctica.
+    expect(before.bankAccount?.ownerName, JSON.stringify(before.bankAccount)).toBe(before.name)
+
+    const p = await open(page, '/dashboard/settings')
+    await page.getByRole('main').getByRole('button', { name: 'Pagos' }).click()
+    await expect(field(page, 'Nombre del titular')).toHaveValue(before.name)
+    p.expectNoErrors()
+  })
+
   test('CFG-02 logo: subir un PNG y verlo en la configuración', async ({ page }, testInfo) => {
     const file = testInfo.outputPath('logo-qa.png')
     writeFileSync(file, png(4))
