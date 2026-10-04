@@ -365,7 +365,10 @@ test.describe('CLS — asistencia (coach)', () => {
 
   test('CLS-04 marcar y desmarcar asistencia', async ({ page }) => {
     const type = await createClassType(`${PREFIX} Asistencia ${RUN}`)
-    const day = localDay(farOffset(3))
+    // Día lejano en el pasado (igual lógica que farOffset pero hacia atrás, para no
+    // colisionar con otras corridas): marcar "asistió" exige que la clase ya haya
+    // empezado (ver fix adjunto a PATCH /bookings/:bookingId/attend).
+    const day = localDay(-farOffset(3))
     const cls = await createClass(type.id, day, '10:00', '11:00')
     const student = NORTE.member5
     const { status } = await api('admin', 'POST', '/bookings/assign', { classId: cls.id, userId: await userId(student.email) })
