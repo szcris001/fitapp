@@ -7,6 +7,9 @@
  * se activan aquí se desactivan al final para no inflar los KPIs de otros specs.
  */
 import { readFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import * as XLSX from 'xlsx'
 import { test, expect, type Page } from '@playwright/test'
 import { QA, API_URL, api, authFile, open } from '../support/qa'
 
@@ -120,6 +123,83 @@ test.describe('USR — admin', () => {
     await expect(page).toHaveURL(/\/dashboard\/users\/new$/)
     const { data } = await api('admin', 'GET', '/users')
     expect(data.filter((x: { email: string }) => x.email === dup)).toHaveLength(1)
+    p.expectNoErrors()
+  })
+
+  test('USR-03b crear alumno con RUT → se guarda y se muestra en el detalle', async ({ page }) => {
+    const u = uid()
+    const name = `QA E2E Con RUT ${u}`
+    const email = `qa-e2e-con-rut-${u}@qa-norte.test`
+    const p = await open(page, '/dashboard/users/new')
+    await field(page, 'Nombre completo *').fill(name)
+    await field(page, 'Email *').fill(email)
+    await field(page, 'Contraseña *').fill('QaE2e2026!')
+    // 66666666-6: válido por dígito verificador, y fuera del rango 11111111-1..55555555-5
+    // que usan los 5 alumnos sembrados de Norte (qa/fixtures.json) — evita un 400 por duplicado.
+    await field(page, 'RUT').fill('66666666-6')
+    await page.getByRole('button', { name: 'Crear alumno' }).click()
+    await expect(page).toHaveURL(/\/dashboard\/users$/)
+
+    const { data } = await api('admin', 'GET', '/users')
+    const created = data.find((x: { email: string }) => x.email === email)
+    expect(created?.rut).toBe('66666666-6')
+
+    await open(page, `/dashboard/users/${created.id}`)
+    await expect(page.getByText('RUT: 66666666-6')).toBeVisible()
+    p.expectNoErrors()
+  })
+
+  test('USR-03c RUT con dígito verificador incorrecto → error específico, no "Datos inválidos" genérico', async ({ page }) => {
+    const p = await open(page, '/dashboard/users/new')
+    await field(page, 'Nombre completo *').fill(`QA E2E RUT Inválido ${uid()}`)
+    await field(page, 'Email *').fill(`qa-e2e-rut-invalido-${uid()}@qa-norte.test`)
+    await field(page, 'Contraseña *').fill('QaE2e2026!')
+    await field(page, 'RUT').fill('11111111-9') // dígito verificador real es 1, no 9
+    await page.getByRole('button', { name: 'Crear alumno' }).click()
+
+    await expect(page.getByText(/dígito verificador/i)).toBeVisible()
+    await expect(page.getByText('Datos inválidos', { exact: true })).toHaveCount(0)
+    await expect(page).toHaveURL(/\/dashboard\/users\/new$/)
+    p.expectNoErrors()
+  })
+
+  test('USR-03d editar el RUT desde el detalle del alumno → persiste', async ({ page }) => {
+    const m = await createMember('EditarRut')
+    const p = await open(page, `/dashboard/users/${m.id}`)
+    await page.getByRole('button', { name: 'Editar' }).click()
+    await field(page, 'RUT').fill('87654321-4')
+    await page.getByRole('button', { name: 'Guardar' }).click()
+    await expect(page.getByText('Datos actualizados')).toBeVisible()
+    await expect(page.getByText('RUT: 87654321-4')).toBeVisible()
+
+    const { data } = await api('admin', 'GET', `/users/${m.id}`)
+    expect(data.rut).toBe('87654321-4')
+    p.expectNoErrors()
+  })
+
+  test('USR-03e importar alumnos desde Excel con columna RUT → se guarda', async ({ page }) => {
+    const u = uid()
+    const name = `QA E2E Import RUT ${u}`
+    const email = `qa-e2e-import-rut-${u}@qa-norte.test`
+    const file = join(tmpdir(), `e2e-users-import-${u}.xlsx`)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Nombre', 'Email', 'Teléfono', 'Género', 'RUT'],
+      [name, email, '', 'F', '77777777-7'],
+    ]), 'Alumnos')
+    XLSX.writeFile(wb, file)
+
+    const p = await open(page, '/dashboard/users')
+    await page.locator('input[type="file"][accept*=".xlsx"]').setInputFiles(file)
+    await expect(page.getByText('1 alumno detectados')).toBeVisible()
+    const row = page.getByRole('row').filter({ hasText: email })
+    await expect(row).toContainText('77777777-7')
+    await page.getByRole('button', { name: 'Importar 1 alumnos' }).click()
+    await expect(page.getByText('1 creados · 0 con error')).toBeVisible()
+
+    const { data } = await api('admin', 'GET', '/users')
+    const created = data.find((x: { email: string }) => x.email === email)
+    expect(created?.rut).toBe('77777777-7')
     p.expectNoErrors()
   })
 
