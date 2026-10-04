@@ -11,7 +11,7 @@ export const updateGymSchema = z.object({
   bookingWindowDays: z.number().int().min(1).max(7).optional(),
   bookingCutoffMins: z.number().int().min(0).max(1440).optional(),
   cancelCutoffMins: z.number().int().min(0).max(1440).optional(),
-  sportTheme: z.enum(['neutral', 'crossfit', 'swimming', 'football', 'boxing', 'yoga', 'running']).optional(),
+  sportTheme: z.enum(['neutral', 'crossfit', 'hyrox', 'swimming', 'football', 'boxing', 'yoga', 'running']).optional(),
   brandColors: z.object({
     primary: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     secondary: z.string().regex(/^#[0-9a-fA-F]{6}$/),

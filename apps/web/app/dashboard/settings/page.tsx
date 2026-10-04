@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api, { API_BASE , mediaUrl } from '../../../lib/api'
+import { SPORT_THEMES, type SportTheme } from '../../../lib/themes'
 import {
   Building2, Sun, Moon, Calendar, Upload,
   CheckCircle, Bell, FileText, Palette, Receipt,
@@ -21,15 +22,6 @@ const SECTIONS = [
   { id: 'pagos',          label: 'Pagos',               icon: CreditCard  },
   { id: 'avanzado',       label: 'Avanzado',            icon: Settings2   },
 ]
-
-// ── Sport themes ──────────────────────────────────────────────────────────────
-const SPORT_THEMES = [
-  { id: 'crossfit', label: 'CrossFit', color: '#F97316', emoji: '🏋️' },
-  { id: 'hyrox',    label: 'HYROX',    color: '#EF4444', emoji: '⚡' },
-  { id: 'neutral',  label: 'Neutral',  color: '#6366F1', emoji: '🏟️' },
-] as const
-
-type SportThemeId = (typeof SPORT_THEMES)[number]['id']
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function Toast({ message, type, onDismiss }: { message: string; type: 'success' | 'error'; onDismiss: () => void }) {
@@ -193,7 +185,7 @@ export default function SettingsPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
-  const [sportTheme, setSportTheme] = useState<SportThemeId>('neutral')
+  const [sportTheme, setSportTheme] = useState<SportTheme>('neutral')
   const [savingSport, setSavingSport] = useState(false)
   const [activeSection, setActiveSection] = useState('perfil')
 
@@ -248,7 +240,7 @@ export default function SettingsPage() {
     loadFromStorage()
     const saved = localStorage.getItem('fitapp_theme') as 'light' | 'dark' | null
     if (saved) setTheme(saved)
-    const savedSport = localStorage.getItem('fitapp_sport_theme') as SportThemeId | null
+    const savedSport = localStorage.getItem('fitapp_sport_theme') as SportTheme | null
     if (savedSport) setSportTheme(savedSport)
   }, [])
 
@@ -308,7 +300,7 @@ export default function SettingsPage() {
         waitlistConfirmEnabled: data.waitlistConfirmEnabled ?? false,
         waitlistConfirmMins: data.waitlistConfirmMins ?? 30,
       })
-      if (data.sportTheme) setSportTheme(data.sportTheme as SportThemeId)
+      if (data.sportTheme) setSportTheme(data.sportTheme as SportTheme)
       if (data.bankAccount) {
         setBankForm({
           ownerName: data.bankAccount.ownerName || '',
@@ -603,19 +595,19 @@ export default function SettingsPage() {
                   style={{
                     padding: '14px 10px', borderRadius: 12, border: '2px solid', cursor: 'pointer',
                     transition: 'all 0.15s', textAlign: 'center',
-                    borderColor: isActive ? t.color : 'var(--border-2)',
+                    borderColor: isActive ? t.primary : 'var(--border-2)',
                     backgroundColor: isActive
-                      ? `color-mix(in srgb, ${t.color} 12%, transparent)`
+                      ? `color-mix(in srgb, ${t.primary} 12%, transparent)`
                       : 'transparent',
                     transform: isActive ? 'translateY(-2px)' : 'none',
-                    boxShadow: isActive ? `0 4px 16px color-mix(in srgb, ${t.color} 30%, transparent)` : 'none',
+                    boxShadow: isActive ? `0 4px 16px color-mix(in srgb, ${t.primary} 30%, transparent)` : 'none',
                   }}>
                   <div style={{ fontSize: 24, marginBottom: 6 }}>{t.emoji}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: isActive ? t.color : 'var(--text-3)' }}>{t.label}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: isActive ? t.primary : 'var(--text-3)' }}>{t.name}</div>
                   {isActive && (
                     <div style={{
                       width: 6, height: 6, borderRadius: '50%', margin: '6px auto 0',
-                      backgroundColor: t.color,
+                      backgroundColor: t.primary,
                     }} />
                   )}
                 </button>
