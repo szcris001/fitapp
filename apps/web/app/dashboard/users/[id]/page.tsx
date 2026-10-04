@@ -409,7 +409,7 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', gender: '' })
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', gender: '', rut: '' })
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [savingAvatar, setSavingAvatar] = useState(false)
@@ -446,6 +446,7 @@ export default function UserDetailPage() {
           email: memberRes.data.email || '',
           phone: memberRes.data.phone || '',
           gender: memberRes.data.gender || '',
+          rut: memberRes.data.rut || '',
         })
         setAvatarFile(null)
         setAvatarPreview(null)
@@ -484,7 +485,12 @@ export default function UserDetailPage() {
       setEditing(false)
       fetchData(true)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al actualizar')
+      // Errores de Zod (400 "Datos inválidos") traen el detalle por campo en
+      // details.fieldErrors — sin esto, un RUT con dígito verificador incorrecto
+      // solo mostraba el genérico "Datos inválidos" sin decir qué estaba mal.
+      const fieldErrors = err.response?.data?.details?.fieldErrors as Record<string, string[]> | undefined
+      const firstFieldError = fieldErrors && Object.values(fieldErrors).flat().find(Boolean)
+      setError(firstFieldError || err.response?.data?.error || 'Error al actualizar')
       setSavingAvatar(false)
     } finally { setSavingEdit(false) }
   }
@@ -687,6 +693,10 @@ export default function UserDetailPage() {
               <div className="col-span-2">
                 <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Email</label>
                 <input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} className="input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>RUT</label>
+                <input value={editForm.rut} onChange={e => setEditForm(f => ({ ...f, rut: e.target.value }))} placeholder="12345678-9" className="input" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Teléfono</label>

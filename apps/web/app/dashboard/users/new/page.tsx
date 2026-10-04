@@ -17,7 +17,7 @@ export default function NewUserPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({
     name: '', email: '', password: '', phone: '',
-    gender: '', birthDate: '',
+    gender: '', birthDate: '', rut: '',
     // Fecha local (no UTC): pasado ~21:00 en Chile, toISOString() ya cae en el día siguiente
     planId: '', startsAt: new Date().toLocaleDateString('sv'),
   })
@@ -47,7 +47,7 @@ export default function NewUserPage() {
       const { data: newUser } = await api.post('/users', {
         name: form.name, email: form.email, password: form.password,
         phone: form.phone || undefined, gender: form.gender || undefined,
-        birthDate: form.birthDate || undefined, role: 'MEMBER',
+        birthDate: form.birthDate || undefined, rut: form.rut || undefined, role: 'MEMBER',
       })
       if (avatarFile) {
         const fd = new FormData()
@@ -64,7 +64,12 @@ export default function NewUserPage() {
       }
       router.push('/dashboard/users')
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al crear el alumno')
+      // Errores de Zod (400 "Datos inválidos") traen el detalle por campo en
+      // details.fieldErrors — sin esto, un RUT con dígito verificador incorrecto
+      // solo mostraba el genérico "Datos inválidos" sin decir qué estaba mal.
+      const fieldErrors = err.response?.data?.details?.fieldErrors as Record<string, string[]> | undefined
+      const firstFieldError = fieldErrors && Object.values(fieldErrors).flat().find(Boolean)
+      setError(firstFieldError || err.response?.data?.error || 'Error al crear el alumno')
     } finally { setLoading(false) }
   }
 
@@ -133,6 +138,10 @@ export default function NewUserPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Contraseña *</label>
                   <input type="password" value={form.password} onChange={e => set('password', e.target.value)} required minLength={6} className="input" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>RUT</label>
+                  <input value={form.rut} onChange={e => set('rut', e.target.value)} placeholder="12345678-9" className="input" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Teléfono</label>

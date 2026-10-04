@@ -24,7 +24,7 @@ interface UserRow {
   createdAt: string
   memberships: { status: string; endsAt: string; plan: { id: string; name: string } }[]
 }
-interface ImportRow { name: string; email: string; phone?: string; gender?: string }
+interface ImportRow { name: string; email: string; phone?: string; gender?: string; rut?: string }
 interface ImportResult { row: ImportRow; ok: boolean; error?: string }
 
 /* ─── Constants ─────────────────────────────────────── */
@@ -415,6 +415,7 @@ export default function UsersPage() {
         email: String(r['Email'] || r['email'] || r['EMAIL'] || r['Correo'] || '').trim(),
         phone: String(r['Teléfono'] || r['Telefono'] || r['phone'] || '').trim() || undefined,
         gender: String(r['Género'] || r['Genero'] || r['gender'] || '').trim() || undefined,
+        rut: String(r['RUT'] || r['Rut'] || r['rut'] || '').trim() || undefined,
       })).filter(r => r.name && r.email)
       setImportRows(rows); setImportResults([]); setShowImport(true)
     }
@@ -429,7 +430,12 @@ export default function UsersPage() {
         await api.post('/users', { ...row, password: Math.random().toString(36).slice(-8), role: 'MEMBER' })
         results.push({ row, ok: true })
       } catch (err: any) {
-        results.push({ row, ok: false, error: err.response?.data?.error || 'Error' })
+        // Errores de Zod (400 "Datos inválidos") traen el detalle por campo en
+        // details.fieldErrors — sin esto, una fila con RUT inválido solo mostraba
+        // el genérico "Datos inválidos" sin decir qué campo falló.
+        const fieldErrors = err.response?.data?.details?.fieldErrors as Record<string, string[]> | undefined
+        const firstFieldError = fieldErrors && Object.values(fieldErrors).flat().find(Boolean)
+        results.push({ row, ok: false, error: firstFieldError || err.response?.data?.error || 'Error' })
       }
     }
     setImportResults(results); setImporting(false)
@@ -696,13 +702,13 @@ export default function UsersPage() {
             {importResults.length === 0 ? (
               <>
                 <div className="p-4 text-xs" style={{ backgroundColor: 'var(--surface-base)', borderBottom: '1px solid var(--border-1)', color: 'var(--text-4)' }}>
-                  Columnas: <strong>Nombre</strong>, <strong>Email</strong>, <strong>Teléfono</strong> (opcional), <strong>Género</strong> (M/F).
+                  Columnas: <strong>Nombre</strong>, <strong>Email</strong>, <strong>Teléfono</strong> (opcional), <strong>Género</strong> (M/F), <strong>RUT</strong> (opcional).
                 </div>
                 <div className="overflow-auto max-h-80">
                   <table className="w-full text-sm">
                     <thead>
                       <tr style={{ backgroundColor: 'var(--surface-base)', borderBottom: '1px solid var(--border-1)' }}>
-                        {['Nombre', 'Email', 'Teléfono', 'Género'].map(h => (
+                        {['Nombre', 'Email', 'Teléfono', 'Género', 'RUT'].map(h => (
                           <th key={h} className="text-left px-4 py-2 text-xs font-semibold" style={{ color: 'var(--text-4)' }}>{h}</th>
                         ))}
                       </tr>
@@ -714,6 +720,7 @@ export default function UsersPage() {
                           <td className="px-4 py-2" style={{ color: 'var(--text-3)' }}>{r.email}</td>
                           <td className="px-4 py-2" style={{ color: 'var(--text-3)' }}>{r.phone || '—'}</td>
                           <td className="px-4 py-2" style={{ color: 'var(--text-3)' }}>{r.gender || '—'}</td>
+                          <td className="px-4 py-2" style={{ color: 'var(--text-3)' }}>{r.rut || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
