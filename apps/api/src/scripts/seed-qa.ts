@@ -120,7 +120,10 @@ async function createGym(fx: FixtureGym, passwordHash: string) {
       timezone: TZ,
       status: 'ACTIVE',
       bookingWindowDays: 3,
-      bankAccount: { bank: 'Banco QA', accountType: 'Cuenta Corriente', accountNumber: '000123456', rut: '76000000-0', holder: fx.name },
+      // La clave es ownerName (ver gyms.schema.ts bankAccount) — web (dashboard/settings) y
+      // mobile (PlanesScreen) la leen así; "holder" no es un campo real, queda silenciosamente
+      // sin mostrarse en ningún lado.
+      bankAccount: { bank: 'Banco QA', accountType: 'Cuenta Corriente', accountNumber: '000123456', rut: '76000000-0', ownerName: fx.name },
     },
   })
 
