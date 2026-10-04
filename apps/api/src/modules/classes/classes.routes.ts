@@ -4,6 +4,7 @@ import { createClassTypeSchema, createClassSchema, bookingSchema, updateClassAll
 import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin, assertPlansBelongToGym } from './classes.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
+import { HttpError } from '../../lib/http-error'
 
 export async function classRoutes(app: FastifyInstance) {
   app.get('/class-types', { preHandler: authenticate }, async (request, reply) => {
@@ -37,6 +38,7 @@ export async function classRoutes(app: FastifyInstance) {
       await deleteClassType(user.gymId, id)
       return reply.status(204).send()
     } catch (err: any) {
+      if (err instanceof HttpError) throw err // handlePrismaError: mensaje y status ya correctos (p.ej. 409 por FK)
       return reply.status(400).send({ error: err.message })
     }
   })
