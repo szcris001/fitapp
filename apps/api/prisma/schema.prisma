@@ -106,7 +106,7 @@ model User {
   refreshTokens      RefreshToken[]
   rmRecords          RmRecord[]
   benchmarkResults   BenchmarkResult[]
-  gym                Gym?                 @relation(fields: [gymId], references: [id])
+  gym                Gym?                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
   wodResultsRecorded WodResult[]          @relation("WodResultRecordedBy")
   wodResults         WodResult[]
 
@@ -133,7 +133,7 @@ model Plan {
   autoRenewMaxRetries Int               @default(2)
   isTrial             Boolean           @default(false)
   memberships         Membership[]
-  gym                 Gym               @relation(fields: [gymId], references: [id])
+  gym                 Gym               @relation(fields: [gymId], references: [id], onDelete: Cascade)
   allowedClasses      Class[]           @relation("ClassAllowedPlans")
   classTypes          ClassType[]       @relation("PlanClassTypes")
   paymentCheckouts    PaymentCheckout[]
@@ -166,8 +166,8 @@ model Membership {
   nextAutoRenewAt       DateTime?
   stripePaymentMethodId String?
   bankMovements         BankMovement[]
-  plan                  Plan             @relation(fields: [planId], references: [id])
-  user                  User             @relation(fields: [userId], references: [id])
+  plan                  Plan             @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, endsAt])
 }
@@ -181,7 +181,7 @@ model ClassType {
   createdAt   DateTime         @default(now())
   discipline  String?
   classes     Class[]
-  gym         Gym              @relation(fields: [gymId], references: [id])
+  gym         Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
   blocks      ClassTypeBlock[]
   wods        Wod[]
   plans       Plan[]           @relation("PlanClassTypes")
@@ -212,7 +212,7 @@ model Class {
   bookings     Booking[]
   classType    ClassType      @relation(fields: [classTypeId], references: [id])
   coach        User           @relation("CoachClasses", fields: [coachId], references: [id])
-  gym          Gym            @relation(fields: [gymId], references: [id])
+  gym          Gym            @relation(fields: [gymId], references: [id], onDelete: Cascade)
   allowedPlans Plan[]         @relation("ClassAllowedPlans")
 
   @@index([gymId, startsAt])
@@ -229,8 +229,8 @@ model Booking {
   confirmDeadline DateTime?
   attended        Boolean       @default(false)
   attendedAt      DateTime?
-  class           Class         @relation(fields: [classId], references: [id])
-  user            User          @relation(fields: [userId], references: [id])
+  class           Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, classId])
   @@index([classId, status])
@@ -246,7 +246,7 @@ model Wod {
   gymId       String
   scoreType   WodScoreType @default(REPS)
   classType   ClassType    @relation(fields: [classTypeId], references: [id])
-  gym         Gym          @relation(fields: [gymId], references: [id])
+  gym         Gym          @relation(fields: [gymId], references: [id], onDelete: Cascade)
   blocks      WodBlock[]
   results     WodResult[]
 
@@ -294,7 +294,7 @@ model RmRecord {
   weightKg     Float
   recordedAt   DateTime @default(now())
   notes        String?
-  user         User     @relation(fields: [userId], references: [id])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, movementName])
 }
@@ -308,7 +308,7 @@ model GymnasticProgress {
   notes        String?
   evidenceType String?
   evidenceUrl  String?
-  user         User     @relation(fields: [userId], references: [id])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model GymSkill {
@@ -319,7 +319,7 @@ model GymSkill {
   isActive    Boolean             @default(true)
   order       Int                 @default(0)
   createdAt   DateTime            @default(now())
-  gym         Gym                 @relation(fields: [gymId], references: [id])
+  gym         Gym                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
   milestones  GymSkillMilestone[]
 }
 
@@ -395,7 +395,7 @@ model GymSubscription {
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   stripeCheckoutSessionId String?
-  gym                     Gym                      @relation(fields: [gymId], references: [id])
+  gym                     Gym                      @relation(fields: [gymId], references: [id], onDelete: Cascade)
   plan                    FitAppPlan               @relation(fields: [planId], references: [id])
   payments                GymSubscriptionPayment[]
 }
@@ -416,7 +416,7 @@ model GymSubscriptionPayment {
   notes          String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
-  gym            Gym              @relation(fields: [gymId], references: [id])
+  gym            Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
   subscription   GymSubscription? @relation(fields: [subscriptionId], references: [id])
 }
 
@@ -454,7 +454,7 @@ model Benchmark {
   notas        String?
   isOfficial   Boolean             @default(true)
   createdAt    DateTime            @default(now())
-  gym          Gym?                @relation(fields: [gymId], references: [id])
+  gym          Gym?                @relation(fields: [gymId], references: [id], onDelete: Cascade)
   movimientos  BenchmarkMovement[]
   resultados   BenchmarkResult[]
 }
@@ -508,7 +508,7 @@ model FintocLink {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   movements     BankMovement[]
-  gym           Gym              @relation(fields: [gymId], references: [id])
+  gym           Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
 }
 
 model BankMovement {
@@ -531,7 +531,7 @@ model BankMovement {
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   link                 FintocLink           @relation(fields: [fintocLinkId], references: [id])
-  gym                  Gym                  @relation(fields: [gymId], references: [id])
+  gym                  Gym                  @relation(fields: [gymId], references: [id], onDelete: Cascade)
   membership           Membership?          @relation(fields: [membershipId], references: [id])
 
   @@index([gymId, reconciliationStatus])
@@ -550,7 +550,7 @@ model WodResult {
   recordedBy     String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  gym            Gym      @relation(fields: [gymId], references: [id])
+  gym            Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
   recordedByUser User     @relation("WodResultRecordedBy", fields: [recordedBy], references: [id])
   user           User     @relation(fields: [userId], references: [id])
   wod            Wod      @relation(fields: [wodId], references: [id], onDelete: Cascade)
@@ -574,7 +574,7 @@ model FintocPaymentIntent {
   expiresAt      DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
-  gym            Gym             @relation(fields: [gymId], references: [id])
+  gym            Gym             @relation(fields: [gymId], references: [id], onDelete: Cascade)
 }
 
 enum WodScoreType {

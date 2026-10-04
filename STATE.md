@@ -186,7 +186,7 @@
 
 ## architect
 
-**Última actuación**: 2026-06-11 — Diseño sistema WOD Results + Leaderboard.
+**Última actuación**: 2026-10-04 — Diseño + implementación de cascade delete para `DELETE /superadmin/gyms/:id/permanent` (hallazgo QA H04, `qa/reports/2026-10-02-1141-staging/superadmin.md`).
 
 **Diseños vigentes pendientes de implementar**:
 - `calculateLoad(rm, porcentaje, redondeo)` — RESUELTO.
@@ -194,9 +194,11 @@
 - Refresh Token (auth) — RESUELTO.
 - Fintoc conciliación bancaria — RESUELTO.
 - Fintoc Payments (Pay by Bank) — RESUELTO.
-- **[NUEVO] WOD Results + Leaderboard** — Diseño aprobado 2026-06-11. Enum nuevo: `WodScoreType` (TIME|REPS|WEIGHT|ROUNDS|CUSTOM). Campo nuevo en Wod: `scoreType WodScoreType @default(REPS)`. Tabla nueva: `WodResult` (gymId, wodId, userId, score Float, scoreText?, rx bool, notes?, recordedBy; unique wodId+userId; onDelete Cascade desde Wod). Relaciones en Gym/User/Wod. 4 endpoints: `POST /wods/:id/results` (COACH|ADMIN), `GET /wods/:id/leaderboard` (any auth), `PUT /wods/:id/results/:userId` (COACH|ADMIN), `DELETE /wods/:id/results/:userId` (COACH|ADMIN). Archivo nuevo: `wod.schema.ts`. formatScore en service. Invariante: userId en resultado debe pertenecer al gymId del JWT (validar con findFirst antes de insert). Migración: `add_wod_results_and_score_type`. Invocar: backend-dev primero, luego web-dev + mobile-dev en paralelo, qa-engineer al final.
+- WOD Results + Leaderboard — RESUELTO (implementado por backend-dev 2026-06-11/13).
+- **[NUEVO] Gym cascade delete** — Implementado 2026-10-04 directamente (schema + migración + test; sin necesidad de backend-dev porque no requería cambios de lógica de negocio, solo FKs). 19 relaciones pasadas de `RESTRICT`/`SET NULL` a `onDelete: Cascade` en `apps/api/prisma/schema.prisma`: directas a Gym (`User.gym`, `Plan.gym`, `ClassType.gym`, `Class.gym`, `Wod.gym`, `GymSkill.gym`, `GymSubscription.gym`, `GymSubscriptionPayment.gym`, `FintocLink.gym`, `BankMovement.gym`, `WodResult.gym`, `FintocPaymentIntent.gym`, `Benchmark.gym`) + sin gymId propio cascadeando vía User/Plan/Class (`Booking.user`, `Booking.class`, `RmRecord.user`, `GymnasticProgress.user`, `Membership.user`, `Membership.plan`). Migración `20261004000000_add_gym_cascade_delete` aplicada en DB local (vía `prisma migrate deploy`, no `migrate dev` — ver gotcha de shadow DB abajo). Detalle completo del razonamiento "diamante" (por qué NO se tocó `Class.coach`, `Class.classType`, `Wod.classType`, `WodResult.user/recordedByUser`, `BankMovement.link/membership`, `GymSubscriptionPayment.subscription`) en memoria persistente del architect (`project_gym_cascade_delete.md`). Test nuevo en `apps/api/src/modules/superadmin/__tests__/superadmin.integration.test.ts` (Suite 6b): crea gym+admin+coach+member+plan+classType+class+membership+booking, soft-delete, hard-delete, verifica 200 y que las 7 entidades desaparecieron de la DB real. Verificado que el test FALLA (400) si se revierten las FKs a su estado original (regresión confirmada manualmente, no commiteada). 1084/1084 tests del repo pasando sin regresiones. Sin cambios de código en `superadmin.routes.ts` (el endpoint ya estaba bien escrito, solo le faltaba que `prisma.gym.delete` no reventara). Sin cambios de RLS (solo ALTER de FKs, no tablas nuevas). Cambios sin commitear a propósito — working tree queda así para que el usuario abra el PR.
+- **Gotcha de infra (nuevo, importante para cualquier migración futura)**: `prisma migrate dev` (y `--create-only`) está roto desde la migración `20260927010000_rls_enforced` — falla con P3006 en la shadow database (`REVOKE ALL ON TABLE "_prisma_migrations"` falla ahí). Workaround usado: `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script` (compara contra el estado real de la DB, no contra la shadow DB) + escribir el archivo de migración a mano + `prisma migrate deploy` (no usa shadow DB). Afecta a CUALQUIER agente/dev que intente generar una migración nueva en este repo de ahora en adelante — vale la pena que backend-dev o devops lo arreglen de raíz (la migración RLS asume que `_prisma_migrations` ya existe en el momento en que corre, cosa que no es cierta en el replay de la shadow DB).
 
-**Contratos de API**: desactualizados (no hay docs/api-contracts.md). WOD Results es el cuarto diseño formal documentado.
+**Contratos de API**: desactualizados (no hay docs/api-contracts.md). Gym cascade delete no agrega/cambia endpoints, solo el comportamiento interno de uno ya existente.
 
 ---
 

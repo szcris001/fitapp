@@ -671,6 +671,147 @@ describe('Superadmin: DELETE /api/superadmin/gyms/:id (soft delete)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Suite 6b: DELETE /superadmin/gyms/:id/permanent (cascade delete completo)
+//
+// Verifica que borrar permanentemente un gym (tras el soft delete) atraviesa
+// varios niveles de FKs vía `onDelete: Cascade`: Gym → User/Plan/ClassType →
+// Class/Membership → Booking. Antes del cambio de schema, `prisma.gym.delete`
+// fallaba siempre con 400 ("existe una referencia relacionada") en cuanto el
+// gym tenía al menos un User (vía Plan/ClassType, que eran RESTRICT).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Superadmin: DELETE /api/superadmin/gyms/:id/permanent (cascade delete)', () => {
+  let app: FastifyInstance
+  let gymId: string
+  let adminId: string
+  let coachId: string
+  let memberId: string
+  let planId: string
+  let classTypeId: string
+  let classId: string
+  let membershipId: string
+  let bookingId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+
+    const gym = await prisma.gym.create({
+      data: { name: 'QA SA Cascade Target', slug: 'qa-sa-cascade-target', status: 'ACTIVE' },
+    })
+    gymId = gym.id
+
+    const admin = await prisma.user.create({
+      data: { gymId, name: 'Cascade Admin', email: 'qa-sa-cascade-admin@test.local', passwordHash, role: 'ADMIN' },
+    })
+    adminId = admin.id
+
+    const coach = await prisma.user.create({
+      data: { gymId, name: 'Cascade Coach', email: 'qa-sa-cascade-coach@test.local', passwordHash, role: 'COACH' },
+    })
+    coachId = coach.id
+
+    const member = await prisma.user.create({
+      data: { gymId, name: 'Cascade Member', email: 'qa-sa-cascade-member@test.local', passwordHash, role: 'MEMBER' },
+    })
+    memberId = member.id
+
+    const plan = await prisma.plan.create({
+      data: { gymId, name: 'Plan Cascade', priceCents: 10000 },
+    })
+    planId = plan.id
+
+    const classType = await prisma.classType.create({
+      data: { gymId, name: 'CrossFit Cascade', discipline: 'CROSSFIT' },
+    })
+    classTypeId = classType.id
+
+    const startsAt = new Date()
+    const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000)
+    const klass = await prisma.class.create({
+      data: { gymId, classTypeId, coachId, startsAt, endsAt, capacity: 10 },
+    })
+    classId = klass.id
+
+    const membershipEndsAt = new Date(startsAt.getTime() + 30 * 24 * 60 * 60 * 1000)
+    const membership = await prisma.membership.create({
+      data: { userId: memberId, planId, status: 'ACTIVE', startsAt, endsAt: membershipEndsAt, pricePaid: 10000 },
+    })
+    membershipId = membership.id
+
+    const booking = await prisma.booking.create({
+      data: { userId: memberId, classId, status: 'CONFIRMED' },
+    })
+    bookingId = booking.id
+  })
+
+  afterAll(async () => {
+    await app.close()
+    // No cleanup manual: si el test de cascade delete pasó, ya no queda nada
+    // que limpiar. Si falló antes de llegar al delete, se limpia por las dudas.
+    await prisma.booking.deleteMany({ where: { id: bookingId } }).catch(() => {})
+    await prisma.membership.deleteMany({ where: { id: membershipId } }).catch(() => {})
+    await prisma.class.deleteMany({ where: { id: classId } }).catch(() => {})
+    await prisma.classType.deleteMany({ where: { id: classTypeId } }).catch(() => {})
+    await prisma.plan.deleteMany({ where: { id: planId } }).catch(() => {})
+    await prisma.user.deleteMany({ where: { id: { in: [adminId, coachId, memberId] } } }).catch(() => {})
+    await prisma.gym.deleteMany({ where: { id: gymId } }).catch(() => {})
+  })
+
+  it('permanent delete sin soft-delete previo → 400', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/superadmin/gyms/${gymId}/permanent`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/historial/i)
+  })
+
+  it('soft-delete + permanent delete → 200 y borra Gym, User, Plan, ClassType, Class, Membership y Booking', async () => {
+    // Paso 1: soft delete (precondición del endpoint permanent)
+    const softRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/superadmin/gyms/${gymId}`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    })
+    expect(softRes.statusCode).toBe(200)
+    expect(softRes.json().deletedAt).not.toBeNull()
+
+    // Paso 2: permanent delete
+    const hardRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/superadmin/gyms/${gymId}/permanent`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    })
+    expect(hardRes.statusCode).toBe(200)
+    expect(hardRes.json()).toEqual({ ok: true })
+
+    // El gym y TODA su data relacionada deben haber desaparecido de la DB real
+    expect(await prisma.gym.findUnique({ where: { id: gymId } })).toBeNull()
+    expect(await prisma.user.findUnique({ where: { id: adminId } })).toBeNull()
+    expect(await prisma.user.findUnique({ where: { id: coachId } })).toBeNull()
+    expect(await prisma.user.findUnique({ where: { id: memberId } })).toBeNull()
+    expect(await prisma.plan.findUnique({ where: { id: planId } })).toBeNull()
+    expect(await prisma.classType.findUnique({ where: { id: classTypeId } })).toBeNull()
+    expect(await prisma.class.findUnique({ where: { id: classId } })).toBeNull()
+    expect(await prisma.membership.findUnique({ where: { id: membershipId } })).toBeNull()
+    expect(await prisma.booking.findUnique({ where: { id: bookingId } })).toBeNull()
+  })
+
+  it('gym inexistente → 404', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/superadmin/gyms/00000000-0000-0000-0000-000000000000/permanent',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toMatch(/no encontrado/i)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Suite 7: GET /superadmin/gyms/:id — detalle individual
 // ─────────────────────────────────────────────────────────────────────────────
 
