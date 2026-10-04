@@ -559,7 +559,7 @@ describe('GET /api/gyms/me/movements-library — biblioteca de movimientos', () 
     expect(Array.isArray(body)).toBe(true)
   })
 
-  it('ADMIN actualiza biblioteca con movimientos válidos → 200', async () => {
+  it('ADMIN actualiza biblioteca con movimientos válidos (formato legado: strings sueltos) → 200, normalizados a {name, cat}', async () => {
     const movements = ['Snatch', 'Clean & Jerk', 'Back Squat', 'Deadlift']
     const res = await app.inject({
       method: 'PUT', url: '/api/gyms/me/movements-library',
@@ -572,7 +572,7 @@ describe('GET /api/gyms/me/movements-library — biblioteca de movimientos', () 
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.movements).toEqual(movements)
+    expect(body.movements).toEqual(movements.map(name => ({ name, cat: 'Personalizado' })))
   })
 
   it('GET movements-library refleja los movimientos guardados', async () => {
@@ -584,7 +584,36 @@ describe('GET /api/gyms/me/movements-library — biblioteca de movimientos', () 
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body).toEqual(movements)
+    expect(body).toEqual(movements.map(name => ({ name, cat: 'Personalizado' })))
+  })
+
+  it('PUT movements-library con duplicados exactos y por tildes → se deduplica, queda 1 solo', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/gyms/me/movements-library',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${adminAToken}`,
+      },
+      payload: JSON.stringify({
+        movements: [{ name: 'Sentadilla' }, { name: 'sentadilla' }, { name: 'Sentadillá' }],
+      }),
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().movements).toEqual([{ name: 'Sentadilla', cat: 'Personalizado' }])
+  })
+
+  it('PUT movements-library con nombre vacío (solo espacios) → 400', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/gyms/me/movements-library',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${adminAToken}`,
+      },
+      payload: JSON.stringify({ movements: [{ name: '   ' }] }),
+    })
+
+    expect(res.statusCode).toBe(400)
   })
 
   it('PUT movements-library con campo no-array → 400', async () => {
@@ -598,7 +627,7 @@ describe('GET /api/gyms/me/movements-library — biblioteca de movimientos', () 
     })
 
     expect(res.statusCode).toBe(400)
-    expect(res.json().error).toMatch(/array/i)
+    expect(res.json().error).toBe('Datos inválidos')
   })
 
   it('Admin B ve su propia biblioteca (vacía), no la de Admin A', async () => {
@@ -612,7 +641,7 @@ describe('GET /api/gyms/me/movements-library — biblioteca de movimientos', () 
     // Gym B no tiene movimientos cargados — debe ser array vacío
     expect(Array.isArray(body)).toBe(true)
     // No debe contener los movimientos de Gym A
-    expect(body).not.toContain('Snatch')
+    expect(body.some((m: any) => m.name === 'Snatch')).toBe(false)
   })
 
   it('PUT movements-library con array vacío → borra la biblioteca', async () => {
