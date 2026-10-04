@@ -63,7 +63,7 @@ export async function userRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/users/export', { preHandler: [requireCoachOrAdmin] }, async (req, reply) => {
+  app.get('/users/export', { preHandler: [requireAdmin] }, async (req, reply) => {
     const { format = 'csv', status = 'all', role = 'MEMBER' } = req.query as any
     const gymId = (req.user as any).gymId
 
