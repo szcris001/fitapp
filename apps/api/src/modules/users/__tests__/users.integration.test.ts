@@ -972,6 +972,15 @@ describe('Users: GET /api/users/export — previene CSV injection', () => {
 
   afterAll(async () => { await app.close() })
 
+  it('COACH no puede exportar (solo ADMIN) → 403', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/users/export?format=csv&role=MEMBER',
+      headers: { authorization: `Bearer ${coachAToken}` },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
   it('antepone comilla simple a un nombre que empieza con "="', async () => {
     const res = await app.inject({
       method: 'GET',
