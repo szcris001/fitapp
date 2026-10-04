@@ -302,6 +302,51 @@ describe('Plans: POST /api/plans — crear plan', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('body inválido (priceCents fuera del rango de Int4) → 400, no 500 de Postgres', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/plans',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'Plan Precio Enorme', priceCents: 2_147_483_648 }, // > Int4 max (2147483647)
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('body inválido (maxClasses negativo o cero) → 400', async () => {
+    for (const maxClasses of [-5, 0]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/plans',
+        headers: { authorization: `Bearer ${adminAToken}` },
+        payload: { name: 'Plan MaxClasses Inválido', priceCents: 10000, maxClasses },
+      })
+      expect(res.statusCode).toBe(400)
+    }
+  })
+
+  it('body inválido (currency fuera de la lista soportada) → 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/plans',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'Plan Moneda Inválida', priceCents: 10000, currency: 'XXXX' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('isTrial:true con priceCents>0 → el servidor fuerza priceCents=0 (no solo el cliente)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/plans',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'Plan Trial Con Precio', priceCents: 9999, isTrial: true },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().priceCents).toBe(0)
+    expect(res.json().isTrial).toBe(true)
+    createdPlanIds.push(res.json().id)
+  })
+
   it('durationDays enviado se ignora → el plan siempre dura 30 días', async () => {
     const res = await app.inject({
       method: 'POST',
