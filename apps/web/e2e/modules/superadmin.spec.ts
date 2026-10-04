@@ -4,10 +4,15 @@
  * No crea ni borra gyms. El cambio de sede (SUP-02) ocurre solo en el contexto del
  * navegador de este test: no toca playwright/.auth/superadmin.json.
  */
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { QA, api, API_URL, authFile, open } from '../support/qa'
 
 const { norte, sur } = QA.gyms
+
+/** Los <label> de /superadmin/new y /superadmin/[id] no tienen htmlFor — el input es el hermano siguiente */
+const field = (page: Page, label: string) =>
+  page.locator('label', { hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })
+    .locator('xpath=following-sibling::input[1]')
 
 test.describe('SUP — superadmin', () => {
   test.use({ storageState: authFile('superadmin') })
@@ -62,6 +67,35 @@ test.describe('SUP — superadmin', () => {
     const res = await api('superadmin', 'POST', '/gyms/switch-sede', { targetGymId: target.id })
     expect(res.status, JSON.stringify(res.data)).toBe(200)
     expect(res.data.user.gymId).toBe(target.id)
+  })
+
+  test('SUP-03 crear gimnasio con slug inválido → el banner muestra el detalle del campo, no "Datos inválidos" genérico', async ({ page }) => {
+    // No llega a crear nada: Zod rechaza con 400 antes de tocar la DB (ver nota del
+    // archivo "No crea ni borra gyms").
+    const p = await open(page, '/superadmin/new')
+    const uid = Date.now().toString(36)
+    await field(page, 'Nombre del gimnasio *').fill(`QA E2E Slug Inválido ${uid}`)
+    // El input sanitiza mayúsculas/espacios al tipear (mismo fix que /superadmin/[id]),
+    // pero "a" solo (1 char) pasa el filtro de caracteres y sigue violando el
+    // min(2) del schema — fuerza el 400 de Zod sin pelear con el sanitizador.
+    const slugInput = field(page, 'Slug (URL única) *')
+    await slugInput.fill('')
+    await slugInput.pressSequentially('a')
+    await expect(slugInput).toHaveValue('a')
+    await field(page, 'Email *').fill(`qa-e2e-slug-invalido-${uid}@qa-norte.test`)
+    await field(page, 'Contraseña temporal *').fill('password123')
+    await field(page, 'Nombre *').fill('QA E2E Admin')
+
+    await page.getByRole('main').getByRole('button', { name: 'Crear gimnasio' }).click()
+
+    // El banner de error es el <div> justo antes del <form> (ver {error && (...)} en
+    // new/page.tsx). Debe mostrar el detalle de Zod para el campo, no el genérico de
+    // nivel superior que antes ignoraba `details.fieldErrors`.
+    const banner = page.getByRole('main').locator('form').locator('xpath=preceding-sibling::div[1]')
+    await expect(banner).toBeVisible()
+    await expect(banner).not.toHaveText('Datos inválidos')
+    await expect(banner).not.toHaveText('')
+    p.expectNoErrors()
   })
 
   // Endurecimiento: la lista y el detalle de gyms devuelven las columnas completas de Gym,
