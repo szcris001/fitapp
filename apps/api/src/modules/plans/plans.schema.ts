@@ -16,6 +16,8 @@ export const updatePlanSchema = z.object({
   currency: z.string().optional(),
   maxClasses: z.number().int().nullable().optional(),
   isTrial: z.boolean().optional(),
+  // Reactivar un plan pausado (DELETE /plans/:id lo pausa; esto permite deshacerlo).
+  isActive: z.boolean().optional(),
 })
 
 export type UpdatePlanInput = z.infer<typeof updatePlanSchema>

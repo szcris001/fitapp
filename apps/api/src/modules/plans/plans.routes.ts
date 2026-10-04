@@ -8,8 +8,9 @@ export async function planRoutes(app: FastifyInstance) {
     const user = request.user as any
     const gymId = user.gymId
     if (!gymId) return reply.status(400).send({ error: 'Sin gimnasio asignado' })
+    const { includeInactive } = request.query as { includeInactive?: string }
     try {
-      const plans = await listPlans(gymId)
+      const plans = await listPlans(gymId, includeInactive === 'true')
       return reply.send(plans)
     } catch (err: any) {
       throw err // lo responde el error handler global (oculta detalles 5xx en producción)

@@ -153,4 +153,40 @@ test.describe('PLN — admin', () => {
     await expect(planCard(page, QA.gyms.sur.plans.mensual.name)).toHaveCount(0)
     p.expectNoErrors()
   })
+
+  test('PLN-07 pausar un plan lo oculta, "Mostrar pausados" lo revela, y se puede reactivar', async ({ page }) => {
+    const name = `QA Plan Pausar ${uid()}`
+    const res = await api('admin', 'POST', '/plans', { name, priceCents: 15000, currency: 'CLP' })
+    expect(res.status).toBe(201)
+    created.push(res.data.id)
+
+    const p = await open(page, '/dashboard/plans')
+    page.once('dialog', d => d.accept())
+    await planCard(page, name).locator('button').last().click()
+    await expect(page.getByText('Plan pausado')).toBeVisible()
+
+    // Desaparece de la grilla por defecto...
+    await expect(planCard(page, name)).toHaveCount(0)
+    // ...pero sigue existiendo, no borrado
+    const { data: afterPause } = await api('admin', 'GET', '/plans?includeInactive=true')
+    const paused = (afterPause as any[]).find(x => x.name === name)
+    expect(paused?.isActive).toBe(false)
+
+    // "Mostrar pausados" lo revela con el badge
+    await page.getByText('Mostrar pausados').click()
+    const pausedCard = planCard(page, name)
+    await expect(pausedCard).toBeVisible()
+    await expect(pausedCard).toContainText('PAUSADO')
+
+    // Reactivar lo vuelve a dejar activo y visible sin el filtro
+    await pausedCard.getByRole('button', { name: 'Reactivar' }).click()
+    await expect(page.getByText('Plan reactivado')).toBeVisible()
+    await page.getByText('Mostrar pausados').click() // apagar el filtro
+    await expect(planCard(page, name)).toBeVisible()
+    await expect(planCard(page, name)).not.toContainText('PAUSADO')
+
+    const plan = await findPlan(name)
+    expect(plan?.isActive).toBe(true)
+    p.expectNoErrors()
+  })
 })
