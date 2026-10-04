@@ -2,6 +2,13 @@ import nodemailer from 'nodemailer'
 import { prisma } from './prisma'
 import { toMajorUnits } from './money'
 
+// nodemailer usa 2 minutos de connectionTimeout por defecto: un SMTP mal configurado o
+// inalcanzable (host equivocado, firewall) deja cualquier endpoint que envíe un correo
+// (p. ej. POST /superadmin/gyms) colgado ese tiempo antes de caer al catch. 10s es de
+// sobra para un SMTP real y evita ese bloqueo.
+const SMTP_TIMEOUT_MS = 10_000
+const smtpTimeouts = { connectionTimeout: SMTP_TIMEOUT_MS, greetingTimeout: SMTP_TIMEOUT_MS, socketTimeout: SMTP_TIMEOUT_MS }
+
 type GymSmtp = {
   smtpHost?: string | null
   smtpPort?: number | null
@@ -37,6 +44,7 @@ async function getTransporter(gym: GymSmtp) {
         port: 587,
         secure: false,
         auth: { user: testAccount.user, pass: testAccount.pass },
+        ...smtpTimeouts,
       }),
       ethereal: true,
       from: `FitApp Test <${testAccount.user}>`,
@@ -49,6 +57,7 @@ async function getTransporter(gym: GymSmtp) {
       port,
       secure: port === 465,
       auth: { user, pass },
+      ...smtpTimeouts,
     }),
     ethereal: false,
     from: gym.smtpFrom || process.env.SMTP_FROM || `${gym.name} <${user}>`,
@@ -288,6 +297,7 @@ export async function sendBulkToGyms(options: {
   const transporter = nodemailer.createTransport({
     host: host || 'smtp.gmail.com', port, secure: port === 465,
     auth: { user, pass },
+    ...smtpTimeouts,
   })
 
   let sent = 0

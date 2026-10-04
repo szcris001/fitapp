@@ -346,6 +346,15 @@ describe('sendWelcomeEmail', () => {
     expect(callArgs.html).toContain(welcomeData.tempPassword)
     expect(callArgs.html).toContain(welcomeData.gymSlug)
   })
+
+  it('createTransport (Ethereal) se crea con timeouts cortos, no el default de nodemailer (2min)', async () => {
+    await sendWelcomeEmail(welcomeData)
+
+    const transportOptions = vi.mocked(nodemailer.createTransport).mock.calls[0][0] as any
+    expect(transportOptions.connectionTimeout).toBeLessThanOrEqual(10_000)
+    expect(transportOptions.greetingTimeout).toBeLessThanOrEqual(10_000)
+    expect(transportOptions.socketTimeout).toBeLessThanOrEqual(10_000)
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -379,6 +388,24 @@ describe('sendTestEmail', () => {
     expect(result.to).toBe('contacto@migym.com')
     const callArgs = currentSendMail.mock.calls[0][0]
     expect(callArgs.to).toBe('contacto@migym.com')
+  })
+
+  it('con SMTP real configurado, createTransport también lleva timeouts cortos', async () => {
+    gymFindUniqueSpy.mockResolvedValue({
+      ...BASE_GYM,
+      smtpHost: 'smtp.unreachable-mailserver.test',
+      smtpUser: 'gym@unreachable-mailserver.test',
+      smtpPass: 'secret',
+    } as any)
+
+    await sendTestEmail('gym-id-1')
+
+    expect(nodemailer.createTestAccount).not.toHaveBeenCalled()
+    const transportOptions = vi.mocked(nodemailer.createTransport).mock.calls[0][0] as any
+    expect(transportOptions.host).toBe('smtp.unreachable-mailserver.test')
+    expect(transportOptions.connectionTimeout).toBeLessThanOrEqual(10_000)
+    expect(transportOptions.greetingTimeout).toBeLessThanOrEqual(10_000)
+    expect(transportOptions.socketTimeout).toBeLessThanOrEqual(10_000)
   })
 })
 
