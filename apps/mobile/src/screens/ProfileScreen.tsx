@@ -516,7 +516,9 @@ export default function ProfileScreen({ navigation }: any) {
             style={styles.settingRow}
             onPress={() => Alert.alert(
               'Términos de Servicio',
-              'Puedes consultar los Términos de Servicio en:\nhttps://fitapp.tudominio.com/terms',
+              gymInfo?.termsAndConditions?.trim()
+                ? gymInfo.termsAndConditions
+                : `${gymInfo?.name ?? 'Este gimnasio'} todavía no publicó sus términos de servicio.`,
               [{ text: 'Entendido' }]
             )}
             activeOpacity={0.7}
