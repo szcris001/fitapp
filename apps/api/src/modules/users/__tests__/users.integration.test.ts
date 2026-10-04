@@ -514,7 +514,7 @@ describe('Users: POST /api/users — crear usuario', () => {
         name: 'Usuario Con RUT',
         email: 'qa-users-rut-first@test.local',
         password: 'password123',
-        rut: '12345678-9',
+        rut: '12345678-5',
       },
     })
     expect(first.statusCode).toBe(201)
@@ -529,7 +529,7 @@ describe('Users: POST /api/users — crear usuario', () => {
         name: 'Otro Usuario Con RUT',
         email: 'qa-users-rut-second@test.local',
         password: 'password123',
-        rut: '12345678-9',
+        rut: '12345678-5',
       },
     })
     expect(second.statusCode).toBe(400)
@@ -545,11 +545,73 @@ describe('Users: POST /api/users — crear usuario', () => {
         name: 'Rut Otro Gym',
         email: 'qa-users-rut-other-gym@test.local',
         password: 'password123',
-        rut: '12345678-9', // mismo RUT, gymB → permitido
+        rut: '12345678-5', // mismo RUT, gymB → permitido
       },
     })
     expect(res.statusCode).toBe(201)
     createdUserIds.push(res.json().id)
+  })
+
+  it('RUT con dígito verificador incorrecto → 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        name: 'RUT Inválido',
+        email: 'qa-users-rut-bad-checkdigit@test.local',
+        password: 'password123',
+        rut: '12345678-9', // dígito verificador real es 5, no 9
+      },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('RUT con formato libre ("no-es-un-rut") → 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        name: 'RUT Formato Libre',
+        email: 'qa-users-rut-free-format@test.local',
+        password: 'password123',
+        rut: 'no-es-un-rut-12345<script>',
+      },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('RUT con puntos se normaliza y acepta (mismo dígito verificador)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        name: 'RUT Con Puntos',
+        email: 'qa-users-rut-con-puntos@test.local',
+        password: 'password123',
+        rut: '87.654.321-4',
+      },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().rut).toBe('87654321-4')
+    createdUserIds.push(res.json().id)
+  })
+
+  it('fecha de nacimiento futura → 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        name: 'Nace En El Futuro',
+        email: 'qa-users-birthdate-future@test.local',
+        password: 'password123',
+        birthDate: '2099-01-01',
+      },
+    })
+    expect(res.statusCode).toBe(400)
   })
 
   it('role inválido → 400', async () => {
@@ -704,7 +766,7 @@ describe('Users: PUT /api/users/:id — actualizar usuario', () => {
         email: 'qa-users-rut-existing@test.local',
         passwordHash,
         role: 'MEMBER',
-        rut: '99887766-5',
+        rut: '99887766-0',
       },
     })
     createdUserIds.push(userWithRut.id)
@@ -714,7 +776,7 @@ describe('Users: PUT /api/users/:id — actualizar usuario', () => {
       method: 'PUT',
       url: `/api/users/${targetUserId}`,
       headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { rut: '99887766-5' },
+      payload: { rut: '99887766-0' },
     })
     expect(res.statusCode).toBe(404)
     expect(res.json().error).toMatch(/RUT ya está registrado/i)
