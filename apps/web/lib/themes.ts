@@ -1,6 +1,7 @@
 export type SportTheme =
   | 'neutral'
   | 'crossfit'
+  | 'hyrox'
   | 'swimming'
   | 'football'
   | 'boxing'
@@ -35,6 +36,15 @@ export const SPORT_THEMES: ThemeConfig[] = [
     secondary: '#FB923C',
     accent: '#FED7AA',
     description: 'Fuego, industrial, raw',
+  },
+  {
+    id: 'hyrox',
+    name: 'HYROX',
+    emoji: '🔥',
+    primary: '#B91C1C',
+    secondary: '#DC2626',
+    accent: '#FCA5A5',
+    description: 'Carrera funcional, resistencia, acero',
   },
   {
     id: 'swimming',

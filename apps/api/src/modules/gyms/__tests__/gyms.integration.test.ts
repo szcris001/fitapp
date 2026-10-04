@@ -497,6 +497,20 @@ describe('PUT /api/gyms/me — actualizar settings del gym', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('sportTheme: "hyrox" es válido → 200 (ofrecido por la UI, debe existir en el enum del servidor)', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/gyms/me',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${adminAToken}`,
+      },
+      payload: JSON.stringify({ sportTheme: 'hyrox' }),
+    })
+    expect(res.statusCode).toBe(200)
+    const gym = await prisma.gym.findUnique({ where: { id: gymAId } })
+    expect(gym?.sportTheme).toBe('hyrox')
+  })
+
   it('waitlistConfirmEnabled + waitlistConfirmMins → persistidos correctamente', async () => {
     const res = await app.inject({
       method: 'PUT', url: '/api/gyms/me',
