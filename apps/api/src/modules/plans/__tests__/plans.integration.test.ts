@@ -631,6 +631,46 @@ describe('Plans: DELETE /api/plans/:id — desactivar plan', () => {
     const mInDb = await prisma.membership.findUnique({ where: { id: m.id } })
     expect(mInDb!.status).toBe('ACTIVE')
   })
+
+  it('plan desactivado SÍ aparece en GET /plans?includeInactive=true', async () => {
+    const p = await prisma.plan.create({
+      data: { gymId: gymAId, name: 'Plan A Pausado Visible', priceCents: 10000, currency: 'CLP', durationDays: 30, isActive: false },
+    })
+    createdPlanIds.push(p.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/plans?includeInactive=true',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const found = res.json().find((x: any) => x.id === p.id)
+    expect(found).toBeDefined()
+    expect(found.isActive).toBe(false)
+  })
+
+  it('PUT /plans/:id {isActive:true} reactiva un plan pausado → vuelve a aparecer en GET /plans', async () => {
+    const p = await prisma.plan.create({
+      data: { gymId: gymAId, name: 'Plan A Para Reactivar', priceCents: 10000, currency: 'CLP', durationDays: 30, isActive: false },
+    })
+    createdPlanIds.push(p.id)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/plans/${p.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { isActive: true },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().isActive).toBe(true)
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/api/plans',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(listRes.json().find((x: any) => x.id === p.id)).toBeDefined()
+  })
 })
 
 // ─── Suite 5: POST /api/memberships — assignMembership ────────────────────────

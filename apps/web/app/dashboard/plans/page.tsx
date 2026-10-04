@@ -6,7 +6,7 @@ import api from '../../../lib/api'
 import { toMajorUnits, toMinorUnits } from '../../../lib/money'
 import {
   CreditCard, Plus, Clock, Edit2, Check, X, Trash2,
-  Search, FlaskConical, Infinity, Calendar, Layers,
+  Search, FlaskConical, Infinity, Calendar, Layers, RotateCcw,
 } from 'lucide-react'
 
 // Toda membresía dura 30 días (regla de negocio; la API ignora cualquier otra duración)
@@ -83,10 +83,12 @@ function PlanCard({
   plan,
   onEdit,
   onDelete,
+  onReactivate,
 }: {
   plan: Plan
   onEdit: (plan: Plan) => void
   onDelete: (id: string) => void
+  onReactivate: (id: string) => void
 }) {
   const priceDisplay =
     plan.isTrial
@@ -201,28 +203,41 @@ function PlanCard({
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          onClick={() => onEdit(plan)}
-          className="btn-secondary flex-1 py-2 text-sm flex items-center justify-center gap-1.5"
-          style={{ borderRadius: 10 }}
-        >
-          <Edit2 style={{ width: 13, height: 13 }} />
-          Editar
-        </button>
-        <button
-          onClick={() => onDelete(plan.id)}
-          style={{
-            padding: '8px 14px', borderRadius: 10, fontSize: 13,
-            color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)',
-            border: '1px solid rgba(239,68,68,0.15)', cursor: 'pointer',
-            transition: 'background 0.15s',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.18)' }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.08)' }}
-        >
-          <Trash2 style={{ width: 15, height: 15 }} />
-        </button>
+        {plan.isActive ? (
+          <>
+            <button
+              onClick={() => onEdit(plan)}
+              className="btn-secondary flex-1 py-2 text-sm flex items-center justify-center gap-1.5"
+              style={{ borderRadius: 10 }}
+            >
+              <Edit2 style={{ width: 13, height: 13 }} />
+              Editar
+            </button>
+            <button
+              onClick={() => onDelete(plan.id)}
+              style={{
+                padding: '8px 14px', borderRadius: 10, fontSize: 13,
+                color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)',
+                border: '1px solid rgba(239,68,68,0.15)', cursor: 'pointer',
+                transition: 'background 0.15s',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.18)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.08)' }}
+            >
+              <Trash2 style={{ width: 15, height: 15 }} />
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => onReactivate(plan.id)}
+            className="btn-secondary flex-1 py-2 text-sm flex items-center justify-center gap-1.5"
+            style={{ borderRadius: 10 }}
+          >
+            <RotateCcw style={{ width: 13, height: 13 }} />
+            Reactivar
+          </button>
+        )}
       </div>
     </div>
   )
@@ -437,6 +452,7 @@ export default function PlansPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
   const [createForm, setCreateForm] = useState<FormShape>(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const router = useRouter()
@@ -457,7 +473,9 @@ export default function PlansPage() {
   const fetchPlans = async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/plans')
+      // Siempre trae pausados también: el toggle "Mostrar pausados" filtra en el cliente,
+      // así no hay que volver a pedir al servidor cada vez que se prende/apaga.
+      const { data } = await api.get('/plans?includeInactive=true')
       setPlans(data)
     } catch {
       /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */
@@ -513,20 +531,32 @@ export default function PlansPage() {
   }
 
   const handleDelete = async (planId: string) => {
-    if (!confirm('Desactivar este plan? Los alumnos que lo tienen activo no se veran afectados.')) return
+    if (!confirm('Pausar este plan? Los alumnos que lo tienen activo no se veran afectados. Podras reactivarlo despues con "Mostrar pausados".')) return
     try {
       await api.delete(`/plans/${planId}`)
-      setSuccess('Plan desactivado')
+      setSuccess('Plan pausado')
       fetchPlans()
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al desactivar')
+      setError(err.response?.data?.error || 'Error al pausar')
     }
   }
 
-  const filteredPlans = plans.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
+  const handleReactivate = async (planId: string) => {
+    try {
+      await api.put(`/plans/${planId}`, { isActive: true })
+      setSuccess('Plan reactivado')
+      fetchPlans()
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al reactivar')
+    }
+  }
+
+  const filteredPlans = plans
+    .filter(p => showInactive || p.isActive)
+    .filter(p =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
+    )
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '48px 24px' }}>
@@ -555,19 +585,31 @@ export default function PlansPage() {
         </div>
       </div>
 
-      {/* ── Search ── */}
-      <div style={{ position: 'relative', marginBottom: 24 }}>
-        <Search style={{
-          position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
-          width: 15, height: 15, color: 'var(--text-4)', pointerEvents: 'none',
-        }} />
-        <input
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          placeholder="Buscar por nombre o descripcion..."
-          className="input"
-          style={{ paddingLeft: '2.5rem' }}
-        />
+      {/* ── Search + filtros ── */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 24, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
+          <Search style={{
+            position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)',
+            width: 15, height: 15, color: 'var(--text-4)', pointerEvents: 'none',
+          }} />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Buscar por nombre o descripcion..."
+            className="input"
+            style={{ paddingLeft: '2.5rem' }}
+          />
+        </div>
+        <label className="flex items-center gap-2 cursor-pointer" style={{ whiteSpace: 'nowrap' }}>
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={e => setShowInactive(e.target.checked)}
+            className="w-4 h-4 rounded"
+            style={{ accentColor: 'var(--primary)' }}
+          />
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)' }}>Mostrar pausados</span>
+        </label>
       </div>
 
       {/* ── Toasts ── */}
@@ -634,7 +676,7 @@ export default function PlansPage() {
         </div>
       ) : filteredPlans.length === 0 ? (
         <EmptyState
-          hasSearch={searchQuery.length > 0}
+          hasSearch={searchQuery.length > 0 || plans.length > 0}
           onCreateClick={() => setShowCreate(true)}
         />
       ) : (
@@ -654,6 +696,7 @@ export default function PlansPage() {
                 plan={plan}
                 onEdit={p => { setEditingId(p.id); setShowCreate(false) }}
                 onDelete={handleDelete}
+                onReactivate={handleReactivate}
               />
             )
           )}

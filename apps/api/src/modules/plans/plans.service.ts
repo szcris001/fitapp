@@ -3,9 +3,9 @@ import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput } from './plans
 import { handlePrismaError } from '../../lib/prismaError'
 import { MEMBERSHIP_DAYS, nextMembershipPeriod } from '../../lib/membership'
 
-export async function listPlans(gymId: string) {
+export async function listPlans(gymId: string, includeInactive = false) {
   return prisma.plan.findMany({
-    where: { gymId, isActive: true },
+    where: { gymId, ...(includeInactive ? {} : { isActive: true }) },
     orderBy: { priceCents: 'asc' },
   })
 }
@@ -31,6 +31,7 @@ export async function updatePlan(gymId: string, planId: string, data: UpdatePlan
         ...(data.currency !== undefined && { currency: data.currency }),
         ...(data.maxClasses !== undefined && { maxClasses: data.maxClasses }),
         ...(data.isTrial !== undefined && { isTrial: data.isTrial }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     })
   } catch (err) {
