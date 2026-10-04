@@ -54,7 +54,12 @@ export default function NewGymPage() {
       setEmailPreviewUrl(data.emailPreviewUrl ?? null)
       setEmailError(data.emailError ?? null)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al crear el gimnasio')
+      // Errores de Zod (400 "Datos inválidos") traen el detalle por campo en
+      // details.fieldErrors — sin esto, un slug con mayúsculas/espacios solo mostraba
+      // el genérico "Datos inválidos" sin decir qué campo estaba mal.
+      const fieldErrors = err.response?.data?.details?.fieldErrors as Record<string, string[]> | undefined
+      const firstFieldError = fieldErrors && Object.values(fieldErrors).flat().find(Boolean)
+      setError(firstFieldError || err.response?.data?.error || 'Error al crear el gimnasio')
     } finally { setLoading(false) }
   }
 
@@ -179,7 +184,7 @@ Password: ${form.adminPassword}`}
           </div>
           <div>
             <label style={labelStyle}>Slug (URL única) *</label>
-            <input value={form.gymSlug} onChange={e => set('gymSlug', e.target.value)}
+            <input value={form.gymSlug} onChange={e => set('gymSlug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
               required placeholder="crossfit-santiago"
               style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '0.875rem' }} />
             <p className="text-xs mt-1" style={{ color: '#475569' }}>Login: slug + email + contraseña</p>
