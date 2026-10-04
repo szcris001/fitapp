@@ -432,6 +432,14 @@ describe('E2E: Flujo crítico del alumno', () => {
   })
 
   it('Paso 7: Admin registra asistencia del alumno → booking pasa a ATTENDED', async () => {
+    // La clase se creó para "mañana" (Paso 2) porque reservar exige startsAt futuro.
+    // Para simular que la clase ya ocurrió (requisito para marcar asistencia, ver
+    // H01 en qa/reports), adelantamos su horario directamente en DB — igual patrón
+    // que el Paso 4 usa para la membresía.
+    await prisma.class.update({
+      where: { id: classId },
+      data: { startsAt: new Date(Date.now() - 60 * 60 * 1000), endsAt: new Date(Date.now() - 30 * 60 * 1000) },
+    })
     // Usamos PATCH /api/bookings/:bookingId/attend (endpoint individual por booking)
     const res = await app.inject({
       method: 'PATCH',

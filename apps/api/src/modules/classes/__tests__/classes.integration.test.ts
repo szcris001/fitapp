@@ -1565,10 +1565,12 @@ describe('Asistencia: PATCH /api/bookings/:bookingId/attend', () => {
 
   beforeAll(async () => {
     app = await buildApp()
+    // Clase ya pasada: estos casos prueban el toggle de asistencia en sí, no la
+    // validación de horario (ver describe aparte más abajo para clases futuras).
     const cls = await prisma.class.create({
       data: {
         gymId: gymAId, classTypeId: baseClassTypeAId, coachId: coachAId,
-        startsAt: new Date('2026-12-05T13:00:00Z'), endsAt: new Date('2026-12-05T14:00:00Z'), capacity: 10, frequency: 'ONCE',
+        startsAt: new Date('2026-01-15T13:00:00Z'), endsAt: new Date('2026-01-15T14:00:00Z'), capacity: 10, frequency: 'ONCE',
       },
     })
     classId = cls.id
@@ -1615,5 +1617,26 @@ describe('Asistencia: PATCH /api/bookings/:bookingId/attend', () => {
     })
     // Antes attended nunca se marcaba en este flujo y el contador quedaba en 0
     expect(list.json().attended).toBe(1)
+  })
+
+  it('marcar asistencia en una clase que todavía no empieza → 409, sin cambiar el estado', async () => {
+    const futureCls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: baseClassTypeAId, coachId: coachAId,
+        startsAt: new Date(Date.now() + 24 * 60 * 60 * 1000), endsAt: new Date(Date.now() + 25 * 60 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    createdClassIds.push(futureCls.id)
+    const futureBooking = await prisma.booking.create({ data: { userId: memberAId, classId: futureCls.id, status: 'CONFIRMED' } })
+
+    const res = await app.inject({
+      method: 'PATCH', url: `/api/bookings/${futureBooking.id}/attend`,
+      headers: { authorization: `Bearer ${coachAToken}` },
+    })
+    expect(res.statusCode).toBe(409)
+
+    const unchanged = await prisma.booking.findUnique({ where: { id: futureBooking.id } })
+    expect(unchanged).toMatchObject({ status: 'CONFIRMED', attended: false, attendedAt: null })
   })
 })
