@@ -439,33 +439,40 @@ test.describe('CLS — tipos de clase (admin)', () => {
     const importB = `${PREFIX} Import B ${RUN}`
     const file = join(tmpdir(), `e2e-class-types-${RUN}.xlsx`)
     const wb = XLSX.utils.book_new()
+    // "powerlifting" no estaba en la lista de disciplinas válidas del importador (solo
+    // tenía 6 de las 15 reales) aunque la API y el selector de "Nueva clase" sí la aceptan
+    // — el preview la marcaba "Disciplina no válida" por error.
+    const importC = `${PREFIX} Import C ${RUN}`
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ['tipo_clase', 'disciplina', 'color', 'descripcion', 'bloque_nombre', 'bloque_duracion_mins', 'bloque_notas', 'bloque_opcional'],
       [importA, 'crossfit', '#6366f1', 'Importado A', 'Entrada en calor', 10, '', 'No'],
       [importA, 'crossfit', '#6366f1', '', 'Metcon', 20, 'For time', 'No'],
       [importB, 'endurance', '#10b981', 'Importado B', 'Trabajo principal', 40, '', 'Sí'],
+      [importC, 'powerlifting', '#f59e0b', 'Importado C', 'Fuerza máxima', 30, '', 'No'],
     ]), 'Tipos de clase')
     XLSX.writeFile(wb, file)
 
     await open(page, '/dashboard/settings/class-types/import')
     await page.locator('input[type="file"]').setInputFiles(file)
-    await page.getByRole('button', { name: 'Importar 2 tipos' }).click()
+    await expect(page.getByText(/no válida/)).toHaveCount(0)
+    await page.getByRole('button', { name: 'Importar 3 tipos' }).click()
     await expect(page.getByText('Importación completada')).toBeVisible()
-    await expect(page.getByText('2 tipos creados')).toBeVisible()
+    await expect(page.getByText('3 tipos creados')).toBeVisible()
 
     const all = await types()
     const a = all.find(t => t.name === importA)
     const b = all.find(t => t.name === importB)
+    const c = all.find(t => t.name === importC)
     expect(a?.blocks).toHaveLength(2)
     expect(b?.blocks).toHaveLength(1)
     expect(b?.discipline).toBe('endurance')
+    expect(c?.discipline).toBe('powerlifting')
     p.expectNoErrors()
   })
 
-  // BUG: la web ofrece disciplinas que la API rechaza. settings/class-types/page.tsx (DISCIPLINES, L25-41)
-  // tiene powerlifting, gymnastics, rowing, cycling, mobility, etc., pero createClassTypeSchema
-  // (apps/api/src/modules/classes/classes.schema.ts L14) solo acepta crossfit|weightlifting|endurance|hyrox|manual
-  // → 400, y la página intenta renderizar el objeto de error de Zod.
+  // El selector de la web (DISCIPLINES en settings/class-types/page.tsx) y el enum de la API
+  // (CLASS_DISCIPLINES en classes.schema.ts) están sincronizados — "Fuerza" (powerlifting)
+  // es una de las disciplinas que antes rechazaba la API; cubre que sigan alineadas.
   test('CLS-08 crear tipo de clase con disciplina «Fuerza» (ofrecida por la web)', async ({ page }) => {
     const name = `${PREFIX} Fuerza ${RUN}`
     const p = await open(page, '/dashboard/settings/class-types')
