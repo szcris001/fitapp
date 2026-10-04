@@ -1,8 +1,10 @@
 import { z } from 'zod'
 
+// Normalizado a minúsculas: ver la nota en auth.schema.ts sobre por qué (duplicados
+// "iguales salvo mayúsculas" y login case-sensitive).
 export const createUserSchema = z.object({
   name: z.string().min(2),
-  email: z.string().email(),
+  email: z.string().email().toLowerCase(),
   password: z.string().min(6),
   phone: z.string().optional(),
   gender: z.string().optional(),
@@ -14,7 +16,7 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
   name: z.string().min(2).optional(),
-  email: z.string().email().optional(),
+  email: z.string().email().toLowerCase().optional(),
   phone: z.string().optional(),
   gender: z.string().optional(),
   birthDate: z.string().optional(),

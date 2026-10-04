@@ -193,6 +193,23 @@ describe('Auth Integration — POST /api/auth/login', () => {
     expect(body.user.passwordHash).toBeUndefined()
   })
 
+  // ── Caso 1b: mismo email pero con otra capitalización ───────────────────────
+  it('login con email en mayúsculas/mixto (mismo email guardado en minúsculas) → 200', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: 'QA-Admin@Auth-Test.LOCAL',
+        password: TEST_PASSWORD,
+        gymSlug: TEST_GYM_SLUG,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.user.email).toBe(TEST_ADMIN_EMAIL)
+  })
+
   // ── Caso 2: password incorrecto ──────────────────────────────────────────────
   it('login con password incorrecto → 401', async () => {
     const response = await app.inject({

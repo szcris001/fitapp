@@ -24,7 +24,7 @@ const refreshBodySchema = z.object({
 })
 
 const forgotSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().toLowerCase(),
   gymSlug: z.string().optional(),
 })
 
@@ -132,7 +132,7 @@ export async function authRoutes(app: FastifyInstance) {
     const { userId } = request.user as any
     const schema = z.object({
       name: z.string().min(2).optional(),
-      email: z.string().email().optional(),
+      email: z.string().email().toLowerCase().optional(),
       phone: z.string().optional(),
       currentPassword: z.string().optional(),
       newPassword: z.string().min(6).optional(),
