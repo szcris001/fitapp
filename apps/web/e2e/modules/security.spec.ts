@@ -265,4 +265,14 @@ test.describe('SEC — archivos protegidos', () => {
       expect([400, 401, 403, 404], `${path} → ${res.status}`).toContain(res.status)
     }
   })
+
+  // El logo animado del login se sirve desde la API en un <iframe> (page.tsx). Sin
+  // frame-src en la CSP, default-src 'self' lo bloquea y el logo nunca aparece.
+  test('SEC-07 la CSP de /login permite enmarcar el logo animado servido por la API', async ({ page }) => {
+    const res = await page.goto('/login')
+    const csp = res?.headers()['content-security-policy'] ?? ''
+    expect(csp).toContain('frame-src')
+    const apiOrigin = new URL(API_URL).origin
+    expect(csp.match(/frame-src[^;]*/)?.[0]).toContain(apiOrigin)
+  })
 })

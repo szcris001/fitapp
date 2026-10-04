@@ -26,6 +26,8 @@ const securityHeaders = [
       "font-src 'self'",
       // API calls al backend
       `connect-src 'self' ${apiOrigin}`,
+      // Logo animado del login (SVG servido por la API en un <iframe>)
+      `frame-src 'self' ${apiOrigin}`,
       "frame-ancestors 'none'",
     ].join('; '),
   },
