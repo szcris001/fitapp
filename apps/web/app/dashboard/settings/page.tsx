@@ -504,7 +504,7 @@ export default function SettingsPage() {
                   : <Upload style={{ width: 14, height: 14 }} />}
                 {uploadingLogo ? 'Subiendo...' : 'Subir logo'}
               </button>
-              <p style={{ color: 'var(--text-4)', fontSize: 12, marginTop: 6 }}>PNG, JPG o SVG — máx. 5MB</p>
+              <p style={{ color: 'var(--text-4)', fontSize: 12, marginTop: 6 }}>PNG, JPG o WEBP — máx. 5MB</p>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={handleLogoUpload} />
             </div>
           </div>
