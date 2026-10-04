@@ -8,7 +8,7 @@ import { GYM_TIMEZONE } from '../../../../lib/gym-timezone'
 import {
   ChevronLeft, ChevronRight,
   Clock, Users, Dumbbell, CheckCircle, Circle, Pencil, Trash2, Save,
-  Settings2, Search, UserPlus, Plus, X, Zap,
+  Settings2, Search, UserPlus, Plus, X, Zap, AlertCircle,
 } from 'lucide-react'
 
 /* ─── Interfaces ─────────────────────────────────── */
@@ -1021,9 +1021,11 @@ export function ClassPanel({
   const [assigning, setAssigning] = useState<string | null>(null)
   const [wodEditMode, setWodEditMode] = useState(false)
   const [attendanceMode, setAttendanceMode] = useState<string>('manual')
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     setLoading(true)
+    setLoadError(false)
     api.get(`/classes/${classId}`)
       .then(({ data }) => {
         setCls(data)
@@ -1037,6 +1039,7 @@ export function ClassPanel({
           capacity: data.capacity,
         })
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false))
     Promise.all([api.get('/class-types'), api.get('/users?role=COACH,ADMIN'), api.get('/gyms/me')])
       .then(([ct, us, gym]) => {
@@ -1255,6 +1258,12 @@ export function ClassPanel({
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-sm" style={{ color: 'var(--text-4)' }}>Cargando...</p>
+        </div>
+      ) : loadError || !cls ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 p-5 text-center">
+          <AlertCircle className="w-8 h-8" style={{ color: 'var(--text-4)' }} />
+          <p className="text-sm font-medium" style={{ color: 'var(--text-2)' }}>Clase no encontrada</p>
+          <p className="text-xs" style={{ color: 'var(--text-4)' }}>No existe o no pertenece a tu gimnasio.</p>
         </div>
       ) : editMode && cls ? (
         <div className="flex-1 overflow-y-auto p-5 space-y-4">

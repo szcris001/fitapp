@@ -356,6 +356,12 @@ test.describe('CLS — detalle de clase (admin)', () => {
     await expect(page.getByText('5×5', { exact: true })).toBeVisible()
     p.expectNoErrors()
   })
+
+  test('CLS-12 clase inexistente (o de otro gym) muestra "Clase no encontrada" en vez de pantalla en blanco', async ({ page }) => {
+    const p = await open(page, `/dashboard/classes/${crypto.randomUUID()}`)
+    await expect(page.getByText('Clase no encontrada')).toBeVisible()
+    p.expectNoErrors()
+  })
 })
 
 // ─── CLS-04 · asistencia (coach) ──────────────────────────────────────────────
