@@ -62,7 +62,11 @@ export async function updateClassType(gymId: string, classTypeId: string, data: 
 export async function deleteClassType(gymId: string, classTypeId: string) {
   const existing = await prisma.classType.findFirst({ where: { id: classTypeId, gymId } })
   if (!existing) throw new Error('Tipo de clase no encontrado')
-  await prisma.classType.delete({ where: { id: classTypeId } })
+  try {
+    await prisma.classType.delete({ where: { id: classTypeId } })
+  } catch (err) {
+    handlePrismaError(err)
+  }
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/

@@ -510,6 +510,40 @@ describe('ClassType: DELETE /api/class-types/:id — eliminar', () => {
     expect(res2.statusCode).toBe(400)
     expect(res2.json().error).toMatch(/no encontrado/i)
   })
+
+  it('Caso 15 — eliminar un ClassType en uso por una clase → 409 con mensaje de negocio, sin stack trace', async () => {
+    const ct = await prisma.classType.create({
+      data: { gymId: gymAId, name: 'En Uso Por Una Clase' },
+    })
+    const startsAt = new Date()
+    startsAt.setDate(startsAt.getDate() + 20)
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: ct.id, coachId: coachAId,
+        startsAt, endsAt: new Date(startsAt.getTime() + 3600_000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    createdClassIds.push(cls.id)
+    createdClassTypeIds.push(ct.id)
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/class-types/${ct.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(409)
+    // El mensaje de negocio es legible — nunca el texto crudo de Prisma con rutas
+    // absolutas del servidor (lo que servía este endpoint antes del fix). El stack
+    // trace en sí lo oculta registerErrorHandler (index.ts) en producción; eso no
+    // se prueba acá porque este test app no registra ese handler global.
+    expect(res.json().error).toMatch(/referencia relacionada/i)
+    expect(res.json().error).not.toMatch(/prisma|invocation|\.ts:\d+|\.js:\d+/i)
+
+    // El tipo de clase sigue existiendo — el delete se bloqueó, no se corrompió nada
+    const stillExists = await prisma.classType.findUnique({ where: { id: ct.id } })
+    expect(stillExists).not.toBeNull()
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
