@@ -469,6 +469,22 @@ describe('Users: POST /api/users — crear usuario', () => {
     expect(res.json().error).toMatch(/email ya está registrado/i)
   })
 
+  it('email duplicado en el mismo gym con otra capitalización → 400 (normalizado a minúsculas)', async () => {
+    // El email de memberA ya existe en Gym A como qa-users-member-a@test.local
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        name: 'Otro Usuario Mayúsculas',
+        email: 'QA-Users-Member-A@Test.LOCAL',
+        password: 'password123',
+      },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/email ya está registrado/i)
+  })
+
   it('email duplicado en otro gym se permite → 201 (emails son por gym)', async () => {
     // memberA tiene email qa-users-member-a@test.local en gymA
     // Admin B crea un usuario con el mismo email en gymB → debe funcionar

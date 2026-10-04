@@ -12,7 +12,7 @@ const createGymSchema = z.object({
   gymName: z.string().min(2),
   gymSlug: z.string().min(2).regex(/^[a-z0-9-]+$/),
   adminName: z.string().min(2),
-  adminEmail: z.string().email(),
+  adminEmail: z.string().email().toLowerCase(),
   adminPassword: z.string().min(6),
   subscriptionPlan: z.enum(['trial', 'go_pro', 'business', 'business_pro']).default('trial'),
   trialDays: z.number().int().min(0).default(30),
@@ -333,7 +333,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
     instagram:        z.string().optional().nullable(),
     facebook:         z.string().optional().nullable(),
     adminName:        z.string().min(2).optional(),
-    adminEmail:       z.string().email().optional(),
+    adminEmail:       z.string().email().toLowerCase().optional(),
   })
 
   app.patch('/superadmin/gyms/:id', { preHandler: requireSuperAdmin }, async (request, reply) => {
