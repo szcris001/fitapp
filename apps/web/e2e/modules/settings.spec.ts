@@ -110,6 +110,9 @@ test.describe('CFG — admin Norte', () => {
     writeFileSync(file, png(4))
 
     const p = await openPerfil(page)
+    // El texto de ayuda debía decir "PNG, JPG o SVG" aunque ni el input ni el backend
+    // aceptan SVG (sí aceptan WEBP, que no se mencionaba) — ver nota de H05.
+    await expect(page.getByText('PNG, JPG o WEBP — máx. 5MB')).toBeVisible()
     await page.locator('input[type="file"][accept*="image/png"]').first().setInputFiles(file)
     await expect(page.getByText('Logo actualizado correctamente')).toBeVisible()
 
