@@ -457,13 +457,21 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   const targetUser = await prisma.user.findFirst({ where: { id: targetUserId, gymId } })
   if (!targetUser) throw new Error('Usuario no encontrado en este gym')
 
-  // El coach puede incorporar a un alumno a una clase que ya empezó (lo agrega
-  // "fuera de horario", viéndolo presente). En ese caso queda ATTENDED de una
-  // vez — es el coach confirmando presencia en el momento, no una reserva a
-  // futuro (QA H-MOBILE-03, docs/QA_MOBILE_MAESTRO.md).
+  // El coach puede incorporar a un alumno a una clase en curso (lo agrega "fuera
+  // de horario", viéndolo presente ahí mismo) — en ese caso queda ATTENDED de
+  // una vez, es el coach confirmando presencia en el momento. Pero si la clase
+  // terminó hace rato (más de 15 min, misma ventana que el check-in geo en
+  // classes.routes.ts), ya no es "lo tengo enfrente" sino un backfill — queda
+  // CONFIRMED normal, para que el coach la marque a mano con el flujo de
+  // siempre (PATCH /bookings/:bookingId/attend). Sin este corte, asignar a
+  // alguien a una clase de hace días también quedaba auto-marcado, rompiendo
+  // el caso de uso de "cargar datos de prueba de una clase vieja para después
+  // probar el marcado manual" (QA H-MOBILE-03, docs/QA_MOBILE_MAESTRO.md).
   const now = new Date()
   const alreadyStarted = cls.startsAt <= now
-  const attendedData = alreadyStarted ? { attended: true, attendedAt: now } : {}
+  const recentlyEnded = now <= new Date(cls.endsAt.getTime() + 15 * 60 * 1000)
+  const markAttendedNow = alreadyStarted && recentlyEnded
+  const attendedData = markAttendedNow ? { attended: true, attendedAt: now } : {}
 
   const existing = await prisma.booking.findUnique({
     where: { userId_classId: { userId: targetUserId, classId } },
@@ -474,7 +482,7 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
     }
     return prisma.booking.update({
       where: { id: existing.id },
-      data: { status: alreadyStarted ? 'ATTENDED' : 'CONFIRMED', ...attendedData },
+      data: { status: markAttendedNow ? 'ATTENDED' : 'CONFIRMED', ...attendedData },
     })
   }
 
@@ -502,7 +510,7 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
     where: { classId, status: { in: ['CONFIRMED', 'ATTENDED'] } },
   })
 
-  const status = confirmedCount >= cls.capacity ? 'WAITLIST' : alreadyStarted ? 'ATTENDED' : 'CONFIRMED'
+  const status = confirmedCount >= cls.capacity ? 'WAITLIST' : markAttendedNow ? 'ATTENDED' : 'CONFIRMED'
   return prisma.booking.create({ data: { userId: targetUserId, classId, status, ...(status === 'ATTENDED' ? attendedData : {}) } })
 }
 

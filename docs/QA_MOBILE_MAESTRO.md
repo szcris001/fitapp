@@ -294,6 +294,30 @@ código)**:
 3. Suite de tests del módulo classes completa: 90/90 verdes después del
    cambio (`pnpm vitest run src/modules/classes`).
 
+**Ajuste posterior 2026-10-05 (lo encontró el CI, no yo localmente)**: el
+PR #84 rompió `apps/web/e2e/modules/classes.spec.ts` CLS-04. Ese test arma
+su clase **3 días en el pasado** a propósito, justo para poder probar el
+botón manual de "Asistencia" en el web (`PATCH /bookings/:bookingId/attend`
+exige que la clase ya haya empezado). Al usar `POST /bookings/assign` para
+poner al alumno en esa clase vieja, el fix de arriba la marcaba `ATTENDED`
+de inmediato — sin dejar nada que marcar a mano, el test ya no encontraba
+el botón.
+
+Consultado con Cristian (sin asumir, ver `feedback_ask_dont_assume.md`): el
+"ATTENDED automático" debe aplicar solo si la clase está en curso o
+terminó hace poco — no a cualquier clase ya empezada sin importar cuánto
+tiempo pasó. Se agregó la misma ventana que ya usa el check-in geo
+(`classes.routes.ts`): hasta 15 min después de `endsAt`. Asignar a alguien
+a una clase de hace días vuelve a dar `CONFIRMED` normal — exactamente lo
+que CLS-04 necesita para poder probar el marcado manual.
+
+Verificado: test nuevo (`assignUserToClass: coach incorpora alumnos`,
+clase de hace 3 días → `CONFIRMED`) con revert manual confirmando que
+falla sin el fix; suite completa de `apps/api` 1099/1099; y el propio
+`classes.spec.ts` completo (18/18, incluyendo CLS-04) corrido en local
+contra los servidores reales de dev — no solo inferido, confirmado con el
+mismo test que lo encontró.
+
 **Pendiente, no es bloqueante**: no se agregó un test automatizado para
 `runAutoAttendanceJob` (no había archivo de test para `cron.ts` de entrada,
 y requeriría `vi.useFakeTimers()` — mismo patrón que ya usa el proyecto

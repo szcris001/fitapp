@@ -1058,6 +1058,24 @@ describe('assignUserToClass: coach incorpora alumnos', () => {
     await prisma.booking.deleteMany({ where: { classId } })
   })
 
+  it('clase que terminó hace rato (más de 15 min) → CONFIRMED normal, no ATTENDED automático', async () => {
+    // No es "lo tengo enfrente": asignar a alguien a una clase de hace días es un
+    // backfill/dato de prueba, no el coach viendo a un alumno presente en el momento.
+    // Mismo caso real que rompía apps/web/e2e/modules/classes.spec.ts CLS-04 (arma su
+    // clase en el pasado a propósito, para poder probar el marcado MANUAL de
+    // asistencia — ver docs/QA_MOBILE_MAESTRO.md H-MOBILE-03).
+    const startsAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+    const classId = await createClass({ startsAt, endsAt: new Date(startsAt.getTime() + 60 * 60 * 1000) })
+    createdClassIds.push(classId)
+
+    const booking = await assignUserToClass(gymAId, member2AId, classId)
+    expect(booking.status).toBe('CONFIRMED')
+    expect(booking.attended).toBe(false)
+    expect(booking.attendedAt).toBeNull()
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
   it('mismo tipo de clase el mismo día → bloqueado también cuando asigna el coach', async () => {
     const first = await createClass({ startsAt: tomorrowAtGymHour(9) })
     const second = await createClass({ startsAt: tomorrowAtGymHour(11) })
