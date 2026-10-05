@@ -1094,6 +1094,47 @@ describe('Superadmin: Gym Subscriptions', () => {
       expect(['ACTIVE', 'TRIAL']).toContain(sub.status)
     }
   })
+
+  it('PATCH /superadmin/gym-subscriptions/:id/status con status inválido → 400 Zod, no 500 con stack trace', async () => {
+    const sub = await prisma.gymSubscription.create({
+      data: { gymId: ctrlGymId, planId: trialPlanId, status: 'TRIAL', startsAt: new Date(), endsAt: new Date() },
+    })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/superadmin/gym-subscriptions/${sub.id}/status`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: { status: 'NOT_A_REAL_STATUS' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('Datos inválidos')
+    // No cambió: sigue TRIAL
+    expect((await prisma.gymSubscription.findUnique({ where: { id: sub.id } }))!.status).toBe('TRIAL')
+  })
+
+  it('PATCH /superadmin/gym-subscriptions/:id/status con status válido → 200 y lo actualiza', async () => {
+    const sub = await prisma.gymSubscription.create({
+      data: { gymId: ctrlGymId, planId: trialPlanId, status: 'TRIAL', startsAt: new Date(), endsAt: new Date() },
+    })
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/superadmin/gym-subscriptions/${sub.id}/status`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: { status: 'CANCELLED' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().status).toBe('CANCELLED')
+  })
+
+  it('PATCH /superadmin/gym-subscriptions/:id/status con id inexistente → 404 con mensaje claro', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/superadmin/gym-subscriptions/00000000-0000-0000-0000-000000000000/status',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: { status: 'ACTIVE' },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).not.toMatch(/prisma|invocation|\.ts:\d+|\.js:\d+/i)
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
