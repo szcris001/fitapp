@@ -31,6 +31,7 @@ import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
 import { planRoutes } from '../plans.routes'
 import { prisma } from '../../../lib/prisma'
+import { startOfGymDay } from '../../../lib/gym-day'
 
 // ─── Constantes de fixtures ───────────────────────────────────────────────────
 
@@ -845,6 +846,25 @@ describe('Plans: POST /api/memberships — assignMembership', () => {
     expect(diffDays).toBe(30)
 
     createdMembershipIds.push(body.id)
+  })
+
+  it('startsAt como fecha sola ("YYYY-MM-DD", como manda el form web) ancla al día calendario de Chile, no UTC', async () => {
+    // new Date("2026-10-02") se interpreta como medianoche UTC; sumarle 30*24h con
+    // endsAt.setDate() (zona del proceso) da medianoche UTC del 1 de noviembre, que en
+    // Chile (UTC-3) cae la noche del 31 de octubre — la membresía "vence" un día antes
+    // de lo esperado (QA H01, qa/reports/2026-10-02-1106/alumnos.md).
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/memberships',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { userId: memberAId, planId, startsAt: '2026-10-02', status: 'ACTIVE' },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    createdMembershipIds.push(body.id)
+
+    expect(body.startsAt).toBe(startOfGymDay('2026-10-02', 'America/Santiago').toISOString())
+    expect(body.endsAt).toBe(startOfGymDay('2026-11-01', 'America/Santiago').toISOString())
   })
 
   it('membresía previa ACTIVE queda INACTIVE al asignar una nueva', async () => {

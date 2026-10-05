@@ -5,6 +5,7 @@ import { useAuthStore } from '../../../store/auth.store'
 import api, { API_BASE } from '../../../lib/api'
 import { toMajorUnits } from '../../../lib/money'
 import { normalizeSearch } from '../../../lib/search'
+import { GYM_TIMEZONE } from '../../../lib/gym-timezone'
 import {
   Users, Search, UserPlus, Upload, X, CheckCircle, AlertCircle,
   Wallet, CreditCard, Banknote, RefreshCw, ExternalLink,
@@ -642,7 +643,7 @@ export default function UsersPage() {
                       </td>
                       <td className="px-5 py-3.5 text-sm" style={{ color: 'var(--text-3)' }}>
                         {u.memberships?.[0]?.endsAt
-                          ? new Date(u.memberships[0].endsAt).toLocaleDateString('es-CL')
+                          ? new Date(u.memberships[0].endsAt).toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })
                           : <span style={{ color: 'var(--text-4)' }}>—</span>}
                       </td>
                       <td className="px-5 py-3.5">

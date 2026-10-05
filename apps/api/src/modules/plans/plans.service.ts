@@ -2,6 +2,9 @@ import { prisma } from '../../lib/prisma'
 import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput } from './plans.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 import { MEMBERSHIP_DAYS, nextMembershipPeriod } from '../../lib/membership'
+import { addLocalDays, getGymTimezone, startOfGymDay } from '../../lib/gym-day'
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
 export async function listPlans(gymId: string, includeInactive = false) {
   return prisma.plan.findMany({
@@ -52,9 +55,24 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
   const plan = await prisma.plan.findFirst({ where: { id: data.planId, gymId } })
   if (!plan) throw new Error('Plan no encontrado')
 
-  const startsAt = new Date(data.startsAt)
-  const endsAt = new Date(startsAt)
-  endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
+  // El form web manda una fecha sola ("YYYY-MM-DD", el día elegido por el admin en la zona
+  // del gym). new Date("2026-10-02") la interpreta como medianoche UTC, no medianoche Chile
+  // — endsAt.setDate() además suma días en la zona del PROCESO (Chile en dev, UTC en
+  // Docker/prod), no la del gym. El resultado: una membresía "de 30 días" vence un día antes
+  // al mostrarse en hora de Chile (QA H01, qa/reports/2026-10-02-1106/alumnos.md). Para una
+  // fecha sola, se ancla al día calendario del gym con los helpers de gym-day.ts; para un
+  // instante completo (poco común, pero el schema lo permite) se mantiene el cálculo anterior.
+  let startsAt: Date
+  let endsAt: Date
+  if (DATE_ONLY.test(data.startsAt)) {
+    const timezone = await getGymTimezone(gymId)
+    startsAt = startOfGymDay(data.startsAt, timezone)
+    endsAt = startOfGymDay(addLocalDays(data.startsAt, MEMBERSHIP_DAYS), timezone)
+  } else {
+    startsAt = new Date(data.startsAt)
+    endsAt = new Date(startsAt)
+    endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
+  }
 
   await prisma.membership.updateMany({
     where: { userId: data.userId, status: { in: ['ACTIVE', 'TRIAL'] } },
