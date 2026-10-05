@@ -366,7 +366,22 @@ describe('Superadmin: GET /api/superadmin/stats', () => {
 describe('Superadmin: POST /api/superadmin/gyms', () => {
   let app: FastifyInstance
 
-  beforeAll(async () => { app = await buildApp() })
+  beforeAll(async () => {
+    app = await buildApp()
+    // El plan 'trial' lo siembra ensureFitAppPlans() al arrancar src/index.ts — este test
+    // nunca levanta ese server, así que no puede asumir que ya existe (CI no corre ningún
+    // seed antes de los tests, solo migraciones; en dev local persiste porque el server
+    // real ya lo creó en algún arranque anterior). Sin este fallback, el bloque de
+    // suscripción inicial (TRIAL/SUSPENDED) de POST /superadmin/gyms se salta en silencio
+    // por `if (fitPlan && gym)` y el gym queda en ACTIVE.
+    const existing = await prisma.fitAppPlan.findFirst({ where: { slug: 'trial' } })
+    if (!existing) {
+      const plan = await prisma.fitAppPlan.create({
+        data: { name: 'Trial QA', slug: 'trial', priceCLP: 0, priceUSD: 0, durationDays: 30, isFree: true, features: [] },
+      })
+      createdPlanIds.push(plan.id)
+    }
+  })
   afterAll(async ()  => { await app.close() })
 
   it('sin body → 400 Zod (campos requeridos faltantes)', async () => {
@@ -458,6 +473,11 @@ describe('Superadmin: POST /api/superadmin/gyms', () => {
     expect(body.gym.id).toBeDefined()
     expect(body.gym.slug).toBe(NEW_GYM_SLUG)
     expect(body.admin.email).toBe('qa-sa-new-gym-admin@test.local')
+    // Con trialDays > 0 el servicio pasa el gym a TRIAL después de crearlo (y de la
+    // suscripción) — la respuesta debe reflejar ese estado, no el ACTIVE con el que
+    // se creó originalmente (QA H04, qa/reports/2026-10-02-1106/superadmin.md)
+    expect(body.gym.status).toBe('TRIAL')
+    expect((await prisma.gym.findUnique({ where: { id: body.gym.id } }))!.status).toBe('TRIAL')
 
     // Guardar para cleanup
     createdGymIds.push(body.gym.id)
