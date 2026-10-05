@@ -458,6 +458,11 @@ describe('Superadmin: POST /api/superadmin/gyms', () => {
     expect(body.gym.id).toBeDefined()
     expect(body.gym.slug).toBe(NEW_GYM_SLUG)
     expect(body.admin.email).toBe('qa-sa-new-gym-admin@test.local')
+    // Con trialDays > 0 el servicio pasa el gym a TRIAL después de crearlo (y de la
+    // suscripción) — la respuesta debe reflejar ese estado, no el ACTIVE con el que
+    // se creó originalmente (QA H04, qa/reports/2026-10-02-1106/superadmin.md)
+    expect(body.gym.status).toBe('TRIAL')
+    expect((await prisma.gym.findUnique({ where: { id: body.gym.id } }))!.status).toBe('TRIAL')
 
     // Guardar para cleanup
     createdGymIds.push(body.gym.id)

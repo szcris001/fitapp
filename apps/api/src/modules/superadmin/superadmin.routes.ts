@@ -182,6 +182,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
           data: { gymId: gym.id, planId: fitPlan.id, status: 'TRIAL', startsAt: start, endsAt: end },
         })
         await prisma.gym.update({ where: { id: gym.id }, data: { status: 'TRIAL' } })
+        gym.status = 'TRIAL' // la respuesta final usa este objeto; sin esto mostraba el ACTIVE con el que se creó
       } else {
         // Sin trial: cobra de inmediato — gym queda SUSPENDED hasta que pague
         end.setDate(end.getDate() + fitPlan.durationDays)
@@ -189,6 +190,7 @@ export async function superAdminRoutes(app: FastifyInstance) {
           data: { gymId: gym.id, planId: fitPlan.id, status: 'EXPIRED', startsAt: start, endsAt: start },
         })
         await prisma.gym.update({ where: { id: gym.id }, data: { status: 'SUSPENDED' } })
+        gym.status = 'SUSPENDED'
       }
     }
 
