@@ -722,7 +722,7 @@ export default function SettingsPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
             {([
               { value: 'manual', label: 'Manual',     icon: '✋', desc: 'Coach marca desde la app/web' },
-              { value: 'auto',   label: 'Automático', icon: '⚡', desc: 'Se marca al finalizar la clase' },
+              { value: 'auto',   label: 'Automático', icon: '⚡', desc: 'Se marca solo, 5 min después de que empieza' },
             ] as const).map(opt => (
               <button key={opt.value} type="button"
                 onClick={() => setAttendanceForm(f => ({ ...f, attendanceMode: opt.value }))}

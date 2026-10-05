@@ -58,6 +58,7 @@ import {
   cancelBooking,
   removeStudentByAdmin,
   confirmWaitlistBooking,
+  assignUserToClass,
 } from '../classes.service'
 
 // ─── Mock de push notifications ──────────────────────────────────────────────
@@ -97,12 +98,13 @@ async function createClass(opts: {
   startsAt: Date
   endsAt?: Date
   capacity?: number
+  classTypeId?: string
 }): Promise<string> {
   const endsAt = opts.endsAt ?? new Date(opts.startsAt.getTime() + 60 * 60 * 1000)
   const cls = await prisma.class.create({
     data: {
       gymId: gymAId,
-      classTypeId: classTypeAId,
+      classTypeId: opts.classTypeId ?? classTypeAId,
       coachId: coachAId,
       startsAt: opts.startsAt,
       endsAt,
@@ -464,6 +466,10 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
   let trialMembershipId: string
   let trialUserId: string
   const trialClassIds: string[] = []
+  // Tipos de clase distintos entre sí: el límite de maxClasses debe probarse con
+  // clases de tipos diferentes, porque "mismo tipo el mismo día" ahora bloquea
+  // antes (regla pareja para todos los planes, ver bookClass).
+  const trialClassTypeIds: string[] = []
 
   beforeAll(async () => {
     // Crear usuario con membresía TRIAL (maxClasses=2)
@@ -479,6 +485,13 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
       data: { userId: trialUserId, planId: trialPlanAId, status: 'TRIAL', startsAt: now, endsAt, pricePaid: 0, currency: 'CLP' },
     })
     trialMembershipId = membership.id
+
+    for (let i = 0; i < 3; i++) {
+      const ct = await prisma.classType.create({
+        data: { gymId: gymAId, name: `QA Trial Tipo ${i}`, color: '#6366f1' },
+      })
+      trialClassTypeIds.push(ct.id)
+    }
   })
 
   afterAll(async () => {
@@ -487,13 +500,16 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
     if (trialClassIds.length) {
       await prisma.class.deleteMany({ where: { id: { in: trialClassIds } } })
     }
+    if (trialClassTypeIds.length) {
+      await prisma.classType.deleteMany({ where: { id: { in: trialClassTypeIds } } })
+    }
     if (trialMembershipId) await prisma.membership.delete({ where: { id: trialMembershipId } }).catch(() => {})
     if (trialUserId) await prisma.user.delete({ where: { id: trialUserId } }).catch(() => {})
   })
 
   it('membresía TRIAL con cupo disponible → reserva CONFIRMED', async () => {
     const startsAt = tomorrowAtGymHour(10)
-    const classId = await createClass({ startsAt })
+    const classId = await createClass({ startsAt, classTypeId: trialClassTypeIds[0] })
     trialClassIds.push(classId)
 
     const booking = await bookClass(gymAId, trialUserId, { classId })
@@ -502,7 +518,7 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
 
   it('segunda reserva TRIAL — todavía tiene cupo (1 usado de 2) → CONFIRMED', async () => {
     const startsAt = tomorrowAtGymHour(11)
-    const classId = await createClass({ startsAt })
+    const classId = await createClass({ startsAt, classTypeId: trialClassTypeIds[1] })
     trialClassIds.push(classId)
 
     const booking = await bookClass(gymAId, trialUserId, { classId })
@@ -511,7 +527,33 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
 
   it('tercera reserva TRIAL — límite agotado (2 de 2) → error de límite trial', async () => {
     const startsAt = tomorrowAtGymHour(12)
-    const classId = await createClass({ startsAt })
+    const classId = await createClass({ startsAt, classTypeId: trialClassTypeIds[2] })
+    trialClassIds.push(classId)
+
+    await expect(
+      bookClass(gymAId, trialUserId, { classId })
+    ).rejects.toThrow('Has alcanzado el límite de clases de tu plan de prueba')
+  })
+
+  it('mismo tipo de clase dos veces el mismo día → bloqueado también con maxClasses', async () => {
+    const startsAt = tomorrowAtGymHour(14)
+    const classId = await createClass({ startsAt, classTypeId: trialClassTypeIds[0] })
+    trialClassIds.push(classId)
+
+    await expect(
+      bookClass(gymAId, trialUserId, { classId })
+    ).rejects.toThrow('Ya tienes una clase de QA Trial Tipo 0 reservada para ese día')
+  })
+
+  it('maxClasses cuenta por PERÍODO de la membresía, no por día — un día distinto también cuenta para el límite', async () => {
+    // El trial ya tiene 2 clases reservadas (de los tests anteriores), que es su
+    // maxClasses. Una clase en un día totalmente distinto (+5 días, dentro de los 30
+    // días de la membresía) debe seguir bloqueada — antes del fix, al ser "otro día"
+    // el contador por-día volvía a cero y esto pasaba.
+    const farType = await prisma.classType.create({ data: { gymId: gymAId, name: 'QA Trial Tipo Lejano', color: '#10b981' } })
+    trialClassTypeIds.push(farType.id) // limpiado en el afterAll del describe, junto a los otros
+    const startsAt = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+    const classId = await createClass({ startsAt, classTypeId: farType.id })
     trialClassIds.push(classId)
 
     await expect(
@@ -985,6 +1027,97 @@ describe('removeStudentByAdmin: admin elimina alumno sin restricción de tiempo'
       await prisma.user.deleteMany({ where: { id: { in: [memberB.id, coachB.id] } } })
       await prisma.plan.delete({ where: { id: planB.id } })
     }
+  })
+})
+
+// ─── Suite 12b: assignUserToClass ──────────────────────────────────────────────
+
+describe('assignUserToClass: coach incorpora alumnos', () => {
+  it('clase futura → CONFIRMED (sin cambios de comportamiento normal)', async () => {
+    const startsAt = new Date(Date.now() + 42 * 60 * 60 * 1000)
+    const classId = await createClass({ startsAt })
+    createdClassIds.push(classId)
+
+    const booking = await assignUserToClass(gymAId, member2AId, classId)
+    expect(booking.status).toBe('CONFIRMED')
+    expect(booking.attended).toBe(false)
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
+  it('clase que ya empezó → ATTENDED de inmediato (el coach confirma presencia en el momento)', async () => {
+    const startsAt = new Date(Date.now() - 10 * 60 * 1000)
+    const classId = await createClass({ startsAt, endsAt: new Date(Date.now() + 50 * 60 * 1000) })
+    createdClassIds.push(classId)
+
+    const booking = await assignUserToClass(gymAId, member2AId, classId)
+    expect(booking.status).toBe('ATTENDED')
+    expect(booking.attended).toBe(true)
+    expect(booking.attendedAt).not.toBeNull()
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
+  it('clase que terminó hace rato (más de 15 min) → CONFIRMED normal, no ATTENDED automático', async () => {
+    // No es "lo tengo enfrente": asignar a alguien a una clase de hace días es un
+    // backfill/dato de prueba, no el coach viendo a un alumno presente en el momento.
+    // Mismo caso real que rompía apps/web/e2e/modules/classes.spec.ts CLS-04 (arma su
+    // clase en el pasado a propósito, para poder probar el marcado MANUAL de
+    // asistencia — ver docs/QA_MOBILE_MAESTRO.md H-MOBILE-03).
+    const startsAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+    const classId = await createClass({ startsAt, endsAt: new Date(startsAt.getTime() + 60 * 60 * 1000) })
+    createdClassIds.push(classId)
+
+    const booking = await assignUserToClass(gymAId, member2AId, classId)
+    expect(booking.status).toBe('CONFIRMED')
+    expect(booking.attended).toBe(false)
+    expect(booking.attendedAt).toBeNull()
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
+  it('mismo tipo de clase el mismo día → bloqueado también cuando asigna el coach', async () => {
+    const first = await createClass({ startsAt: tomorrowAtGymHour(9) })
+    const second = await createClass({ startsAt: tomorrowAtGymHour(11) })
+    createdClassIds.push(first, second)
+
+    await assignUserToClass(gymAId, member2AId, first)
+
+    await expect(
+      assignUserToClass(gymAId, member2AId, second)
+    ).rejects.toThrow('El alumno ya tiene una clase de CrossFit reservada para ese día')
+
+    await prisma.booking.deleteMany({ where: { classId: { in: [first, second] } } })
+  })
+
+  it('"mover" a un alumno (sacarlo + asignarlo a otra clase del mismo tipo) no choca contra la regla', async () => {
+    const oldClass = await createClass({ startsAt: tomorrowAtGymHour(9) })
+    const newClass = await createClass({ startsAt: tomorrowAtGymHour(13) })
+    createdClassIds.push(oldClass, newClass)
+
+    const oldBooking = await assignUserToClass(gymAId, member2AId, oldClass)
+    await removeStudentByAdmin(gymAId, oldBooking.id)
+
+    const newBooking = await assignUserToClass(gymAId, member2AId, newClass)
+    expect(newBooking.status).toBe('CONFIRMED')
+
+    await prisma.booking.deleteMany({ where: { classId: newClass } })
+  })
+
+  it('tipo de clase distinto el mismo día → sí permitido', async () => {
+    const otherType = await prisma.classType.create({ data: { gymId: gymAId, name: 'Halterofilia QA', color: '#f59e0b' } })
+    const crossfitClass = await createClass({ startsAt: tomorrowAtGymHour(9) })
+    const halterClass = await createClass({ startsAt: tomorrowAtGymHour(10), classTypeId: otherType.id })
+    createdClassIds.push(crossfitClass, halterClass)
+
+    await assignUserToClass(gymAId, member2AId, crossfitClass)
+    const second = await assignUserToClass(gymAId, member2AId, halterClass)
+    expect(second.status).toBe('CONFIRMED')
+
+    await prisma.booking.deleteMany({ where: { classId: { in: [crossfitClass, halterClass] } } })
+    await prisma.class.delete({ where: { id: halterClass } })
+    createdClassIds.splice(createdClassIds.indexOf(halterClass), 1)
+    await prisma.classType.delete({ where: { id: otherType.id } })
   })
 })
 

@@ -60,12 +60,18 @@ async function runMemberExpiryJob() {
   }
 }
 
+// Gracia tras el inicio de la clase antes de marcar asistencia automática — evita
+// marcar "asistió" en el instante exacto que arranca la clase (QA H-MOBILE-03,
+// docs/QA_MOBILE_MAESTRO.md).
+const AUTO_ATTENDANCE_GRACE_MINS = 5
+
 /**
- * Marca automáticamente como ATTENDED las reservas CONFIRMED de clases ya iniciadas
- * en gyms con attendanceMode = 'auto'. Corre cada 5 minutos.
+ * Marca automáticamente como ATTENDED las reservas CONFIRMED de clases que ya
+ * empezaron hace más de AUTO_ATTENDANCE_GRACE_MINS, en gyms con attendanceMode =
+ * 'auto'. Corre cada 5 minutos.
  */
 async function runAutoAttendanceJob() {
-  const now = new Date()
+  const cutoff = new Date(Date.now() - AUTO_ATTENDANCE_GRACE_MINS * 60 * 1000)
   const gyms = await prisma.gym.findMany({
     where: { attendanceMode: 'auto', status: 'ACTIVE', deletedAt: null },
     select: { id: true },
@@ -78,7 +84,7 @@ async function runAutoAttendanceJob() {
         status: 'CONFIRMED',
         class: {
           gymId: gym.id,
-          startsAt: { lte: now },
+          startsAt: { lte: cutoff },
         },
       },
       data: { status: 'ATTENDED', attended: true, attendedAt: new Date() },
