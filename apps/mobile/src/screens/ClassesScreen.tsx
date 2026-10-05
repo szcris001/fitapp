@@ -410,7 +410,13 @@ export default function ClassesScreen() {
                     <View style={[s.progFill, { width: `${occupancy}%` as any, backgroundColor: barColor }]} />
                   </View>
 
-                  {/* Action button */}
+                  {/* Action button — key fuerza un remount limpio al cambiar de rama
+                      (ej. booked true→false tras cancelar): sin esto, el
+                      TouchableOpacity exterior se reutilizaba entre ramas con el
+                      mismo tipo de elemento y el LinearGradient de "Reservar lugar"
+                      quedaba montado con layout inicial 0x0, invisible pero tappable
+                      (QA H-MOBILE-01, docs/QA_MOBILE_MAESTRO.md). */}
+                  <React.Fragment key={`${isPendingConfirm}-${started}-${booked}-${outsideWindow}-${withinCutoff}-${isFull}`}>
                   {isPendingConfirm ? (
                     <TouchableOpacity
                       style={[s.btn, { backgroundColor: '#f59e0b' }]}
@@ -473,6 +479,7 @@ export default function ClassesScreen() {
                       </LinearGradient>
                     </TouchableOpacity>
                   )}
+                  </React.Fragment>
                 </View>
               </View>
               </View>
