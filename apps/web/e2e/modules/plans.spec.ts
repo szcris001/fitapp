@@ -84,6 +84,26 @@ test.describe('PLN — admin', () => {
     p.expectNoErrors()
   })
 
+  test('PLN-08 activar auto-renovación al crear un plan → se persiste (antes se ignoraba en silencio)', async ({ page }) => {
+    const name = `QA Plan AutoRenew ${uid()}`
+    const p = await open(page, '/dashboard/plans')
+    await page.getByRole('button', { name: 'Nuevo plan' }).click()
+    const form = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Nuevo plan' }) })
+    await field(form, 'Nombre *').fill(name)
+    await field(form, 'Precio *').fill('25000')
+    await form.getByRole('checkbox', { name: /Auto-renovación/ }).check()
+    await field(form, 'Días antes de renovar').fill('7')
+    await form.getByRole('button', { name: 'Crear plan' }).click()
+    await expect(page.getByText('Plan creado correctamente')).toBeVisible()
+
+    const plan = await findPlan(name)
+    expect(plan, 'el plan no quedó en la API').toBeTruthy()
+    created.push(plan.id)
+    expect(plan.autoRenewEnabled).toBe(true)
+    expect(plan.autoRenewDaysBefore).toBe(7)
+    p.expectNoErrors()
+  })
+
   test('PLN-05 editar plan en USD sin tocar el precio conserva los centavos', async ({ page }) => {
     const name = `QA Plan USD ${uid()}`
     const res = await api('admin', 'POST', '/plans', { name, priceCents: 1999, currency: 'USD' })
@@ -109,7 +129,7 @@ test.describe('PLN — admin', () => {
     const p = await open(page, '/dashboard/plans')
     await page.getByRole('button', { name: 'Nuevo plan' }).click()
     const form = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Nuevo plan' }) })
-    await form.getByRole('checkbox').check()
+    await form.getByRole('checkbox', { name: /Plan de prueba/ }).check()
     // Trial no pide precio
     await expect(field(form, 'Precio *')).toHaveCount(0)
     await field(form, 'Nombre *').fill(name)

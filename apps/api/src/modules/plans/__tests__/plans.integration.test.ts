@@ -429,6 +429,34 @@ describe('Plans: POST /api/plans — crear plan', () => {
     createdPlanIds.push(body.id)
   })
 
+  it('autoRenewEnabled y autoRenewDaysBefore se persisten si se envían (antes se ignoraban en silencio)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/plans',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'Plan Auto-renovable', priceCents: 20000, durationDays: 30, autoRenewEnabled: true, autoRenewDaysBefore: 5 },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    expect(body.autoRenewEnabled).toBe(true)
+    expect(body.autoRenewDaysBefore).toBe(5)
+
+    createdPlanIds.push(body.id)
+  })
+
+  it('autoRenewEnabled por defecto es false si no se especifica', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/plans',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'Plan Sin Auto-renovación', priceCents: 15000, durationDays: 30 },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().autoRenewEnabled).toBe(false)
+
+    createdPlanIds.push(res.json().id)
+  })
+
   it('gymId en el body NO sobreescribe el gymId del token (tenancy)', async () => {
     // Intentar crear un plan en gymB usando el token de adminA
     const res = await app.inject({
@@ -533,6 +561,18 @@ describe('Plans: PUT /api/plans/:id — actualizar plan', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.json().maxClasses).toBeNull()
+  })
+
+  it('activar autoRenewEnabled y cambiar autoRenewDaysBefore en un plan existente → 200', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/plans/${targetPlanId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { autoRenewEnabled: true, autoRenewDaysBefore: 7 },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().autoRenewEnabled).toBe(true)
+    expect(res.json().autoRenewDaysBefore).toBe(7)
   })
 
   it('admin de Gym B no puede actualizar plan de Gym A → 400', async () => {
