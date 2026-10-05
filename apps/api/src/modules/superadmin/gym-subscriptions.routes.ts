@@ -2,6 +2,11 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../lib/prisma'
 import { requireSuperAdmin } from '../../middlewares/auth.middleware'
+import { handlePrismaError } from '../../lib/prismaError'
+
+const updateStatusSchema = z.object({
+  status: z.enum(['TRIAL', 'ACTIVE', 'EXPIRED', 'CANCELLED']),
+})
 
 export async function gymSubscriptionsRoutes(app: FastifyInstance) {
   // GET — listar todas las suscripciones con info del gym y plan
@@ -75,8 +80,13 @@ export async function gymSubscriptionsRoutes(app: FastifyInstance) {
   // PATCH — cambiar estado manualmente
   app.patch('/superadmin/gym-subscriptions/:id/status', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const { id } = request.params as any
-    const { status } = request.body as any
-    const sub = await prisma.gymSubscription.update({ where: { id }, data: { status } })
-    return reply.send(sub)
+    const parsed = updateStatusSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
+    try {
+      const sub = await prisma.gymSubscription.update({ where: { id }, data: { status: parsed.data.status } })
+      return reply.send(sub)
+    } catch (err) {
+      handlePrismaError(err) // lanza HttpError (404 si no existe); el error handler global lo responde
+    }
   })
 }
