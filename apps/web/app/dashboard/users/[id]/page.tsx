@@ -4,6 +4,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../lib/api'
 import { toMajorUnits } from '../../../../lib/money'
+import { GYM_TIMEZONE } from '../../../../lib/gym-timezone'
 import {
   ArrowLeft, Edit2, CheckCircle, CreditCard, Banknote,
   RefreshCw, X, ExternalLink, Wallet, Camera, KeyRound,
@@ -799,7 +800,7 @@ export default function UserDetailPage() {
                   <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#22c55e', display: 'inline-block' }} />
                   {activeMembership.plan?.name}
                   {' · vence '}
-                  {new Date(activeMembership.endsAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {new Date(activeMembership.endsAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric', timeZone: GYM_TIMEZONE })}
                   {daysLeft !== null && daysLeft > 0 && (
                     <span style={{ opacity: 0.75 }}>({daysLeft}d)</span>
                   )}
@@ -884,10 +885,10 @@ export default function UserDetailPage() {
                           )}
                         </td>
                         <td className="py-3 pr-4" style={{ color: 'var(--text-3)' }}>
-                          {new Date(m.startsAt).toLocaleDateString('es-CL')}
+                          {new Date(m.startsAt).toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })}
                         </td>
                         <td className="py-3 pr-4" style={{ color: 'var(--text-3)' }}>
-                          {new Date(m.endsAt).toLocaleDateString('es-CL')}
+                          {new Date(m.endsAt).toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })}
                         </td>
                         <td className="py-3 pr-4" style={{ color: 'var(--text-3)' }}>
                           {m.paymentMethod ? `${METHOD_ICON[m.paymentMethod]} ${METHOD_LABEL[m.paymentMethod] || m.paymentMethod}` : '—'}
@@ -1022,8 +1023,8 @@ export default function UserDetailPage() {
               <div>
                 <p className="font-semibold" style={{ color: 'var(--text-1)' }}>{activeMembership.plan?.name}</p>
                 <p className="text-sm mt-0.5" style={{ color: 'var(--text-4)' }}>
-                  {new Date(activeMembership.startsAt).toLocaleDateString('es-CL')} –{' '}
-                  {new Date(activeMembership.endsAt).toLocaleDateString('es-CL')}
+                  {new Date(activeMembership.startsAt).toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })} –{' '}
+                  {new Date(activeMembership.endsAt).toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })}
                 </p>
               </div>
               <div className="flex items-center justify-between">
@@ -1130,7 +1131,7 @@ export default function UserDetailPage() {
               </div>
               <div className="p-5 space-y-4">
                 <p className="text-sm" style={{ color: 'var(--text-3)' }}>
-                  Vencimiento actual: <strong>{new Date(activeMembership.endsAt).toLocaleDateString('es-CL')}</strong>
+                  Vencimiento actual: <strong>{new Date(activeMembership.endsAt).toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })}</strong>
                 </p>
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Días a extender</label>
@@ -1143,7 +1144,7 @@ export default function UserDetailPage() {
                     Nuevo vencimiento: {(() => {
                       const d = new Date(new Date(activeMembership.endsAt) > new Date() ? activeMembership.endsAt : new Date())
                       d.setDate(d.getDate() + extendDays)
-                      return d.toLocaleDateString('es-CL')
+                      return d.toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })
                     })()}
                   </p>
                 </div>

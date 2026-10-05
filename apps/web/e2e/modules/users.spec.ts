@@ -238,6 +238,35 @@ test.describe('USR — admin', () => {
     p.expectNoErrors()
   })
 
+  test('USR-04b fecha de vencimiento de membresía se muestra en hora de Chile, no UTC', async ({ page }) => {
+    // Repro exacto del hallazgo: una membresía creada con startsAt "fecha sola" (como hace
+    // el formulario web, que usa YYYY-MM-DD) guarda endsAt a medianoche UTC. Sin fijar
+    // timeZone al formatear, el navegador (en hora de Chile, UTC-3) muestra un día antes.
+    const m = await createMember('VenceChile')
+    try {
+      const { data: plans } = await api('admin', 'GET', '/plans')
+      const plan = plans.find((p: { name: string }) => p.name === NORTE.plans.mensual.name)
+      const startsAt = new Date().toLocaleDateString('sv') // "YYYY-MM-DD", fecha sola
+      const { data: membership } = await api('admin', 'POST', '/memberships', {
+        userId: m.id, planId: plan.id, startsAt, status: 'ACTIVE',
+      })
+      // Valores correctos: la misma fecha, pero calculada en la zona del gym (no la del
+      // navegador) — exactamente lo que el fix debe mostrar, en los dos formatos que usa la UI.
+      const expectedNumeric = new Date(membership.endsAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })
+      const expectedShort = new Date(membership.endsAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Santiago' })
+
+      const p = await open(page, '/dashboard/users')
+      await page.getByPlaceholder('Buscar alumno...').fill(m.email)
+      await expect(page.getByRole('row').filter({ hasText: m.email })).toContainText(expectedNumeric)
+
+      await open(page, `/dashboard/users/${m.id}`)
+      await expect(page.getByText(expectedShort)).toBeVisible()
+      p.expectNoErrors()
+    } finally {
+      await deactivateMemberships(m.id)
+    }
+  })
+
   test('USR-05 avatar: subir y ver; la URL sin token responde 401', async ({ page }) => {
     const m = await createMember('Avatar')
     const p = await open(page, `/dashboard/users/${m.id}`)
