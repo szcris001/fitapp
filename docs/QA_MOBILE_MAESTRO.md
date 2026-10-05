@@ -168,12 +168,12 @@ appId: host.exp.exponent
 - [x] Reservar una clase próxima → `POST /bookings` (línea 124). Confirmar que
       aparece como reservada en la UI y en `GET /my-bookings`.
 - [x] Cancelar la reserva → `DELETE /bookings/:classId`. Confirmar que vuelve
-      a aparecer como disponible. **Backend OK, bug visual en el mobile — ver
-      hallazgo H-MOBILE-01 abajo.**
+      a aparecer como disponible. **Backend OK; bug visual en el mobile
+      encontrado y ya corregido — ver hallazgo H-MOBILE-01 abajo.**
 - [ ] (Si hay una clase llena) reservar y quedar en lista de espera, luego
       `POST /bookings/:bookingId/confirm` cuando se libera un cupo.
 
-#### Hallazgo H-MOBILE-01 — botón "Reservar lugar" queda invisible (pero funcional) tras cancelar
+#### Hallazgo H-MOBILE-01 — botón "Reservar lugar" queda invisible (pero funcional) tras cancelar — **CORREGIDO 2026-10-05**
 
 **Repro**: en `ClassesScreen.tsx`, reservar una clase desde la lista (abre
 sheet → confirmar) y después cancelarla desde el sheet (`Cancelar reserva` →
@@ -197,22 +197,35 @@ hermana en la misma lista (otra clase, nunca reservada/cancelada) pinta su
 gradiente sin problema. Es específico de la tarjeta cuya reserva pasó por un
 ciclo reservar→cancelar en la sesión.
 
-**Hipótesis de causa (no confirmada, para quien lo arregle)**: el
-`LinearGradient` de la tarjeta de lista es una instancia persistente (mismo
-`key={cls.id}` en todos los re-renders de `fetchAll()`), a diferencia del
-del sheet que se remonta. Si en algún render intermedio durante la
-transición reservar→cancelar `accentColor` quedó `undefined` por un
-instante (ej. mientras `classType` se recalculaba), `accentColor + 'AA'`
-habría producido un color inválido (`"undefinedAA"`) — algunas
-implementaciones nativas de `LinearGradient` en Android cachean el bitmap
-dibujado y no vuelven a pintar correctamente después de un color inválido,
-aun recibiendo props válidas después. No se confirmó con un debugger nativo,
-queda como pista.
+**Causa real, confirmada leyendo el árbol de elementos (no la hipótesis
+original de `accentColor` inválido)**: el botón de acción vive dentro de un
+único slot condicional (`isPendingConfirm ? (...) : started ? (...) :
+booked ? (...) : ... : (<TouchableOpacity><LinearGradient>...)`), sin
+`key` propio. Cuando `booked` pasa de `true` a `false` tras cancelar, el
+elemento en la rama "booked" (`<TouchableOpacity><Text>Inscrito ✓ · Ver
+clase</Text></TouchableOpacity>`) y el de la rama final
+(`<TouchableOpacity><LinearGradient>...) comparten el mismo tipo exterior
+(`TouchableOpacity`) en la misma posición del árbol — React reutiliza esa
+instancia exterior en vez de desmontarla, y el `LinearGradient` interior
+(antes ausente, ahora presente) monta recién cuando el layout del padre ya
+existía con otras dimensiones. `expo-linear-gradient` en Android no vuelve
+a redibujar correctamente cuando se monta así, dentro de un `View` nativo
+reciclado en pleno recálculo de layout — queda con bitmap en blanco aunque
+el tamaño final sea correcto.
 
-**Severidad sugerida**: baja-media. No bloquea la función (el botón sigue
-funcionando a ciegas, y el sheet es la vía alternativa), pero en producción
-un alumno real vería una tarjeta sin ningún call-to-action visible y podría
-asumir que esa clase no se puede reservar.
+**Fix**: se envolvió todo el bloque condicional del botón de acción en un
+`<React.Fragment key={...}>` cuya key combina las variables que determinan
+la rama (`isPendingConfirm`, `started`, `booked`, `outsideWindow`,
+`withinCutoff`, `isFull`). Al cambiar cualquiera de esas banderas, React ve
+una key distinta y fuerza un desmontaje + montaje limpio de todo el bloque
+— el `LinearGradient` nuevo siempre nace con el layout correcto, sin
+view reciclada de por medio.
+
+**Verificado en vivo** (no solo el razonamiento): reproducido el ciclo
+completo reservar→cancelar sobre una clase real en el emulador antes del
+fix (botón invisible, confirmado) y después del fix (botón pintado con el
+degradado completo, mismo flujo, misma clase) — captura de pantalla y
+`typecheck` limpio en ambos casos.
 
 **Importante — "Reservar lugar" es un flujo de DOS taps, no uno.** El botón
 "Reservar lugar" de la tarjeta en la lista **no reserva directo**: abre un
