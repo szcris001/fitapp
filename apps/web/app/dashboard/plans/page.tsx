@@ -25,6 +25,8 @@ type Plan = {
   maxClasses?: number | null
   isTrial: boolean
   isActive: boolean
+  autoRenewEnabled: boolean
+  autoRenewDaysBefore: number
 }
 
 type FormShape = {
@@ -34,11 +36,14 @@ type FormShape = {
   currency: string
   maxClasses: string
   isTrial: boolean
+  autoRenewEnabled: boolean
+  autoRenewDaysBefore: string
 }
 
 const emptyForm = (): FormShape => ({
   name: '', description: '', priceCents: '', currency: 'CLP',
   maxClasses: '', isTrial: false,
+  autoRenewEnabled: false, autoRenewDaysBefore: '3',
 })
 
 // ─── Skeleton card ───────────────────────────────────────────────
@@ -265,6 +270,8 @@ function EditCard({
     currency: plan.currency,
     maxClasses: plan.maxClasses != null ? String(plan.maxClasses) : '',
     isTrial: plan.isTrial ?? false,
+    autoRenewEnabled: plan.autoRenewEnabled ?? false,
+    autoRenewDaysBefore: String(plan.autoRenewDaysBefore ?? 3),
   })
 
   return (
@@ -423,6 +430,33 @@ function PlanFormFields({
               {currencies.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          {/* Auto-renovación: solo tiene sentido con cobro real (Stripe), no en trial */}
+          <div className="col-span-2">
+            <label className="flex items-center gap-2.5 cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                checked={form.autoRenewEnabled}
+                onChange={e => setForm(f => ({ ...f, autoRenewEnabled: e.target.checked }))}
+                className="w-4 h-4 rounded"
+                style={{ accentColor: 'var(--primary)' }}
+              />
+              <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)' }}>Auto-renovación</span>
+              <span style={{ fontSize: 12, color: 'var(--text-4)' }}>(el socio puede activarla desde la app)</span>
+            </label>
+          </div>
+          {form.autoRenewEnabled && (
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-3)', marginBottom: 6 }}>
+                Días antes de renovar
+              </label>
+              <input
+                type="number" min={1} max={30}
+                value={form.autoRenewDaysBefore}
+                onChange={e => setForm(f => ({ ...f, autoRenewDaysBefore: e.target.value }))}
+                className="input"
+              />
+            </div>
+          )}
         </>
       )}
 
@@ -498,6 +532,8 @@ export default function PlansPage() {
         currency: createForm.currency,
         maxClasses: createForm.maxClasses ? Number(createForm.maxClasses) : undefined,
         isTrial: createForm.isTrial,
+        autoRenewEnabled: createForm.isTrial ? false : createForm.autoRenewEnabled,
+        autoRenewDaysBefore: Number(createForm.autoRenewDaysBefore) || undefined,
       })
       setSuccess('Plan creado correctamente')
       setShowCreate(false)
@@ -521,6 +557,8 @@ export default function PlansPage() {
         currency: form.currency,
         maxClasses: form.maxClasses ? Number(form.maxClasses) : null,
         isTrial: form.isTrial,
+        autoRenewEnabled: form.isTrial ? false : form.autoRenewEnabled,
+        autoRenewDaysBefore: Number(form.autoRenewDaysBefore) || undefined,
       })
       setSuccess('Plan actualizado correctamente')
       setEditingId(null)

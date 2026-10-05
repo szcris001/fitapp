@@ -35,6 +35,8 @@ export async function updatePlan(gymId: string, planId: string, data: UpdatePlan
         ...(data.maxClasses !== undefined && { maxClasses: data.maxClasses }),
         ...(data.isTrial !== undefined && { isTrial: data.isTrial }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.autoRenewEnabled !== undefined && { autoRenewEnabled: data.autoRenewEnabled }),
+        ...(data.autoRenewDaysBefore !== undefined && { autoRenewDaysBefore: data.autoRenewDaysBefore }),
       },
     })
   } catch (err) {
