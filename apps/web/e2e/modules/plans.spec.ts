@@ -51,7 +51,7 @@ test.describe('PLN — admin', () => {
     await page.reload()
     await page.waitForLoadState('networkidle')
     const card = planCard(page, name)
-    await expect(card).toContainText('35.000')
+    await expect(card).toContainText('$35.000')
     await expect(card).toContainText('CLP / mes')
     await expect(card).toContainText('30 días de vigencia')
     await expect(card).not.toContainText(/\b350\b|3\.500\.000/)
