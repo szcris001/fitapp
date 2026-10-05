@@ -20,10 +20,17 @@ const STATUS_BADGE: Record<string, string> = {
 }
 const METHOD_LABEL: Record<string, string> = {
   cash: 'Efectivo', transfer: 'Transferencia', card: 'Tarjeta', stripe: 'Pago online', other: 'Otro',
+  // 'manual' no lo manda ningún formulario (el tab "Pago presencial" siempre guarda
+  // cash/transfer/card/other) — aparece en datos sembrados/antiguos como genérico.
+  manual: 'Pago manual',
 }
 const METHOD_ICON: Record<string, string> = {
-  cash: '💵', transfer: '🏦', card: '💳', stripe: '🔒', other: '📋',
+  cash: '💵', transfer: '🏦', card: '💳', stripe: '🔒', other: '📋', manual: '📝',
 }
+// paymentMethod es un string libre en la DB (sin enum): un valor que no esté en los mapas
+// de arriba (dato viejo, o cargado por fuera de los formularios) mostraba literalmente
+// "undefined" en vez de un ícono — ver QA H07.
+const methodIcon = (method: string) => METHOD_ICON[method] ?? '💰'
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   ACTIVE:   { bg: 'rgba(34,197,94,0.12)',   color: '#22c55e', label: 'Activo' },
@@ -891,7 +898,7 @@ export default function UserDetailPage() {
                           {new Date(m.endsAt).toLocaleDateString('es-CL', { timeZone: GYM_TIMEZONE })}
                         </td>
                         <td className="py-3 pr-4" style={{ color: 'var(--text-3)' }}>
-                          {m.paymentMethod ? `${METHOD_ICON[m.paymentMethod]} ${METHOD_LABEL[m.paymentMethod] || m.paymentMethod}` : '—'}
+                          {m.paymentMethod ? `${methodIcon(m.paymentMethod)} ${METHOD_LABEL[m.paymentMethod] || m.paymentMethod}` : '—'}
                         </td>
                         <td className="py-3 pr-4 font-semibold" style={{ color: 'var(--text-1)' }}>
                           {m.pricePaid != null ? `${toMajorUnits(m.pricePaid, m.currency).toLocaleString('es-CL')} ${m.currency}` : '—'}
@@ -1033,7 +1040,7 @@ export default function UserDetailPage() {
                 </span>
                 {activeMembership.paymentMethod && (
                   <p className="text-xs" style={{ color: 'var(--text-4)' }}>
-                    {METHOD_ICON[activeMembership.paymentMethod]} {METHOD_LABEL[activeMembership.paymentMethod] || activeMembership.paymentMethod}
+                    {methodIcon(activeMembership.paymentMethod)} {METHOD_LABEL[activeMembership.paymentMethod] || activeMembership.paymentMethod}
                   </p>
                 )}
               </div>

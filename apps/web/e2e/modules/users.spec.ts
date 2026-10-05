@@ -217,8 +217,16 @@ test.describe('USR — admin', () => {
     const activa = page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Membresía activa' }) })
     await expect(activa).toContainText(NORTE.plans.mensual.name)
     await expect(activa).toContainText(/2[4-6]d restantes/)
+    // paymentMethod sembrado es "manual" — ningún formulario lo manda (siempre cash/
+    // transfer/card/other). La columna "Método" del historial interpola con template
+    // string (`${METHOD_ICON[m]} ...`): sin entrada en el mapa, ${undefined} se
+    // stringifica a la palabra literal "undefined" (QA H07) — distinto del pill de
+    // "Membresía activa", que usa JSX y no muestra nada para un ícono undefined.
+    await expect(activa).toContainText('Pago manual')
     const historial = page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Historial de membresías' }) })
     await expect(historial).toContainText('35.000 CLP')
+    await expect(historial).toContainText('Pago manual')
+    await expect(historial).not.toContainText('undefined')
 
     // RMs: mejor marca por movimiento (Back Squat 105 > 100)
     const rms = page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Récords personales' }) })
