@@ -121,8 +121,12 @@ export default function ClassesScreen() {
   const handleBook = async (classId: string) => {
     setBookingId(classId)
     try {
-      await api.post('/bookings', { classId })
-      Alert.alert('✅ Reservado', 'Tu lugar está confirmado')
+      const { data } = await api.post('/bookings', { classId })
+      if (data.status === 'WAITLIST') {
+        Alert.alert('⏳ En lista de espera', 'La clase está llena. Te avisamos si se libera un lugar.')
+      } else {
+        Alert.alert('✅ Reservado', 'Tu lugar está confirmado')
+      }
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.error || 'No se pudo reservar')
     } finally {
@@ -348,6 +352,7 @@ export default function ClassesScreen() {
             const myBooking = myBookingMap.get(cls.id)
             const booked = !!myBooking && ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'].includes(myBooking.status)
             const isPendingConfirm = myBooking?.status === 'PENDING_CONFIRM'
+            const isWaitlisted = myBooking?.status === 'WAITLIST'
             const now = new Date()
             const clsStart = new Date(cls.startsAt)
             const started = clsStart <= now
@@ -401,6 +406,10 @@ export default function ClassesScreen() {
                         <View style={[s.bookedBadge, { backgroundColor: c.success + '20', borderColor: c.success + '50' }]}>
                           <Text style={[s.bookedText, { color: c.success }]}>Inscrito ✓</Text>
                         </View>
+                      ) : isWaitlisted ? (
+                        <View style={[s.bookedBadge, { backgroundColor: c.text3 + '20', borderColor: c.text3 + '50' }]}>
+                          <Text style={[s.bookedText, { color: c.text3 }]}>⏳ En lista</Text>
+                        </View>
                       ) : null}
                     </View>
                   </View>
@@ -416,7 +425,7 @@ export default function ClassesScreen() {
                       mismo tipo de elemento y el LinearGradient de "Reservar lugar"
                       quedaba montado con layout inicial 0x0, invisible pero tappable
                       (QA H-MOBILE-01, docs/QA_MOBILE_MAESTRO.md). */}
-                  <React.Fragment key={`${isPendingConfirm}-${started}-${booked}-${outsideWindow}-${withinCutoff}-${isFull}`}>
+                  <React.Fragment key={`${isPendingConfirm}-${started}-${booked}-${isWaitlisted}-${outsideWindow}-${withinCutoff}-${isFull}`}>
                   {isPendingConfirm ? (
                     <TouchableOpacity
                       style={[s.btn, { backgroundColor: '#f59e0b' }]}
@@ -449,6 +458,13 @@ export default function ClassesScreen() {
                         <Text style={[s.btnText, { color: '#ef4444' }]}>Inscrito ✓  · Ver clase</Text>
                       </TouchableOpacity>
                     )
+                  ) : isWaitlisted ? (
+                    <TouchableOpacity
+                      style={[s.btn, s.btnCancel, { borderColor: c.text3 + '60' }]}
+                      onPress={() => openSheet(cls)}
+                    >
+                      <Text style={[s.btnText, { color: c.text3 }]}>⏳ En lista de espera · Ver clase</Text>
+                    </TouchableOpacity>
                   ) : outsideWindow ? (
                     <View style={[s.btn, s.btnFull]}>
                       <Text style={[s.btnText, { color: c.text3 }]}>
@@ -460,9 +476,12 @@ export default function ClassesScreen() {
                       <Text style={[s.btnText, { color: c.text3 }]}>Plazo de reserva cerrado</Text>
                     </View>
                   ) : isFull ? (
-                    <View style={[s.btn, s.btnFull]}>
-                      <Text style={[s.btnText, { color: c.text3 }]}>Clase llena</Text>
-                    </View>
+                    <TouchableOpacity
+                      style={[s.btn, s.btnFull]}
+                      onPress={() => openSheet(cls)}
+                    >
+                      <Text style={[s.btnText, { color: c.text1 }]}>Unirme a lista de espera</Text>
+                    </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
                       onPress={() => openSheet(cls)}
@@ -495,6 +514,7 @@ export default function ClassesScreen() {
         const cls = sheetClass
         const myBooking = myBookingMap.get(cls.id)
         const booked = !!myBooking && ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'].includes(myBooking.status)
+        const isWaitlisted = myBooking?.status === 'WAITLIST'
         const now = new Date()
         const clsStart = new Date(cls.startsAt)
         const isFull = (cls._count?.bookings ?? 0) >= (cls.capacity ?? 0)
@@ -579,10 +599,24 @@ export default function ClassesScreen() {
                       <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>Cancelar reserva</Text>
                     </TouchableOpacity>
                   )
+                ) : isWaitlisted ? (
+                  <TouchableOpacity
+                    onPress={() => { closeSheet(); handleCancel(cls.id) }}
+                    style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: c.text3 + '60', alignItems: 'center' }}
+                  >
+                    <Text style={{ color: c.text3, fontSize: 14, fontWeight: '600' }}>⏳ Salir de la lista de espera</Text>
+                  </TouchableOpacity>
                 ) : isFull ? (
-                  <View style={{ paddingVertical: 14, borderRadius: 14, backgroundColor: c.border, alignItems: 'center' }}>
-                    <Text style={{ color: c.text3, fontSize: 14, fontWeight: '700' }}>Clase llena</Text>
-                  </View>
+                  <TouchableOpacity
+                    onPress={() => { closeSheet(); handleBook(cls.id) }}
+                    disabled={bookingId === cls.id}
+                    style={{ paddingVertical: 14, borderRadius: 14, backgroundColor: c.border, alignItems: 'center' }}
+                  >
+                    {bookingId === cls.id
+                      ? <ActivityIndicator color={c.text1} size={18} />
+                      : <Text style={{ color: c.text1, fontSize: 14, fontWeight: '700' }}>Unirme a lista de espera</Text>
+                    }
+                  </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
                     onPress={() => { closeSheet(); handleBook(cls.id) }}
