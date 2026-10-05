@@ -94,7 +94,9 @@ function PlanCard({
     plan.isTrial
       ? 'Gratis'
       : plan.priceCents != null
-      ? toMajorUnits(plan.priceCents, plan.currency).toLocaleString('es-CL')
+      // El código de moneda ya se muestra aparte ("CLP / mes") — solo faltaba el signo
+      // "$", que sí se muestra en el widget "Ingresos del mes" del dashboard con el mismo monto.
+      ? `$${toMajorUnits(plan.priceCents, plan.currency).toLocaleString('es-CL')}`
       : '—'
 
   return (
