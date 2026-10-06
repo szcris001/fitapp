@@ -170,8 +170,86 @@ appId: host.exp.exponent
 - [x] Cancelar la reserva → `DELETE /bookings/:classId`. Confirmar que vuelve
       a aparecer como disponible. **Backend OK; bug visual en el mobile
       encontrado y ya corregido — ver hallazgo H-MOBILE-01 abajo.**
-- [ ] (Si hay una clase llena) reservar y quedar en lista de espera, luego
-      `POST /bookings/:bookingId/confirm` cuando se libera un cupo.
+- [x] (Si hay una clase llena) reservar y quedar en lista de espera, luego
+      `POST /bookings/:bookingId/confirm` cuando se libera un cupo. ✅
+      Verificado 2026-10-05, de punta a punta: unirse, ver el estado, salir,
+      promoción a `PENDING_CONFIRM`, botón "Confirmar". Encontré dos huecos
+      de UI (H-MOBILE-06/07) — **Cristian aclaró que el alumno SÍ debe poder
+      unirse solo, no era ambiguo — ya están corregidos.**
+
+#### Hallazgo H-MOBILE-06 — no había forma de unirse a la lista de espera desde mobile — **CORREGIDO 2026-10-05**
+
+Cuando una clase está llena, la tarjeta de la lista muestra "Clase llena"
+dentro de una `<View>` simple (`ClassesScreen.tsx`, rama `isFull`), sin
+`TouchableOpacity` ni `onPress` — ni la tarjeta completa ni esa zona abren
+el sheet. Confirmado tocando esa zona en el emulador: no pasa nada, ni un
+log, ni el sheet. El backend sí soporta la reserva como `WAITLIST`
+(`bookClass` la crea sin problema si se llama directo a la API), pero un
+alumno real nunca puede llegar a esa llamada desde la app — no existe botón
+"Unirme a la lista de espera" en ningún lado de `ClassesScreen.tsx`.
+
+#### Hallazgo H-MOBILE-07 — estar en lista de espera es invisible en la UI — **CORREGIDO 2026-10-05**
+
+Incluso si el alumno ya está en `WAITLIST` (confirmado por API, bypaseando
+el hueco de arriba), la tarjeta de la lista lo muestra exactamente igual
+que si no estuviera anotado: mismo "Clase llena", sin badge, sin texto, sin
+ningún indicio. Causa: `const booked = !!myBooking &&
+['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'].includes(myBooking.status)`
+— `WAITLIST` queda afuera de esa lista a propósito o por descuido, así que
+ni el badge junto al cupo (`Inscrito ✓`) ni el botón cambian para avisarle
+al alumno "ya estás anotado, cuando se libere un cupo te avisamos". Solo
+cuando el backend promueve el booking a `PENDING_CONFIRM` la UI reacciona
+(y ahí sí funciona perfecto, con cuenta regresiva y todo).
+
+**Por qué importan los dos juntos**: hoy el único camino real para que un
+alumno quede en lista de espera es que el *coach* lo haga por él (vía
+`assignUserToClass` cuando ya no hay cupo — crea `WAITLIST` igual que
+`bookClass`). El alumno nunca puede pedirlo solo desde la app, y si de
+alguna forma quedó anotado, no tiene manera de saberlo hasta que le llega
+la notificación push de "tienes 30 min para confirmar". Es un salto grande
+en la experiencia — vale la pena que lo vea `product-owner` antes de
+decidir si se prioriza para esta versión o se suma al backlog junto con
+QR/Geo (H-MOBILE-02).
+
+**Nota aparte, menor**: `ClassesScreen.tsx` solo llama `fetchAll()` en el
+mount inicial (`useEffect` sin `useFocusEffect`) y en el pull-to-refresh
+manual — cambiar de tab y volver a "Clases" **no** trae datos frescos. Para
+un flujo con cuenta regresiva de 30 min (`PENDING_CONFIRM`), esto importa:
+un alumno que vuelve a la pestaña después de un rato no ve que le toca
+confirmar hasta que hace pull-to-refresh a mano. Encontrado de pasada
+mientras verificaba H-MOBILE-06/07 (mi primer intento de "refrescar"
+cambiando de tab no mostraba el botón "Confirmar" aunque el backend ya
+tenía el estado correcto — no era un bug del botón, era que nunca se
+había vuelto a pedir `/bookings/me`). No califica como hallazgo propio,
+pero vale la pena que quien toque esta pantalla lo sepa.
+
+**Fix (H-MOBILE-06/07)**: en `ClassesScreen.tsx` —
+- Nuevo `const isWaitlisted = myBooking?.status === 'WAITLIST'` (tarjeta de
+  lista y sheet).
+- Badge: cuando `isWaitlisted`, se pinta "⏳ En lista" junto al cupo.
+- Tarjeta de lista: rama `isFull` deja de ser una `<View>` muda y pasa a
+  `TouchableOpacity` ("Unirme a lista de espera" → abre el sheet); nueva
+  rama `isWaitlisted` con botón propio ("⏳ En lista de espera · Ver clase").
+- Sheet: nueva rama `isWaitlisted` → botón "Salir de la lista de espera"
+  (llama `handleCancel`); rama `isFull` ahora sí dispara `handleBook`.
+- `handleBook` ahora lee `data.status` de la respuesta de `POST /bookings` y
+  distingue el alert: "⏳ En lista de espera" (si `WAITLIST`) vs "✅
+  Reservado" (si `CONFIRMED`) — antes siempre decía "Reservado", aunque
+  hubiera quedado en espera.
+
+**Verificado en vivo en el emulador** (gym QA Norte, clase llevada a cupo 0
+a mano vía API, limpiada después):
+1. Tarjeta llena → tocar "Unirme a lista de espera" → toast "⏳ En lista de
+   espera" → badge "⏳ En lista" visible en la tarjeta → DB: booking en
+   `WAITLIST`.
+2. Abrir el sheet de esa clase → botón "Salir de la lista de espera" → tocar
+   → confirmar → DB: `WAITLIST` → `CANCELLED` → UI vuelve a "Unirme a lista
+   de espera".
+3. Repetido el join, y esta vez forzado un cupo libre por API → cron de
+   `runPendingConfirmExpiryJob` lo sube a `PENDING_CONFIRM` → UI muestra el
+   botón "Confirmar" con cuenta regresiva (camino que ya funcionaba) → DB:
+   `WAITLIST` → `PENDING_CONFIRM` → `CONFIRMED` tras tocar "Confirmar".
+4. `pnpm typecheck` limpio en `apps/mobile` después del cambio.
 
 #### Hallazgo H-MOBILE-01 — botón "Reservar lugar" queda invisible (pero funcional) tras cancelar — **CORREGIDO 2026-10-05**
 
