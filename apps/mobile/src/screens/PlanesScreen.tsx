@@ -30,12 +30,12 @@ const GATEWAY_LABEL: Record<string, string> = {
   kushki: 'Kushki',
   openpay: 'OpenPay',
   mach: 'MACH Business',
-  fintoc_pay: 'Fintoc Pay',
+  fintocPayments: 'Fintoc Pay',
 }
 const GATEWAY_ICON: Record<string, string> = {
   stripe: '💳', mercadopago: '🟦', flow: '🌊', khipu: '🟣',
   payu: '🏧', kushki: '🟠', openpay: '🟢', mach: '🔵',
-  fintoc_pay: '🏦',
+  fintocPayments: '🏦',
 }
 const GATEWAY_CHECKOUT_PATH: Record<string, string> = {
   stripe: '/payments/checkout-self',
@@ -46,7 +46,7 @@ const GATEWAY_CHECKOUT_PATH: Record<string, string> = {
   kushki: '/payments/checkout/kushki',
   openpay: '/payments/checkout/openpay',
   mach: '/payments/checkout/mach',
-  fintoc_pay: '/payments/checkout/fintoc-pay',
+  fintocPayments: '/payments/checkout/fintoc-pay',
 }
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: '#22c55e', TRIAL: '#f59e0b', INACTIVE: '#6b7280', EXPIRED: '#ef4444',
@@ -282,7 +282,7 @@ function PayModal({ plan, onClose, onPaid }: PayModalProps) {
               )}
 
               {/* Info box */}
-              {method === 'fintoc_pay' ? (
+              {method === 'fintocPayments' ? (
                 <View style={styles.methodInfo}>
                   <Text style={styles.infoTitle}>🏦 Fintoc Pay — Pago bancario directo</Text>
                   <Text style={styles.infoText}>
@@ -347,7 +347,7 @@ function PayModal({ plan, onClose, onPaid }: PayModalProps) {
                 onPress={
                   method === 'transfer'
                     ? handleUploadReceipt
-                    : method === 'fintoc_pay'
+                    : method === 'fintocPayments'
                       ? () => handleFintocPay(plan.id)
                       : () => handleOnlineCheckout(method)
                 }
@@ -357,7 +357,7 @@ function PayModal({ plan, onClose, onPaid }: PayModalProps) {
                   : <Text style={styles.payActionText}>
                       {method === 'transfer'
                         ? (receiptUri ? 'Enviar comprobante →' : 'Selecciona un comprobante')
-                        : method === 'fintoc_pay'
+                        : method === 'fintocPayments'
                           ? 'Pagar con Fintoc Pay'
                           : checkoutUrl
                             ? 'Volver a abrir pago'

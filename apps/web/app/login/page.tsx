@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
 import { API_BASE } from '../../lib/api'
@@ -29,28 +29,45 @@ export default function LoginPage() {
   const router = useRouter()
 
   const [platformLogo, setPlatformLogo] = useState<string>(`${API_BASE}/uploads/assets/platform_logo.png`)
-  const [animatedLogo, setAnimatedLogo] = useState<string | null>(null)
-  const iframeRef  = useRef<HTMLIFrameElement>(null)
+  const [animatedLogoHtml, setAnimatedLogoHtml] = useState<string | null>(null)
+  const logoContainerRef = useRef<HTMLDivElement>(null)
   const [logoRatio, setLogoRatio] = useState(0.3256)
-  const [iframeReady, setIframeReady] = useState(false)
+  const [logoReady, setLogoReady] = useState(false)
 
-  const handleLogoLoad = useCallback(() => {
-    try {
-      const svg = iframeRef.current?.contentDocument?.querySelector('svg')
-      if (svg) {
-        const vb = svg.viewBox?.baseVal
-        if (vb && vb.width > 0) setLogoRatio(vb.height / vb.width)
-      }
-    } catch {}
-  }, [])
+  // Agrega el cache-bust respetando un `?` que el path pueda traer ya puesto
+  // (los assets de plataforma vienen con su propio `?v=...`) — pegar otro
+  // `?` a ciegas produce una URL con dos signos de pregunta.
+  const withCacheBust = (path: string) => `${API_BASE}${path}${path.includes('?') ? '&' : '?'}v=${Date.now()}`
 
   useEffect(() => {
     fetch(`${API_BASE}/api/platform/assets`)
       .then(r => r.json())
       .then(data => {
-        const v = `?v=${Date.now()}`
-        if (data.assets?.platform_logo)    setPlatformLogo(`${API_BASE}${data.assets.platform_logo}${v}`)
-        if (data.assets?.login_logo_animated) setAnimatedLogo(`${API_BASE}${data.assets.login_logo_animated}${v}`)
+        if (data.assets?.platform_logo) setPlatformLogo(withCacheBust(data.assets.platform_logo))
+        if (data.assets?.login_logo_animated) {
+          // Se trae el HTML y se inserta en la página (en vez de un <iframe>) porque
+          // el asset vive en el origen de la API, distinto al de la web — un iframe
+          // cross-origin queda bloqueado por X-Frame-Options, y aunque no lo estuviera,
+          // leer su <svg> para calcular el aspect ratio tampoco funcionaría por la
+          // política de same-origin. El contenido es un fragmento de confianza (solo
+          // <style>/<svg>, lo sube el superadmin, sin <script>), así que insertarlo
+          // directo es seguro.
+          fetch(withCacheBust(data.assets.login_logo_animated))
+            .then(r => r.text())
+            .then(html => {
+              // Ratio del aspect-ratio box: se lee el viewBox del texto, sin
+              // tocar el DOM (evita depender de un ref ya montado).
+              const m = /viewBox="[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)"/.exec(html)
+              if (m) {
+                const [, w, h] = m
+                const ratio = Number(h) / Number(w)
+                if (ratio > 0) setLogoRatio(ratio)
+              }
+              setAnimatedLogoHtml(html)
+              setLogoReady(true)
+            })
+            .catch(() => {})
+        }
       })
       .catch(() => {})
   }, [])
@@ -126,21 +143,20 @@ export default function LoginPage() {
             style={{
               display: 'block', margin: '0 auto',
               height: 180, width: 'auto', maxWidth: '100%', objectFit: 'contain',
-              opacity: iframeReady ? 0 : 1, transition: 'opacity 0.5s',
+              opacity: logoReady ? 0 : 1, transition: 'opacity 0.5s',
               filter: 'drop-shadow(0 4px 40px rgba(0,0,0,0.8))',
             }}
           />
-          {animatedLogo && (
+          {animatedLogoHtml && (
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0,
               paddingTop: `${logoRatio * 100}%`,
-              opacity: iframeReady ? 1 : 0, transition: 'opacity 0.5s',
+              opacity: logoReady ? 1 : 0, transition: 'opacity 0.5s',
             }}>
-              <iframe
-                ref={iframeRef} src={animatedLogo}
-                onLoad={() => { handleLogoLoad(); setIframeReady(true) }}
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', background: 'transparent', overflow: 'hidden', colorScheme: 'normal' }}
-                sandbox="allow-scripts allow-same-origin" scrolling="no"
+              <div
+                ref={logoContainerRef}
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'hidden' }}
+                dangerouslySetInnerHTML={{ __html: animatedLogoHtml }}
               />
             </div>
           )}

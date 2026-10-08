@@ -14,6 +14,18 @@ import {
 /* ─── Tipos pago rápido ──────────────────────────────── */
 interface QuickUser { id: string; name: string; email: string; memberships: any[] }
 
+// "Hoy" según la zona horaria del GYM, no la del navegador. Sin esto, un admin con el
+// reloj/zona del dispositivo distinto al del gym (viajando, o simplemente un navegador en
+// UTC) ve el día siguiente desde ~21:00 hora Chile en adelante — clases, WOD y hasta el
+// saludo del header quedan un día adelantados. QA dashboard, 2026-10-07.
+function gymToday(tz: string): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+}
+function gymHour(tz: string): number {
+  // hour12:false puede devolver "24" para medianoche en algunos motores — normalizar a 0-23.
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hour12: false }).format(new Date())) % 24
+}
+
 const METHOD_LABEL: Record<string, string> = {
   cash: 'Efectivo', transfer: 'Transferencia', card: 'Tarjeta', other: 'Otro',
 }
@@ -434,6 +446,7 @@ export default function DashboardPage() {
   const [quickPayUserId, setQuickPayUserId] = useState<string | null>(null)
   const [quickUsers, setQuickUsers]   = useState<QuickUser[]>([])
   const [quickPlans, setQuickPlans]   = useState<any[]>([])
+  const [gymTz, setGymTz]             = useState('America/Santiago')
   const router = useRouter()
   const isCoach = user?.role === 'COACH'
 
@@ -442,34 +455,38 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return  // el layout redirige a /login
 
-    // Fecha local del navegador (asumida igual a la del gym): toISOString() es UTC y en la
-    // noche chilena (desde ~21:00) ya cayó en el día siguiente, mostrando clases y WOD de mañana
-    const today = new Date().toLocaleDateString('sv')
+    // "Hoy" tiene que calcularse con la zona horaria del GYM (/gyms/me.timezone), no la del
+    // navegador — ver comentario de gymToday() arriba.
+    api.get('/gyms/me').then(r => r.data?.timezone).catch(() => undefined).then(tz => {
+      const timezone = tz || 'America/Santiago'
+      setGymTz(timezone)
+      const today = gymToday(timezone)
 
-    if (isCoach) {
+      if (isCoach) {
+        Promise.all([
+          api.get(`/classes?from=${today}&to=${today}`).catch(() => ({ data: [] })),
+          api.get(`/wods?from=${today}&to=${today}`).catch(() => ({ data: [] })),
+        ]).then(([clsRes, wodRes]) => {
+          setTodayClasses((clsRes.data || []).sort((a: TodayClass, b: TodayClass) => a.startsAt.localeCompare(b.startsAt)))
+          setTodayWods(wodRes.data || [])
+        }).finally(() => setLoading(false))
+        return
+      }
+
       Promise.all([
-        api.get(`/classes?from=${today}&to=${today}`).catch(() => ({ data: [] })),
+        api.get('/gyms/me/stats'),
+        api.get(`/classes?from=${today}&to=${today}`),
+        api.get('/gyms/me/occupancy?period=7d'),
         api.get(`/wods?from=${today}&to=${today}`).catch(() => ({ data: [] })),
-      ]).then(([clsRes, wodRes]) => {
-        setTodayClasses((clsRes.data || []).sort((a: TodayClass, b: TodayClass) => a.startsAt.localeCompare(b.startsAt)))
+      ]).then(([statsRes, classesRes, occRes, wodRes]) => {
+        setStats(statsRes.data)
+        setTodayClasses(classesRes.data.sort((a: TodayClass, b: TodayClass) =>
+          a.startsAt.localeCompare(b.startsAt)))
+        setOccupancy(occRes.data)
         setTodayWods(wodRes.data || [])
-      }).finally(() => setLoading(false))
-      return
-    }
-
-    Promise.all([
-      api.get('/gyms/me/stats'),
-      api.get(`/classes?from=${today}&to=${today}`),
-      api.get('/gyms/me/occupancy?period=7d'),
-      api.get(`/wods?from=${today}&to=${today}`).catch(() => ({ data: [] })),
-    ]).then(([statsRes, classesRes, occRes, wodRes]) => {
-      setStats(statsRes.data)
-      setTodayClasses(classesRes.data.sort((a: TodayClass, b: TodayClass) =>
-        a.startsAt.localeCompare(b.startsAt)))
-      setOccupancy(occRes.data)
-      setTodayWods(wodRes.data || [])
-    }).catch(() => { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ })
-      .finally(() => setLoading(false))
+      }).catch(() => { /* 401: lib/api.ts refresca o cierra sesión; otros errores no deben sacar al usuario */ })
+        .finally(() => setLoading(false))
+    })
   }, [user])
 
   const fetchOccupancy = useCallback(async (p: Period) => {
@@ -486,9 +503,9 @@ export default function DashboardPage() {
     fetchOccupancy(p)
   }
 
-  const hour = new Date().getHours()
+  const hour = gymHour(gymTz)
   const greeting  = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches'
-  const dateLabel = new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
+  const dateLabel = new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: gymTz })
   if (!user) return null
 
   /* ─── COACH VIEW ──────────────────────── */

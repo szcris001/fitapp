@@ -68,7 +68,31 @@ function replacePlaceholders(template: string, vars: Record<string, string>): st
   return Object.entries(vars).reduce((s, [k, v]) => s.split(`{{${k}}}`).join(v), template)
 }
 
-function wrapInLayout(gymName: string, headerColor: string, headerEmoji: string, headerTitle: string, body: string, logoUrl?: string | null): string {
+// Texto de usuario (nombre del alumno, cuerpo del mensaje, nombre del gym...) termina
+// embebido tal cual dentro de HTML — sin esto, alguien con "<" o "&" en su nombre rompe
+// el layout del correo, y un admin podría inyectar HTML/links de phishing en el cuerpo
+// de un envío masivo usando la plantilla "oficial" del gym (QA comunicaciones, 2026-10-07).
+// Solo para texto que se inserta en el BODY del HTML — el asunto del correo no es HTML,
+// no hay que escaparlo (se vería "&amp;" literal).
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function escapeVars(vars: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, escapeHtml(v)]))
+}
+
+// gymName y headerTitle se escapan acá, una sola vez — son los dos parámetros que todos
+// los callers arman con texto de usuario (nombre del gym, a veces mezclado con texto fijo
+// propio); `body` NO se escapa acá, cada caller ya lo arma pre-escapado donde corresponde.
+function wrapInLayout(gymNameRaw: string, headerColor: string, headerEmoji: string, headerTitleRaw: string, body: string, logoUrl?: string | null): string {
+  const gymName = escapeHtml(gymNameRaw)
+  const headerTitle = escapeHtml(headerTitleRaw)
   const apiBase = process.env.PUBLIC_API_URL || 'http://localhost:3001'
   const logoHtml = logoUrl
     ? `<img src="${apiBase}${logoUrl}" alt="${gymName}" style="height:56px;width:56px;border-radius:12px;object-fit:cover;border:3px solid rgba(255,255,255,0.3);margin-bottom:12px;" />`
@@ -128,7 +152,7 @@ export async function sendExpiryReminder(gymId: string, member: {
 
   let htmlBody: string
   if (gym.emailExpiryBody) {
-    const customText = replacePlaceholders(gym.emailExpiryBody, vars)
+    const customText = replacePlaceholders(escapeHtml(gym.emailExpiryBody), escapeVars(vars))
     htmlBody = wrapInLayout(
       gym.name, urgencyColor, '⏰', 'Tu membresía vence pronto',
       `<p style="color:#374151;font-size:15px;line-height:1.7;white-space:pre-line;">${customText}</p>`,
@@ -137,9 +161,9 @@ export async function sendExpiryReminder(gymId: string, member: {
   } else {
     htmlBody = wrapInLayout(
       gym.name, urgencyColor, '⏰', 'Tu membresía vence pronto',
-      `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${member.name}</strong>,</p>
+      `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${escapeHtml(member.name)}</strong>,</p>
       <p style="color:#6b7280;font-size:15px;margin:0 0 24px;line-height:1.6;">
-        Tu plan <strong>${member.planName}</strong> en <strong>${gym.name}</strong> vence el <strong>${endsStr}</strong>.
+        Tu plan <strong>${escapeHtml(member.planName)}</strong> en <strong>${escapeHtml(gym.name)}</strong> vence el <strong>${endsStr}</strong>.
         ${member.daysLeft <= 1 ? 'Es el último día, renueva ahora para no perder tu membresía.' : `Quedan <strong style="color:${urgencyColor}">${member.daysLeft} días</strong>.`}
       </p>
       <div style="background:#f3f4f6;border-radius:12px;padding:20px;margin-bottom:24px;">
@@ -219,7 +243,7 @@ export async function sendPaymentConfirmation(gymId: string, data: {
 
   let htmlBody: string
   if (gym.emailPaymentBody) {
-    const customText = replacePlaceholders(gym.emailPaymentBody, vars)
+    const customText = replacePlaceholders(escapeHtml(gym.emailPaymentBody), escapeVars(vars))
     htmlBody = wrapInLayout(
       gym.name, '#6366f1', '✅', 'Pago confirmado',
       `<p style="color:#374151;font-size:15px;line-height:1.7;white-space:pre-line;">${customText}</p>${invoiceSection}`,
@@ -228,14 +252,14 @@ export async function sendPaymentConfirmation(gymId: string, data: {
   } else {
     htmlBody = wrapInLayout(
       gym.name, '#6366f1', '✅', 'Pago confirmado',
-      `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${data.memberName}</strong>,</p>
+      `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${escapeHtml(data.memberName)}</strong>,</p>
       <p style="color:#6b7280;font-size:15px;margin:0 0 24px;line-height:1.6;">
-        Tu pago en <strong>${gym.name}</strong> fue registrado correctamente.
+        Tu pago en <strong>${escapeHtml(gym.name)}</strong> fue registrado correctamente.
       </p>
       <div style="background:#f3f4f6;border-radius:12px;padding:20px;margin-bottom:16px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
           <span style="color:#6b7280;font-size:14px;">Plan</span>
-          <span style="color:#111827;font-size:14px;font-weight:600;">${data.planName}</span>
+          <span style="color:#111827;font-size:14px;font-weight:600;">${escapeHtml(data.planName)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
           <span style="color:#6b7280;font-size:14px;">Monto</span>
@@ -243,7 +267,7 @@ export async function sendPaymentConfirmation(gymId: string, data: {
         </div>
         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
           <span style="color:#6b7280;font-size:14px;">Método</span>
-          <span style="color:#111827;font-size:14px;">${methodLabel[data.paymentMethod] || data.paymentMethod}</span>
+          <span style="color:#111827;font-size:14px;">${escapeHtml(methodLabel[data.paymentMethod] || data.paymentMethod)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;">
           <span style="color:#6b7280;font-size:14px;">Vence</span>
@@ -308,7 +332,7 @@ export async function sendBulkToGyms(options: {
     if (!gym.ownerEmail) { failed++; continue }
     const vars = { gimnasio: gym.name, nombre: gym.name }
     const subject = replacePlaceholders(options.subject, vars)
-    const bodyText = replacePlaceholders(options.body, vars)
+    const bodyText = replacePlaceholders(escapeHtml(options.body), escapeVars(vars))
     const html = wrapInLayout(
       gym.name, '#6366f1', '📢', subject,
       `<p style="color:#374151;font-size:15px;line-height:1.7;white-space:pre-line;">${bodyText}</p>`,
@@ -346,7 +370,7 @@ export async function sendBulkEmail(
   for (const recipient of options.recipients) {
     const vars = { nombre: recipient.name, gimnasio: gym.name }
     const subject = replacePlaceholders(options.subject, vars)
-    const bodyText = replacePlaceholders(options.body, vars)
+    const bodyText = replacePlaceholders(escapeHtml(options.body), escapeVars(vars))
     const html = wrapInLayout(
       gym.name, '#6366f1', '📢', subject,
       `<p style="color:#374151;font-size:15px;line-height:1.7;white-space:pre-line;">${bodyText}</p>`,
@@ -381,18 +405,18 @@ export async function sendWelcomeEmail(data: {
 
   const html = wrapInLayout(
     'FitApp', '#6366f1', '🏋️', `¡Bienvenido a FitApp, ${data.gymName}!`,
-    `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${data.adminName}</strong>,</p>
+    `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${escapeHtml(data.adminName)}</strong>,</p>
     <p style="color:#6b7280;font-size:15px;margin:0 0 24px;line-height:1.6;">
-      Tu cuenta de administrador para <strong>${data.gymName}</strong> ha sido creada. Usa las siguientes credenciales para ingresar por primera vez:
+      Tu cuenta de administrador para <strong>${escapeHtml(data.gymName)}</strong> ha sido creada. Usa las siguientes credenciales para ingresar por primera vez:
     </p>
     <div style="background:#f3f4f6;border-radius:12px;padding:20px;margin-bottom:24px;">
       <div style="margin-bottom:12px;">
         <p style="margin:0 0 4px;color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;">Slug del gimnasio</p>
-        <p style="margin:0;color:#111827;font-size:16px;font-weight:700;font-family:monospace;">${data.gymSlug}</p>
+        <p style="margin:0;color:#111827;font-size:16px;font-weight:700;font-family:monospace;">${escapeHtml(data.gymSlug)}</p>
       </div>
       <div style="margin-bottom:12px;">
         <p style="margin:0 0 4px;color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;">Email</p>
-        <p style="margin:0;color:#111827;font-size:16px;font-weight:700;">${data.adminEmail}</p>
+        <p style="margin:0;color:#111827;font-size:16px;font-weight:700;">${escapeHtml(data.adminEmail)}</p>
       </div>
       <div>
         <p style="margin:0 0 4px;color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;">Contraseña temporal</p>
@@ -440,7 +464,7 @@ export async function sendTestEmail(gymId: string): Promise<{ success: boolean; 
     subject: `✉️ Correo de prueba — ${gym.name}`,
     html: wrapInLayout(
       gym.name, '#6366f1', '✉️', 'Prueba de correo exitosa',
-      `<p style="color:#374151;font-size:16px;margin:0 0 16px;">La configuración de correo de <strong>${gym.name}</strong> está funcionando correctamente.</p>
+      `<p style="color:#374151;font-size:16px;margin:0 0 16px;">La configuración de correo de <strong>${escapeHtml(gym.name)}</strong> está funcionando correctamente.</p>
       <p style="color:#6b7280;font-size:14px;margin:0;">Este es un correo de prueba enviado desde FitApp.</p>`,
       gym.logoUrl,
     ),

@@ -207,10 +207,6 @@ test.describe('WOD — importar Excel (admin)', () => {
 test.describe('WOD — leaderboard (coach)', () => {
   test.use({ storageState: authFile('coach') })
 
-  // BUG: RegisterModal (apps/web/app/dashboard/wods/[id]/leaderboard/page.tsx ~L100) envía
-  // { score: '4:10' (string), isRx } pero POST /wods/:id/results (apps/api/src/modules/wod/wod.routes.ts ~L221)
-  // espera { score: number, rx: boolean } sin validar: Prisma rechaza el string y `isRx` se ignora
-  // (rx queda en su default true). No se puede registrar un resultado desde la web.
   test('WOD-04 leaderboard: registrar resultado de un alumno y verlo ordenado', async ({ page }) => {
     // WOD propio (TIME) dentro de los próximos 60 días: el leaderboard busca el título en ese rango
     const type = await createClassType(`${PREFIX} Leaderboard ${RUN}`)

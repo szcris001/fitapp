@@ -41,8 +41,6 @@ test.describe('DASH — admin', () => {
     p.expectNoErrors()
   })
 
-  // BUG: la vista ADMIN del dashboard no tiene tarjeta «WOD del día» (solo existe en la vista COACH,
-  // apps/web/app/dashboard/page.tsx ~L577); el admin tampoco pide /wods al cargar.
   test('DASH-02 tarjeta «WOD del día» muestra «QA WOD Hoy»', async ({ page }) => {
     const p = await open(page, '/dashboard')
     const card = page.locator('.card').filter({ hasText: /WOD del día/i })
@@ -52,10 +50,6 @@ test.describe('DASH — admin', () => {
     p.expectNoErrors()
   })
 
-  // BUG: «Próximas clases» pide /classes?from=<hoy UTC>&to=<hoy UTC> (page.tsx ~L445) y la API
-  // interpreta el rango en UTC (classes.service.ts listClasses, setUTCHours(23,59,59)). En Chile
-  // (UTC-3/-4) la clase de las 21:00 local cae al día UTC siguiente y nunca aparece; además entra la
-  // de las 21:00 de ayer en el contador.
   test('DASH-05 «Próximas clases» incluye la clase de hoy a las 21:00 (hora local)', async ({ page }) => {
     test.skip(localHour() >= 22, 'después de las 22:00 la clase de las 21:00 ya terminó')
     const p = await open(page, '/dashboard')
@@ -65,6 +59,23 @@ test.describe('DASH — admin', () => {
     if (await more.isVisible()) await more.click()
     // es-CL en Chromium formatea «09:00 p. m.»; se acepta también «21:00»
     await expect(card.getByText(/^(21:00|09:00\s*p\.\s*m\.)$/)).toBeVisible()
+    p.expectNoErrors()
+  })
+})
+
+// El dashboard calcula "hoy" con la zona horaria del navegador por defecto — si el
+// dispositivo del admin no está en la misma zona que el gym (viajando, o un navegador en
+// UTC), desde ~21:00 hora Chile en adelante toda la pantalla mostraba el día SIGUIENTE
+// (header, WOD del día, clases). QA dashboard, 2026-10-07.
+test.describe('DASH — admin con navegador en otra zona horaria', () => {
+  test.use({ timezoneId: 'UTC' })
+
+  test('WOD del día usa la fecha del GYM, no la del navegador', async ({ page }) => {
+    const p = await open(page, '/dashboard')
+    const card = page.locator('.card').filter({ hasText: /WOD del día/i })
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('QA WOD Hoy')
+    await expect(card).not.toContainText('QA WOD Mañana')
     p.expectNoErrors()
   })
 })

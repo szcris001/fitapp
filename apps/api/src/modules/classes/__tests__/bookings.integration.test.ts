@@ -635,6 +635,63 @@ describe('bookClass: doble reserva', () => {
   })
 })
 
+// ─── Suite 6b: bookClass — solapamiento de horario (QA H-ALUMNO-01) ──────────
+
+describe('bookClass: solapamiento de horario', () => {
+  let overlapTypeBId: string
+  let baseClassId: string
+  let baseStartsAt: Date
+  let baseEndsAt: Date
+
+  beforeAll(async () => {
+    const ct = await prisma.classType.create({ data: { gymId: gymAId, name: 'QA Overlap Tipo B', color: '#f59e0b' } })
+    overlapTypeBId = ct.id
+    baseStartsAt = new Date(Date.now() + 28 * 60 * 60 * 1000)
+    baseEndsAt = new Date(baseStartsAt.getTime() + 60 * 60 * 1000)
+    baseClassId = await createClass({ startsAt: baseStartsAt, endsAt: baseEndsAt })
+    createdClassIds.push(baseClassId)
+    await bookClass(gymAId, memberAId, { classId: baseClassId })
+  })
+
+  afterEach(async () => {
+    // Deja solo la reserva base (CONFIRMED en baseClassId) entre tests — cada test
+    // limpia su propia clase/reserva de prueba para no contaminar las siguientes.
+    await prisma.booking.deleteMany({ where: { userId: memberAId, classId: { not: baseClassId } } })
+  })
+
+  afterAll(async () => {
+    await prisma.booking.deleteMany({ where: { classId: baseClassId } })
+    await prisma.classType.delete({ where: { id: overlapTypeBId } }).catch(() => {})
+  })
+
+  it('clase de tipo distinto con el mismo horario exacto → bloqueado', async () => {
+    const overlappingId = await createClass({ startsAt: baseStartsAt, endsAt: baseEndsAt, classTypeId: overlapTypeBId })
+    createdClassIds.push(overlappingId)
+
+    await expect(
+      bookClass(gymAId, memberAId, { classId: overlappingId })
+    ).rejects.toThrow('Ya tienes una clase reservada en ese horario')
+  })
+
+  it('clase de tipo distinto que se superpone parcialmente (empieza 30min después, dentro del rango) → bloqueado', async () => {
+    const partialStart = new Date(baseStartsAt.getTime() + 30 * 60 * 1000)
+    const partialId = await createClass({ startsAt: partialStart, classTypeId: overlapTypeBId })
+    createdClassIds.push(partialId)
+
+    await expect(
+      bookClass(gymAId, memberAId, { classId: partialId })
+    ).rejects.toThrow('Ya tienes una clase reservada en ese horario')
+  })
+
+  it('clase de tipo distinto sin solaparse (empieza justo cuando termina la anterior) → permitido', async () => {
+    const backToBackId = await createClass({ startsAt: baseEndsAt, classTypeId: overlapTypeBId })
+    createdClassIds.push(backToBackId)
+
+    const booking = await bookClass(gymAId, memberAId, { classId: backToBackId })
+    expect(booking.status).toBe('CONFIRMED')
+  })
+})
+
 // ─── Suite 7: bookClass — booking CANCELLED previo se reactiva ───────────────
 
 describe('bookClass: booking CANCELLED previo → se reactiva a CONFIRMED', () => {
@@ -1117,6 +1174,25 @@ describe('assignUserToClass: coach incorpora alumnos', () => {
     await prisma.booking.deleteMany({ where: { classId: { in: [crossfitClass, halterClass] } } })
     await prisma.class.delete({ where: { id: halterClass } })
     createdClassIds.splice(createdClassIds.indexOf(halterClass), 1)
+    await prisma.classType.delete({ where: { id: otherType.id } })
+  })
+
+  it('tipo de clase distinto pero mismo horario exacto → bloqueado también cuando asigna el coach (QA H-ALUMNO-01)', async () => {
+    const otherType = await prisma.classType.create({ data: { gymId: gymAId, name: 'QA Overlap Assign', color: '#f59e0b' } })
+    const startsAt = tomorrowAtGymHour(15)
+    const crossfitClass = await createClass({ startsAt })
+    const overlapClass = await createClass({ startsAt, classTypeId: otherType.id })
+    createdClassIds.push(crossfitClass, overlapClass)
+
+    await assignUserToClass(gymAId, member2AId, crossfitClass)
+
+    await expect(
+      assignUserToClass(gymAId, member2AId, overlapClass)
+    ).rejects.toThrow('El alumno ya tiene una clase reservada en ese horario')
+
+    await prisma.booking.deleteMany({ where: { classId: { in: [crossfitClass, overlapClass] } } })
+    await prisma.class.delete({ where: { id: overlapClass } })
+    createdClassIds.splice(createdClassIds.indexOf(overlapClass), 1)
     await prisma.classType.delete({ where: { id: otherType.id } })
   })
 })

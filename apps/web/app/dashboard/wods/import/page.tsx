@@ -303,7 +303,10 @@ export default function ImportWodsPage() {
 
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i]
-          if (!row || !row[0]) continue
+          // Solo se saltea una fila genuinamente vacía (ej. espaciadora al final del
+          // Excel) — si tiene CUALQUIER dato pero le falta la fecha, debe seguir y
+          // marcarse "Sin fecha" más abajo, no desaparecer sin avisar.
+          if (!row || row.every((c: any) => !str(c))) continue
 
           const date      = str(row[0])
           const tipoCls   = str(row[1]).toLowerCase()
