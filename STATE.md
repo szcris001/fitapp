@@ -688,7 +688,20 @@
 
 ## security
 
-**Última actuación**: 2026-06-25 — Auditoría completa de auth/multi-tenancy. 6 vulnerabilidades corregidas.
+**Última actuación**: 2026-10-06 — Fix de `pnpm audit --audit-level=high` bloqueando CI en `master` (PR #88, `fix/security-audit-high-vulns`, no mergeado aún).
+
+**Hallazgos corregidos** (overrides en `pnpm-workspace.yaml`, patch dentro del mismo major):
+- ALTO: `source-map-js <1.2.2` (GHSA-68fv-2mgg-jv7q, DoS event-loop) vía `apps/api > @vitest/coverage-v8 > magicast` → `>=1.2.2 <2`
+- ALTO: `compression <1.8.2` (GHSA-vc2v-76pw-4v95, memory leak DoS) vía `apps/mobile > expo > @expo/cli` → `>=1.8.2 <2`
+- CRÍTICO (nuevo, publicado el mismo 2026-10-06): `shell-quote` (GHSA-pqg4-j6r4-53mv, command injection) vía `apps/mobile > react-native > react-devtools-core`; override existente `>=1.9.0 <2` resolvía a 1.10.0 vulnerable → endurecido a `>=1.11.0 <2`
+
+Verificado: `pnpm audit --audit-level=high` exit 0 (25 low/moderate preexistentes sin tocar, fuera de scope). `pnpm build` (api+web), `pnpm vitest run` en apps/api (1099 tests/45 archivos) y `pnpm vitest run --coverage` pasan. `pnpm typecheck` en mobile y `pnpm lint` en web sin errores nuevos.
+
+**Pendiente**: mergear PR #88 para desbloquear CI de otros PRs abiertos (ej. #87). Ver memoria `dependency_audit_pattern.md` en `.claude/agent-memory/security/` para el patrón de overrides/ignoreGhsas de este repo.
+
+---
+
+**Actuación anterior**: 2026-06-25 — Auditoría completa de auth/multi-tenancy. 6 vulnerabilidades corregidas.
 
 **Hallazgos corregidos**:
 - CRÍTICO: Path traversal en `/uploads/avatars/:filename`, `/uploads/:filename`, `/uploads/evidence/:filename` — `safeResolvePath()` implementado en `index.ts`
