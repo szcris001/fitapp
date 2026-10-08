@@ -616,8 +616,10 @@ configurable por gym" en sí queda pendiente, para que la evalúen
 `product-owner` y `payments-specialist`, no la implemento yo.
 
 ### 3.5 Limpieza
-- [ ] Volver `attendanceMode` a `manual` en los gyms QA tocados, para no
-      dejar roto el estado que esperan los specs de Playwright.
+- [x] Volver `attendanceMode` a `manual` en los gyms QA tocados, para no
+      dejar roto el estado que esperan los specs de Playwright. Confirmado
+      2026-10-06 por SQL directo: `qa-box-norte` y `qa-box-sur` ambos en
+      `manual`.
 - [ ] Si se corrió contra el gym QA Smoke de producción (no este caso, ya
       que todo este checklist es contra la API local): usar el cascade
       delete del superadmin al terminar, como indica
