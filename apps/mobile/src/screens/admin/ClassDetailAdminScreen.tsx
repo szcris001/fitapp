@@ -28,6 +28,7 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [marking, setMarking] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
   const [attendanceMode, setAttendanceMode] = useState<string>('manual')
 
   const fetchClass = async () => {
@@ -57,6 +58,26 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
       Alert.alert('Error', err.response?.data?.error || 'No se pudo marcar asistencia')
     } finally {
       setMarking(null) }
+  }
+
+  const removeStudent = (bookingId: string, studentName: string) => {
+    Alert.alert('Quitar alumno', `¿Quitar a ${studentName} de esta clase?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Quitar', style: 'destructive',
+        onPress: async () => {
+          setRemoving(bookingId)
+          try {
+            await api.delete(`/bookings/${bookingId}/admin`)
+            await fetchClass()
+          } catch (err: any) {
+            Alert.alert('Error', err.response?.data?.error || 'No se pudo quitar al alumno')
+          } finally {
+            setRemoving(null)
+          }
+        }
+      }
+    ])
   }
 
   const handleDelete = () => {
@@ -190,6 +211,16 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
                     }
                   </TouchableOpacity>
                 )}
+                <TouchableOpacity
+                  style={styles.removeBtn}
+                  onPress={() => removeStudent(booking.id, booking.user?.name || 'este alumno')}
+                  disabled={removing === booking.id}
+                >
+                  {removing === booking.id
+                    ? <ActivityIndicator color="#ef4444" size={14} />
+                    : <Text style={styles.removeBtnText}>✕</Text>
+                  }
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -210,8 +241,20 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
                   <Text style={styles.studentEmail}>{booking.user?.email}</Text>
                 </View>
               </View>
-              <View style={[styles.statusBadge, { backgroundColor: '#f59e0b20' }]}>
-                <Text style={[styles.statusText, { color: '#f59e0b' }]}>En espera</Text>
+              <View style={styles.studentRight}>
+                <View style={[styles.statusBadge, { backgroundColor: '#f59e0b20' }]}>
+                  <Text style={[styles.statusText, { color: '#f59e0b' }]}>En espera</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.removeBtn}
+                  onPress={() => removeStudent(booking.id, booking.user?.name || 'este alumno')}
+                  disabled={removing === booking.id}
+                >
+                  {removing === booking.id
+                    ? <ActivityIndicator color="#ef4444" size={14} />
+                    : <Text style={styles.removeBtnText}>✕</Text>
+                  }
+                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -263,6 +306,8 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 12, fontWeight: '700' },
   attendBtn: { backgroundColor: '#22c55e', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 4 },
   attendBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  removeBtn: { width: 24, height: 24, borderRadius: 8, borderWidth: 1, borderColor: '#ef444440', justifyContent: 'center', alignItems: 'center' },
+  removeBtnText: { color: '#ef4444', fontSize: 12, fontWeight: '700' },
   emptyCard: { marginHorizontal: 24, backgroundColor: '#111827', borderRadius: 14, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#1f2937', marginBottom: 16 },
   emptyText: { color: '#4b5563', fontSize: 14 },
   deleteBtn: { marginHorizontal: 24, marginTop: 8, marginBottom: 40, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#ef444440' },

@@ -616,8 +616,10 @@ configurable por gym" en sí queda pendiente, para que la evalúen
 `product-owner` y `payments-specialist`, no la implemento yo.
 
 ### 3.5 Limpieza
-- [ ] Volver `attendanceMode` a `manual` en los gyms QA tocados, para no
-      dejar roto el estado que esperan los specs de Playwright.
+- [x] Volver `attendanceMode` a `manual` en los gyms QA tocados, para no
+      dejar roto el estado que esperan los specs de Playwright. Confirmado
+      2026-10-06 por SQL directo: `qa-box-norte` y `qa-box-sur` ambos en
+      `manual`.
 - [ ] Si se corrió contra el gym QA Smoke de producción (no este caso, ya
       que todo este checklist es contra la API local): usar el cascade
       delete del superadmin al terminar, como indica
@@ -633,13 +635,70 @@ coach que los meta a una clase o los cambie de horario. Confirmado en código:
   función `assignStudent` (línea 1108).
 - **"Mover de horario" NO existe como acción atómica** — no hay endpoint ni
   botón dedicado. Hoy el coach tendría que hacerlo en dos pasos manuales:
-  sacarlo de la clase vieja (`DELETE /bookings/:bookingId/admin`) e
-  inscribirlo en la nueva (`POST /bookings/assign`). Vale la pena probar ese
-  flujo de dos pasos tal cual existe (no inventar un botón "mover" que no
-  está); si se quiere un botón atómico, eso es una decisión de producto
-  (consultar a `product-owner`), no algo para agregar de paso en un checklist
-  de QA.
-- Esto es un flujo del **panel web** (coach/admin), no de la app mobile —
-  no se prueba con Maestro. Ya puede estar cubierto por
-  `apps/web/e2e/modules/classes.spec.ts`; revisar ahí antes de escribir un
-  test nuevo.
+  sacarlo de la clase vieja (`DELETE /bookings/:bookingId/admin`, botón
+  "Quitar alumno de la clase" en `ClassDetail.tsx`) e inscribirlo en la
+  nueva (`POST /bookings/assign`, botón "Añadir alumno" → buscar → tocar).
+  Si se quiere un botón atómico, eso es una decisión de producto (consultar
+  a `product-owner`), no algo para agregar de paso en un checklist de QA.
+
+  **✅ Probado en vivo 2026-10-06** (navegador real vía Playwright, no solo
+  lectura de código): login como `coach@qa-norte.test`, Mara Miembro
+  reservada en CrossFit 2026-10-08 10:00 → coach abre esa clase, toca
+  "Quitar alumno de la clase" → desaparece del roster (DB: booking borrado)
+  → coach abre CrossFit 2026-10-08 22:00 (**mismo tipo, mismo día** — el
+  caso límite de H-MOBILE-04/el chequeo "mismo tipo por día" en
+  `assignUserToClass`), toca "Añadir alumno", busca "Mara", la selecciona →
+  aparece en el roster de la nueva clase. Confirmado por SQL: el booking
+  viejo ya no existe y el nuevo quedó `CONFIRMED` en la clase de las 22:00.
+  El flujo de dos pasos funciona bien, incluyendo el caso mismo-tipo-mismo-
+  día (no choca contra sí mismo porque la reserva vieja ya se borró antes
+  de crear la nueva — mismo razonamiento que el test "mover" de
+  `assignUserToClass: coach incorpora alumnos` en el backend, ahora también
+  confirmado end-to-end a través de la UI real). Datos de prueba limpiados
+  después.
+- **Actualización 2026-10-06 — ahora también se puede mover desde mobile**:
+  hasta esta fecha, `ClassDetailAdminScreen.tsx` (pantalla del coach en
+  mobile) tenía "Agregar alumno" pero **no** tenía ninguna acción para
+  quitar a un alumno de una clase — el coach podía hacer la mitad del
+  "mover" desde el celular (agregar) pero no la otra mitad (sacar de la
+  vieja), a diferencia de la web que sí tenía ambos pasos. Se agregó un
+  botón "✕" (con confirmación "¿Quitar a {nombre} de esta clase?") en cada
+  fila de alumno — tanto en "Inscritos" como en "Lista de espera" — que
+  llama `DELETE /bookings/:bookingId/admin`, el mismo endpoint que ya usa
+  la web. Ahora el flujo de dos pasos (quitar + agregar) está disponible
+  igual en ambas plataformas.
+
+  **✅ Probado en vivo 2026-10-06 en el emulador** (no solo lectura de
+  código): login como `coach@qa-norte.test` → clase CrossFit 2026-10-08
+  07:00 local con Mara reservada (1/12) → abrir detalle → tocar "✕" → confirmar
+  "QUITAR" → roster pasa a "No hay alumnos inscritos" (DB: booking borrado,
+  confirmado por SQL) → volver, abrir la clase CrossFit 2026-10-08 19:00
+  local (mismo tipo, mismo día) → "+ Agregar alumno" → buscar "Mara" →
+  "Inscribir" → confirmar → "✅ Listo — Mara Miembro fue inscrito en la
+  clase" → DB: booking nuevo `CONFIRMED` en la clase de las 19:00, el de
+  las 07:00 ya no existe. `pnpm typecheck` limpio. Datos de prueba
+  limpiados después.
+
+  **Hallazgo nuevo encontrado de pasada, sin relación con lo anterior**:
+  `AdminClassesScreen.tsx` (la lista semanal de clases del coach, no el
+  detalle) agrupa las clases por **fecha UTC**
+  (`new Date(cls.startsAt).toISOString().split('T')[0]`) pero el título de
+  cada grupo (`formatDate`) usa la fecha **local** (`America/Santiago`,
+  UTC-3) de la primera clase de ese grupo. Para clases entre 00:00 y 02:59
+  UTC (21:00-23:59 local del día anterior), esto desalinea el grupo
+  completo: una clase de las 10:00 UTC (07:00 local) cae en el mismo grupo
+  UTC-date que una de las 00:00 UTC (21:00 local del día anterior), y el
+  encabezado termina mostrando la fecha de la clase "madrugadora" en vez de
+  la fecha real de las otras clases del grupo. Repro visto en vivo: dos
+  clases reales del jueves 8 (07:00 y 19:00 local) aparecieron bajo el
+  título "Miércoles, 7 De Octubre" porque compartían grupo UTC-date con una
+  clase de las 00:00 UTC (21:00 local del miércoles). El detalle de cada
+  clase (`ClassDetailAdminScreen.tsx`) sí muestra la fecha correcta — el bug
+  es solo de agrupación/encabezado en la lista semanal. No lo corregí
+  porque no es lo que se pidió esta vez; lo dejo anotado para que decidas
+  si vale la pena otro ciclo (sería H-MOBILE-09 si se prioriza).
+- Esto es un flujo del **panel web** (coach/admin) y ahora también de
+  **mobile** — no se probó con Maestro (se usó `adb`/`maestro hierarchy`
+  directo porque el flujo cruza dos pantallas con diálogos nativos). Ya
+  puede estar cubierto por `apps/web/e2e/modules/classes.spec.ts` del lado
+  web; no hay test automatizado del lado mobile todavía.
