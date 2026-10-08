@@ -4,13 +4,13 @@
  * Tests unitarios para apps/api/src/lib/email.ts.
  *
  * Funciones cubiertas:
- *   - sendExpiryReminder      (5 tests)
+ *   - sendExpiryReminder      (6 tests, incluye escape de HTML en gymName)
  *   - sendPaymentConfirmation (5 tests)
- *   - sendBulkEmail           (3 tests)
+ *   - sendBulkEmail           (5 tests, incluye escape de HTML en body y nombre de alumno)
  *   - sendWelcomeEmail        (3 tests)
  *   - sendTestEmail           (3 tests)
  *   - sendBulkToGyms          (2 tests)
- *   Total: 21 tests
+ *   Total: 26 tests
  *
  * Estrategia de mocking:
  *   - nodemailer se mockea completamente con vi.mock(). El factory crea vi.fn()
@@ -200,6 +200,15 @@ describe('sendExpiryReminder', () => {
     expect(callArgs.subject).toMatch(/1 día[^s]|1 día$/)
     expect(callArgs.subject).not.toMatch(/1 días/)
   })
+
+  it('nombre del gym con HTML → se escapa en el footer y el cuerpo (wrapInLayout, QA comunicaciones 2026-10-07)', async () => {
+    gymFindUniqueSpy.mockResolvedValue({ ...BASE_GYM, name: '<b>Evil Gym</b>' })
+    await sendExpiryReminder('gym-id-1', BASE_MEMBER)
+
+    const html = currentSendMail.mock.calls[0][0].html
+    expect(html).not.toContain('<b>Evil Gym</b>')
+    expect(html).toContain('&lt;b&gt;Evil Gym&lt;/b&gt;')
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -308,6 +317,32 @@ describe('sendBulkEmail', () => {
 
     expect(result.sent).toBe(1)
     expect(result.failed).toBe(1)
+  })
+
+  it('cuerpo con HTML/script → se escapa, no queda insertado tal cual en el HTML final (QA comunicaciones 2026-10-07)', async () => {
+    await sendBulkEmail('gym-id-1', {
+      recipients: [{ name: 'Ana García', email: 'ana@test.com' }],
+      subject: 'Aviso',
+      body: '<script>alert(1)</script> & <b>hola</b>',
+    })
+
+    const html = currentSendMail.mock.calls[0][0].html
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(html).toContain('&amp;')
+    expect(html).toContain('&lt;b&gt;hola&lt;/b&gt;')
+  })
+
+  it('nombre de alumno con caracteres HTML → se escapa en el saludo del correo', async () => {
+    await sendBulkEmail('gym-id-1', {
+      recipients: [{ name: '<img src=x onerror=alert(1)>', email: 'ana@test.com' }],
+      subject: 'Hola {{nombre}}',
+      body: 'Mensaje para {{nombre}}',
+    })
+
+    const html = currentSendMail.mock.calls[0][0].html
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 })
 

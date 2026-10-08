@@ -30,15 +30,26 @@ export default function CommunicationsPage() {
     e.preventDefault()
     setSending(true); setError(''); setSuccess('')
     try {
-      await api.post('/messages/push', {
+      const { data } = await api.post('/messages/push', {
         target: pushForm.target,
         userId: pushForm.target === 'individual' ? pushForm.userId : undefined,
         planId: pushForm.target === 'plan' ? pushForm.planId : undefined,
         title: pushForm.title,
         message: pushForm.message,
       })
-      setSuccess('Notificación enviada correctamente')
-      setPushForm({ target: 'all', userId: '', planId: '', title: '', message: '' })
+      // Mostrar el conteo real (antes decía "enviada correctamente" sin más,
+      // igual con 0 destinatarios o 0 con token push válido — el admin no
+      // tenía forma de saber si de verdad llegó a alguien). QA comunicaciones 2026-10-07.
+      if (data.totalRecipients === 0) {
+        setSuccess('')
+        setError('No hay alumnos en este segmento — no se envió a nadie.')
+      } else if (data.sent === 0) {
+        setSuccess('')
+        setError(`${data.totalRecipients} alumno(s) en este segmento, pero ninguno tiene notificaciones push activas en su celular.`)
+      } else {
+        setSuccess(`Notificación enviada a ${data.sent} de ${data.totalRecipients} alumno(s) del segmento.`)
+        setPushForm({ target: 'all', userId: '', planId: '', title: '', message: '' })
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al enviar la notificación')
     } finally { setSending(false) }
@@ -56,13 +67,17 @@ export default function CommunicationsPage() {
         body: emailForm.body,
       })
       // La API responde 200 con sent/failed aunque todos los envíos fallen (p. ej. sin SMTP
-      // configurado): solo es éxito si de verdad no falló ninguno
-      if (data.failed > 0) {
+      // configurado): solo es éxito si de verdad no falló ninguno. También hay que avisar
+      // si el segmento elegido no tenía a nadie — antes decía "enviado correctamente" igual
+      // (QA comunicaciones 2026-10-07, el admin no se enteraba si mandó a 0 personas).
+      if (data.totalRecipients === 0) {
+        setError('No hay alumnos en este segmento — no se envió a nadie.')
+      } else if (data.failed > 0) {
         setError(data.sent > 0
           ? `Enviado a ${data.sent} de ${data.totalRecipients}; ${data.failed} fallaron. Revisa la configuración SMTP.`
           : `No se pudo enviar a ningún destinatario (${data.failed}). Revisa la configuración SMTP en Configuración.`)
       } else {
-        setSuccess('Email enviado correctamente')
+        setSuccess(`Email enviado a ${data.sent} de ${data.totalRecipients} alumno(s) del segmento.`)
         setEmailForm({ target: 'all', userId: '', planId: '', subject: '', body: '' })
       }
     } catch (err: any) {

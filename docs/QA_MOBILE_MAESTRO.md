@@ -679,24 +679,37 @@ coach que los meta a una clase o los cambie de horario. Confirmado en código:
   las 07:00 ya no existe. `pnpm typecheck` limpio. Datos de prueba
   limpiados después.
 
-  **Hallazgo nuevo encontrado de pasada, sin relación con lo anterior**:
-  `AdminClassesScreen.tsx` (la lista semanal de clases del coach, no el
-  detalle) agrupa las clases por **fecha UTC**
-  (`new Date(cls.startsAt).toISOString().split('T')[0]`) pero el título de
-  cada grupo (`formatDate`) usa la fecha **local** (`America/Santiago`,
-  UTC-3) de la primera clase de ese grupo. Para clases entre 00:00 y 02:59
-  UTC (21:00-23:59 local del día anterior), esto desalinea el grupo
-  completo: una clase de las 10:00 UTC (07:00 local) cae en el mismo grupo
-  UTC-date que una de las 00:00 UTC (21:00 local del día anterior), y el
-  encabezado termina mostrando la fecha de la clase "madrugadora" en vez de
-  la fecha real de las otras clases del grupo. Repro visto en vivo: dos
-  clases reales del jueves 8 (07:00 y 19:00 local) aparecieron bajo el
-  título "Miércoles, 7 De Octubre" porque compartían grupo UTC-date con una
-  clase de las 00:00 UTC (21:00 local del miércoles). El detalle de cada
-  clase (`ClassDetailAdminScreen.tsx`) sí muestra la fecha correcta — el bug
-  es solo de agrupación/encabezado en la lista semanal. No lo corregí
-  porque no es lo que se pidió esta vez; lo dejo anotado para que decidas
-  si vale la pena otro ciclo (sería H-MOBILE-09 si se prioriza).
+#### Hallazgo H-MOBILE-09 — la lista semanal de clases del coach agrupaba por fecha UTC pero mostraba el encabezado en fecha local — **CORREGIDO 2026-10-06**
+
+Encontrado de pasada, sin relación con el hallazgo anterior.
+`AdminClassesScreen.tsx` (la lista semanal de clases del coach, no el
+detalle) agrupaba las clases por **fecha UTC**
+(`new Date(cls.startsAt).toISOString().split('T')[0]`) pero el título de
+cada grupo (`formatDate`) usa la fecha **local** (`America/Santiago`,
+UTC-3) de la primera clase de ese grupo. Para clases entre 00:00 y 02:59
+UTC (21:00-23:59 local del día anterior), esto desalineaba el grupo
+completo: una clase de las 10:00 UTC (07:00 local) caía en el mismo grupo
+UTC-date que una de las 00:00 UTC (21:00 local del día anterior), y el
+encabezado terminaba mostrando la fecha de la clase "madrugadora" en vez de
+la fecha real de las otras clases del grupo. El detalle de cada clase
+(`ClassDetailAdminScreen.tsx`) sí mostraba la fecha correcta — el bug era
+solo de agrupación/encabezado en la lista semanal.
+
+**Repro en vivo antes del fix**: dos clases reales del jueves 8 (07:00 y
+19:00 local) aparecían bajo el título "Miércoles, 7 De Octubre" porque
+compartían grupo UTC-date con una clase de las 00:00 UTC (21:00 local del
+miércoles).
+
+**Fix**: `groupByDay` en `AdminClassesScreen.tsx` ahora construye la clave
+del grupo con los getters locales de `Date` (`getFullYear`/`getMonth`/
+`getDate`) en vez de `toISOString()`, para que coincida con la fecha local
+que ya usa `formatDate` para el encabezado.
+
+**Verificado en vivo en el emulador** (mismas 3 clases reales del jueves 8
+usadas en el hallazgo anterior): después del fix, las tres (07:00, 19:00 y
+21:00 local) aparecen juntas bajo un único encabezado "Jueves, 8 De
+Octubre"; "Miércoles, 7 De Octubre" quedó solo con su única clase legítima
+(07:00-08:00). `pnpm typecheck` limpio.
 - Esto es un flujo del **panel web** (coach/admin) y ahora también de
   **mobile** — no se probó con Maestro (se usó `adb`/`maestro hierarchy`
   directo porque el flujo cruza dos pantallas con diálogos nativos). Ya

@@ -308,6 +308,21 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     throw new Error(`Ya tienes una clase de ${cls.classType.name} reservada para ese día`)
   }
 
+  // No se puede reservar una clase que se superpone en horario con otra ya
+  // reservada, aunque sea de tipo distinto — físicamente no se puede estar en
+  // las dos (QA, Cristian 2026-10-07: antes solo se chequeaba mismo tipo/día,
+  // dejando reservar p.ej. CrossFit y Halterofilia a la misma hora exacta).
+  const overlapping = await prisma.booking.count({
+    where: {
+      userId,
+      status: { in: activeStatuses },
+      class: { startsAt: { lt: cls.endsAt }, endsAt: { gt: cls.startsAt } },
+    },
+  })
+  if (overlapping > 0) {
+    throw new Error('Ya tienes una clase reservada en ese horario')
+  }
+
   // maxClasses: además, tope de clases *distintas* para todo el período de la
   // membresía activa (su startsAt→endsAt real, no un límite por día calendario —
   // el plan web lo etiqueta como "X clases incluidas", no "X por día". QA, Cristian
@@ -504,6 +519,20 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   })
   if (sameTypeOnDay > 0) {
     throw new Error(`El alumno ya tiene una clase de ${cls.classType.name} reservada para ese día`)
+  }
+
+  // Misma regla de solapamiento de horario que bookClass, también para el coach
+  // (QA H-ALUMNO-01, Cristian 2026-10-07: confirmado que aplica parejo, igual que
+  // la regla de mismo tipo/día de arriba).
+  const overlapping = await prisma.booking.count({
+    where: {
+      userId: targetUserId,
+      status: { in: activeStatuses },
+      class: { startsAt: { lt: cls.endsAt }, endsAt: { gt: cls.startsAt } },
+    },
+  })
+  if (overlapping > 0) {
+    throw new Error('El alumno ya tiene una clase reservada en ese horario')
   }
 
   const confirmedCount = await prisma.booking.count({

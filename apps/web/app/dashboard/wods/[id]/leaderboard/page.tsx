@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useAuthStore } from '../../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../../lib/api'
-import { ChevronLeft, Plus, Trophy, Clock, Dumbbell, RotateCcw, X, Search } from 'lucide-react'
+import { ChevronLeft, Plus, Trophy, Clock, Dumbbell, RotateCcw, X, Search, Pencil, Trash2 } from 'lucide-react'
 
 /* ─── Types ─────────────────────────────────────── */
 interface WodDetail {
@@ -16,8 +16,10 @@ interface WodDetail {
 
 interface LeaderboardEntry {
   id: string
+  userId: string
   rank: number
   score: number | null
+  scoreText: string | null
   scoreFormatted: string
   rx: boolean
   notes: string | null
@@ -70,25 +72,36 @@ function parseScore(raw: string, scoreType: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
-/* ─── Register Result Modal ──────────────────────── */
+/* ─── Register/Edit Result Modal ─────────────────── */
 function RegisterModal({
   wodId,
   scoreType,
   members,
+  editingEntry,
   onClose,
   onSaved,
 }: {
   wodId: string
   scoreType: string
   members: Member[]
+  editingEntry?: LeaderboardEntry | null
   onClose: () => void
   onSaved: () => void
 }) {
+  const isEditing = !!editingEntry
   const [search, setSearch] = useState('')
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null)
-  const [score, setScore] = useState('')
-  const [isRx, setIsRx] = useState(true)
-  const [notes, setNotes] = useState('')
+  const [selectedMember, setSelectedMember] = useState<Member | null>(
+    editingEntry ? { id: editingEntry.userId, name: editingEntry.user.name, email: '' } : null
+  )
+  // TIME ya viene formateado mm:ss (parseScore lo vuelve a aceptar); CUSTOM usa el texto libre guardado
+  const [score, setScore] = useState(() => {
+    if (!editingEntry) return ''
+    if (scoreType === 'CUSTOM') return editingEntry.scoreText ?? ''
+    if (scoreType === 'TIME') return editingEntry.scoreFormatted
+    return editingEntry.score != null ? String(editingEntry.score) : ''
+  })
+  const [isRx, setIsRx] = useState(editingEntry?.rx ?? true)
+  const [notes, setNotes] = useState(editingEntry?.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
@@ -115,14 +128,18 @@ function RegisterModal({
     setSaving(true)
     setError(null)
     try {
-      // Mismo formato que la app móvil: score numérico (segundos en TIME) y rx
-      await api.post(`/wods/${wodId}/results`, {
-        userId: selectedMember.id,
+      const body = {
         score: value,
         scoreText: scoreType === 'CUSTOM' ? score.trim() : null,
         rx: isRx,
         notes: notes.trim() || null,
-      })
+      }
+      // Mismo formato que la app móvil: score numérico (segundos en TIME) y rx
+      if (isEditing) {
+        await api.put(`/wods/${wodId}/results/${selectedMember.id}`, body)
+      } else {
+        await api.post(`/wods/${wodId}/results`, { userId: selectedMember.id, ...body })
+      }
       onSaved()
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Error al guardar resultado')
@@ -154,7 +171,9 @@ function RegisterModal({
               <Plus className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Registrar resultado</h3>
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>
+                {isEditing ? 'Editar resultado' : 'Registrar resultado'}
+              </h3>
               <p className="text-xs" style={{ color: 'var(--text-4)' }}>{SCORE_TYPE_LABELS[scoreType] ?? 'Puntaje'}</p>
             </div>
           </div>
@@ -174,6 +193,11 @@ function RegisterModal({
           {/* Atleta */}
           <div className="relative">
             <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>Atleta</label>
+            {isEditing ? (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--border-1)', backgroundColor: 'var(--surface-base)', opacity: 0.8 }}>
+                <span className="flex-1 text-sm" style={{ color: 'var(--text-1)' }}>{editingEntry!.user.name}</span>
+              </div>
+            ) : (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg border" style={{ borderColor: 'var(--border-1)', backgroundColor: 'var(--surface-base)' }}>
               <Search className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-4)' }} />
               <input
@@ -190,7 +214,8 @@ function RegisterModal({
                 </button>
               )}
             </div>
-            {showDropdown && search && !selectedMember && filteredMembers.length > 0 && (
+            )}
+            {!isEditing && showDropdown && search && !selectedMember && filteredMembers.length > 0 && (
               <div
                 className="absolute top-full left-0 right-0 mt-1 rounded-xl border z-10 overflow-hidden"
                 style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-1)', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}
@@ -289,7 +314,7 @@ function RegisterModal({
             disabled={saving}
             className="btn-brand flex items-center gap-2 px-5 py-2 text-sm font-medium disabled:opacity-50"
           >
-            {saving ? 'Guardando...' : 'Guardar resultado'}
+            {saving ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Guardar resultado'}
           </button>
         </div>
       </div>
@@ -311,7 +336,15 @@ function RankBadge({ rank }: { rank: number }) {
 }
 
 /* ─── Entry row ──────────────────────────────────── */
-function EntryRow({ entry, scoreType }: { entry: LeaderboardEntry; scoreType: string }) {
+function EntryRow({
+  entry, scoreType, canEdit, onEdit, onDelete,
+}: {
+  entry: LeaderboardEntry
+  scoreType: string
+  canEdit?: boolean
+  onEdit?: (entry: LeaderboardEntry) => void
+  onDelete?: (entry: LeaderboardEntry) => void
+}) {
   const initials = entry.user.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 
   return (
@@ -361,6 +394,29 @@ function EntryRow({ entry, scoreType }: { entry: LeaderboardEntry; scoreType: st
           <span className="ml-1 text-xs" style={{ color: 'var(--text-4)' }}>⚡</span>
         )}
       </div>
+
+      {canEdit && (
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => onEdit?.(entry)}
+            title="Editar resultado"
+            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
+            style={{ color: 'var(--text-4)' }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--surface-hover)'; e.currentTarget.style.color = 'var(--text-2)' }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-4)' }}>
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onDelete?.(entry)}
+            title="Eliminar resultado"
+            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
+            style={{ color: 'var(--text-4)' }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#fef2f2'; e.currentTarget.style.color = '#ef4444' }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-4)' }}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -371,11 +427,17 @@ function LeaderboardColumn({
   entries,
   scoreType,
   color,
+  canEdit,
+  onEdit,
+  onDelete,
 }: {
   title: string
   entries: LeaderboardEntry[]
   scoreType: string
   color: string
+  canEdit?: boolean
+  onEdit?: (entry: LeaderboardEntry) => void
+  onDelete?: (entry: LeaderboardEntry) => void
 }) {
   return (
     <div className="card rounded-2xl overflow-hidden flex-1 min-w-0">
@@ -400,7 +462,7 @@ function LeaderboardColumn({
       ) : (
         <div>
           {entries.map(entry => (
-            <EntryRow key={entry.id} entry={entry} scoreType={scoreType} />
+            <EntryRow key={entry.id} entry={entry} scoreType={scoreType} canEdit={canEdit} onEdit={onEdit} onDelete={onDelete} />
           ))}
         </div>
       )}
@@ -421,6 +483,23 @@ export default function WodLeaderboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
+  const [editingEntry, setEditingEntry] = useState<LeaderboardEntry | null>(null)
+
+  const handleEdit = (entry: LeaderboardEntry) => {
+    setEditingEntry(entry)
+    setShowModal(true)
+  }
+
+  const handleDelete = async (entry: LeaderboardEntry) => {
+    if (!wod) return
+    if (!window.confirm(`¿Eliminar el resultado de ${entry.user.name}?`)) return
+    try {
+      await api.delete(`/wods/${wod.id}/results/${entry.userId}`)
+      fetchData()
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Error al eliminar el resultado')
+    }
+  }
 
   useEffect(() => { loadFromStorage() }, [])
 
@@ -654,6 +733,9 @@ export default function WodLeaderboardPage() {
                   entries={leaderboard.rx}
                   scoreType={wod?.scoreType ?? 'REPS'}
                   color="#6366f1"
+                  canEdit={canRegister}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
                 />
               )}
               {leaderboard.scaled.length > 0 && (
@@ -662,6 +744,9 @@ export default function WodLeaderboardPage() {
                   entries={leaderboard.scaled}
                   scoreType={wod?.scoreType ?? 'REPS'}
                   color="#f59e0b"
+                  canEdit={canRegister}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
                 />
               )}
               {/* If only one category has results, show both anyway (empty one shows placeholder) */}
@@ -686,15 +771,17 @@ export default function WodLeaderboardPage() {
         </>
       )}
 
-      {/* Register modal */}
+      {/* Register/Edit modal */}
       {showModal && wod && (
         <RegisterModal
           wodId={wod.id}
           scoreType={wod.scoreType}
           members={members}
-          onClose={() => setShowModal(false)}
+          editingEntry={editingEntry}
+          onClose={() => { setShowModal(false); setEditingEntry(null) }}
           onSaved={() => {
             setShowModal(false)
+            setEditingEntry(null)
             fetchData()
           }}
         />

@@ -607,6 +607,21 @@
 
 ### product-owner
 
+**Actuación**: 2026-10-06 — Evaluación de alcance (sin cambios de código): ¿duración de membresía configurable por gym en vez de los 30 días fijos?
+
+**Contexto**: durante QA de esta semana (fix de `maxClasses` atado al período real `membership.startsAt/endsAt`), Cristian propuso al pasar que cada box pudiera configurar su propia duración de membresía en vez de `MEMBERSHIP_DAYS = 30` fijo (`apps/api/src/lib/membership.ts`). No se implementó nada; se pidió solo veredicto de producto.
+
+**Decisión: POSTERGADO** (no bloquea MVP, no hay trade-off ofrecido).
+- `docs/WEB_REQUIREMENTS.md` §4.6 ya documenta esto como decisión de negocio **confirmada dos veces** (2026-06-13 y 2026-09-27): "la duración no es configurable". Hay migración de normalización (`20260927000000_plan_duration_always_30`) y el selector de duración fue **retirado** de web y mobile a propósito. Reabrir esto ahora reintroduce complejidad recién eliminada, sin que ningún cliente real lo haya pedido — es el patrón "Cristian cambia de opinión durante QA" que este rol existe para frenar.
+- Costo estimado: medio-alto. Tocaría `plans.service.ts` (`assignMembership`/`renewMembership`), ~10 ocurrencias en `payments.service.ts`, el cron de auto-renovación, UI de planes en web y mobile (recién removida), y actualizaría tests en `plans.integration`, `autorenew.integration`, `activateMembership.integration` y el E2E crítico — todos asumen 30 días fijos hoy.
+- No se tocó `BACKLOG.md` ni `docs/WEB_REQUIREMENTS.md`: no corresponde agregarlo al backlog todavía porque no hay trade-off explícito de Cristian ni demanda real documentada. Si él decide priorizarlo, agregar a `BACKLOG.md` bajo "📦 Backlog post-MVP" con el trade-off que él elija, y definir ANTES con él si es campo de `Plan` (como ya existe `maxClasses`) o default a nivel `Gym` — son lecturas distintas de "cada box lo decide" y no deben asumirse (ver memoria `feedback_ask_dont_assume`).
+
+**Recomendación al usuario**: nadie por ahora — es un "no por ahora" documentado. Si Cristian insiste en priorizarlo, invocar primero a **él mismo** (decisión: Plan vs Gym) y recién después a **architect** (modelo de datos + migración) y **qa-engineer** (impacto en las suites existentes que asumen 30 días).
+
+**Nota aparte (housekeeping, no bloquea nada)**: este repo (`fitapp`, antes referido como FitHub) no tiene un archivo `requirements_v1_5.md` en disco — el documento de requerimientos vigente es `docs/WEB_REQUIREMENTS.md` ("Panel de Administración · v1.5"), cuya numeración de secciones (§4.6 planes, §5 pantallas pendientes, §8 modelo de datos) no coincide con la convención `§3/§4/§5/§8` de mis instrucciones de rol (MVP/Fase 2/backlog/multi-idioma). El backlog post-MVP real (multi-sede, marketplace, Webpay Plus, multi-idioma, CSV) vive en `BACKLOG.md`, no en `WEB_REQUIREMENTS.md`. Sigo la convención ya usada por mi actuación anterior (2026-05-06, línea de arriba) de tratar ambos documentos como la fuente de verdad combinada.
+
+---
+
 **Actuación**: 2026-05-06 — Tres decisiones de scope aplicadas a BACKLOG.md:
 
 1. **Stripe → post-MVP**: Stripe sandbox eliminado de 🔴. Stripe (checkout, auto-renovación, sandbox) movido a bloque post-MVP con nota de contexto: no viable para cobros domésticos en CL. El item de auto-renovación en 🔴 actualizado para aclarar que aplica solo a pasarelas activas (Stripe excluido hasta post-MVP).

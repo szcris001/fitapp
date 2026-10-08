@@ -39,7 +39,12 @@ export default function AdminClassesScreen({ navigation }: any) {
   const groupByDay = (list: any[]) => {
     const groups: Record<string, any[]> = {}
     for (const cls of list) {
-      const day = new Date(cls.startsAt).toISOString().split('T')[0]
+      // Clave en fecha LOCAL (no UTC) para que coincida con formatDate() —
+      // de lo contrario una clase de madrugada UTC cae en el grupo de otra
+      // clase cuyo día local es distinto, y el encabezado muestra el día
+      // equivocado.
+      const d = new Date(cls.startsAt)
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       if (!groups[day]) groups[day] = []
       groups[day].push(cls)
     }

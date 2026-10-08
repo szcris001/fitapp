@@ -32,8 +32,6 @@ async function planRecipients(planId: string): Promise<number> {
 }
 
 test.describe('COM — comunicaciones', () => {
-  // BUG: sin SMTP operativo /messages/email responde 200 con failed>0 y la UI igual muestra
-  // "Email enviado correctamente" (communications/page.tsx no mira sent/failed).
   test('COM-01 enviar a un plan → solo los destinatarios de ese plan', async ({ page }) => {
     const [mensualId, ilimitadoId, surPlanId] = await Promise.all([
       planIdOf('admin', MENSUAL.name), planIdOf('admin', ILIMITADO.name), planIdOf('adminSur', SUR_PLAN.name),
@@ -81,11 +79,15 @@ test.describe('COM — comunicaciones', () => {
       const body = await res.json()
       expect(body.totalRecipients).toBe(beforeIlimitado + 1)
 
-      // La UI solo puede decir "enviado" si ningún envío falló
+      // La UI solo puede decir "enviado" si ningún envío falló — y ahora muestra el
+      // conteo real de destinatarios (H-COM-01, docs/QA_COMUNICACIONES.md), no un
+      // "enviado correctamente" genérico que no decía nada si falló todo o si el
+      // segmento estaba vacío.
+      const successText = new RegExp(`Email enviado a ${body.sent} de ${body.totalRecipients} alumno`)
       if (body.failed > 0) {
-        await expect(page.getByText('Email enviado correctamente'), `API: ${JSON.stringify(body)}`).toHaveCount(0)
+        await expect(page.getByText(successText), `API: ${JSON.stringify(body)}`).toHaveCount(0)
       } else {
-        await expect(page.getByText('Email enviado correctamente')).toBeVisible()
+        await expect(page.getByText(successText)).toBeVisible()
       }
       p.expectNoErrors()
     } finally {

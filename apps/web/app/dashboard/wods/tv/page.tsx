@@ -153,7 +153,16 @@ export default function TvPage() {
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { if (user) fetchAll() }, [user, fetchAll])
+  // Carga inicial + refetch periódico — la pantalla queda prendida sin
+  // interacción por horas en el gym, así que sin esto nunca se entera de
+  // resultados nuevos hasta que alguien la recarga a mano.
+  const REFRESH_INTERVAL = 60000 // 60s
+  useEffect(() => {
+    if (!user) return
+    fetchAll()
+    const id = setInterval(fetchAll, REFRESH_INTERVAL)
+    return () => clearInterval(id)
+  }, [user, fetchAll])
 
   // Construir lista de slides: benchmarks primero, luego RMs
   const slides: { type: 'benchmark' | 'rm'; data: any }[] = [
