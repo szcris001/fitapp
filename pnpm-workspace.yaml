@@ -22,7 +22,7 @@ overrides:
   brace-expansion@5: ">=5.0.9 <6"
   fast-uri@3: ">=3.1.6 <4"
   lodash@4: ">=4.18.0 <5"
-  shell-quote@1: ">=1.9.0 <2"
+  shell-quote@1: ">=1.11.0 <2"
   tar@7: ">=7.5.21 <8"
   ws@8: ">=8.21.0 <9"
   ws@7: ">=7.5.11 <8"
@@ -35,6 +35,8 @@ overrides:
   browserslist@4: ">=4.28.7 <5"
   mysql2@3: ">=3.22.0 <4"
   "@fastify/busboy@3": ">=3.2.2 <4"
+  source-map-js@1: ">=1.2.2 <2"
+  compression@1: ">=1.8.2 <2"
 
 # Excepciones de pnpm audit (revisar en cada actualización de prisma/expo):
 # - GHSA-ggr8-5vv4-36mx deepmerge-ts: solo lo usa el CLI de Prisma al leer
