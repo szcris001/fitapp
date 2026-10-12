@@ -9,8 +9,36 @@ Fecha de creacion: 2026-05-05
 | Ambiente | Proposito | Trigger |
 |---|---|---|
 | dev | Local con Docker Compose | Manual |
-| staging | (pendiente de configurar) | Push a `develop` |
-| production | Deploy aprobado | Push a `master` + aprobacion manual |
+| staging | Railway, proyecto `patient-serenity` / environment `staging` | Auto desde `master` via GitHub App de Railway |
+| production | Railway, proyecto `patient-serenity` / environment `production` | Auto desde `master` via GitHub App de Railway (no via `.github/workflows/deploy.yml`, ver abajo) |
+
+**Nota:** la plataforma real en uso hoy es **Railway**, no el VPS con `docker-compose.prod.yml` descripto mas abajo en este documento (ese plan quedo sin ejecutar). El proyecto Railway `patient-serenity` tiene 4 servicios en cada ambiente: `api`, `web`, `Postgres`, `Redis`. El despliegue es automatico desde el push a `master` por la integracion GitHub App de Railway, **no** por `.github/workflows/deploy.yml` (ese workflow sigue con placeholders y sin `RAILWAY_TOKEN`, no hace nada hoy).
+
+URLs de producción (ver `.env.production` local, no versionado):
+- API: `https://api-production-ff3c.up.railway.app` (`/health`, `/healthz`)
+- Web: `https://web-production-1f7d5.up.railway.app`
+
+IDs útiles: proyecto `patient-serenity` = `64161894-1b63-4c8f-a4bf-bd2053107bd9`; ambiente `production` = `61e71eba-8ac0-4554-b4db-fed704b56121`; ambiente `staging` = `9d9806e0-7815-4e75-9797-4d3d7ddc8b13`; servicio `api` = `32108344-0f12-4de8-a2d6-06af27248bfc`; servicio `web` = `3f97b4a9-9fa3-4233-bba1-d5669ec926e5` (mismo `serviceId` en ambos ambientes).
+
+CLI: `railway status` (requiere `railway link` una vez por máquina; usar `railway environment <nombre>` / `railway service <nombre>` para cambiar de ambiente/servicio activo).
+
+### Incidente 2026-10-08/2026-10-12 — producción desincronizada de `master` + fix de auto-deploy (CERRADO)
+
+Al sacar las URLs reales el 2026-10-08 se encontró que producción corría commits de más de un mes atrás (API en PR #43, web en un commit aún anterior), pese a decenas de merges posteriores a `master` (HEAD en PR #89). Causa raíz: `serviceInstanceAutoDeployStatus` (GraphQL de Railway) devolvía `enabled: false, canEnable: true` en los 4 pares servicio/ambiente — el repo estaba conectado (`source.repo`, `hasEverDeployed: true`) pero el auto-deploy nunca se había activado.
+
+Resuelto el 2026-10-12 (Cristian, desde su propia terminal — las escrituras contra producción están bloqueadas para el agente devops por el sandbox de Claude Code):
+1. Redeploy manual de `api` y de `web` a `master` vía el botón Deploy/Redeploy del dashboard.
+2. `railway service source connect --repo szcris001/fitapp --branch master --service <api|web> --environment <production|staging>` en los 4 pares — recrea el deployment trigger (lo que realmente faltaba) y disparó un redeploy adicional en cada uno.
+
+Verificado tras el fix: `api` y `web` de producción en commit `8fa8df5c67f9115bd797f35d2cf31070006364bf` (= `master` HEAD, PR #89), `status: SUCCESS`; `serviceInstanceAutoDeployStatus.enabled = true` en los 4 pares. No debería volver a desincronizarse — si pasa, repetir el `source connect` de arriba (no basta con el toggle solo).
+
+Para confirmar el commit real desplegado (no asumir por fecha):
+```bash
+railway api 'query { deployment(id: "<deployment id de railway status>") { status meta } }'   # meta.commitHash, meta.branch
+railway api 'query { serviceInstanceAutoDeployStatus(environmentId: "<env>", projectId: "64161894-1b63-4c8f-a4bf-bd2053107bd9", serviceId: "<service>") { enabled canEnable reason } }'
+```
+
+Pendiente, no bloqueante: confirmar en el dashboard si las pasarelas de pago (`STRIPE_SECRET_KEY`, `MERCADOPAGO_ACCESS_TOKEN`, `FINTOC_API_KEY`, etc.) de producción están en modo live o test — `railway variables` quedó bloqueado para el agente por el sandbox tanto en lectura de valores como en `--help`.
 
 ---
 

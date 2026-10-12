@@ -62,9 +62,19 @@ function doLogout() {
   localStorage.removeItem('fitapp_media_token')
   localStorage.removeItem('fitapp_user')
   localStorage.removeItem('fitapp_colors')
-  // Actualizar el store de Zustand sin importarlo directamente (evita ciclo de
-  // dependencia store → api → store). El store se re-hidrata al navegar a /login.
-  window.location.href = '/login'
+  // En /login y /superadmin no forzamos el redirect: esas rutas ya muestran su
+  // propio formulario de login cuando no hay `user` en el store (QA producción
+  // 2026-10-12, H-SUPERADMIN-01). Antes el interceptor de abajo saltaba el
+  // intento de refresh entero en /superadmin para evitar este redirect en
+  // bucle, pero eso también mataba el refresh silencioso de superadmins con
+  // sesión válida — cada 15 min (expiración del access token) los deslogueaba.
+  if (
+    typeof window !== 'undefined' &&
+    !window.location.pathname.startsWith('/login') &&
+    !window.location.pathname.startsWith('/superadmin')
+  ) {
+    window.location.href = '/login'
+  }
 }
 
 // ── Response interceptor: maneja 401 con refresh token ────────────────────
@@ -85,14 +95,6 @@ api.interceptors.response.use(
     // el refresh token está vencido/inválido → logout inmediato.
     if (originalRequest.url?.includes('/auth/refresh')) {
       doLogout()
-      return Promise.reject(error)
-    }
-
-    // Si ya estamos en la página de login o superadmin, no redirigir en bucle
-    if (
-      window.location.pathname.startsWith('/login') ||
-      window.location.pathname.startsWith('/superadmin')
-    ) {
       return Promise.reject(error)
     }
 
