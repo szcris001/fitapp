@@ -699,6 +699,25 @@
 - `ProfileScreen.tsx`: sección Legal (Privacidad + Términos) + botón "Eliminar mi cuenta" con BottomSheet de confirmación
 - **Pendiente Cristian**: publicar Privacy Policy y ToS en URL pública → actualizar links en ProfileScreen → llenar Data Safety (Play) y App Privacy (App Store Connect)
 
+**2026-10-12 — Acceso a Railway producción + redeploy a `master` + fix de auto-deploy (CIERRA el tema deploy, precursor de `docs/PLAN_DE_PRUEBAS_PRODUCCION.md`)**:
+
+- **Acceso**: CLI `@railway/cli` instalado via `npm install -g` (bin en `~/.npm-global/bin`, agregar al PATH). Ya había sesión válida (`railway whoami` → cristian silva, silvacrist@gmail.com). Proyecto `patient-serenity` (ID `64161894-1b63-4c8f-a4bf-bd2053107bd9`), ambientes `production` (ID `61e71eba-8ac0-4554-b4db-fed704b56121`) y `staging` (ID `9d9806e0-7815-4e75-9797-4d3d7ddc8b13`). Servicios (mismo `serviceId` en ambos ambientes): `api` = `32108344-0f12-4de8-a2d6-06af27248bfc`, `web` = `3f97b4a9-9fa3-4233-bba1-d5669ec926e5`.
+- **URLs reales de producción** (en `.env.production`, no versionado, como `RAILWAY_API_URL`/`RAILWAY_WEB_URL`):
+  - API: `https://api-production-ff3c.up.railway.app`
+  - Web: `https://web-production-1f7d5.up.railway.app`
+- **Hallazgo inicial**: producción corría commits muy viejos (API en PR #43, web en un commit aún anterior — ~90-99 commits atrás de `master`/PR #89), pese a que se asumía auto-deploy activo. Causa raíz: `serviceInstanceAutoDeployStatus` (GraphQL) daba `{enabled: false, canEnable: true}` en los 3 pares revisados — el repo estaba conectado (`source.repo`, `hasEverDeployed: true`) pero el auto-deploy nunca se había activado.
+- **Resolución (Cristian, desde su propia terminal — las mutaciones de escritura en producción están bloqueadas para este agente por el sandbox)**:
+  1. Redeploy manual de `api` a `master` vía dashboard (botón Deploy/Redeploy).
+  2. Redeploy manual de `web` a `master` vía dashboard.
+  3. `railway service source connect --repo szcris001/fitapp --branch master --service <api|web> --environment <production|staging>` corrido para los 4 pares — recrea el deployment trigger (lo que faltaba) y de paso disparó un redeploy adicional en cada uno.
+- **Estado final verificado (2026-10-12, vía `railway api` GraphQL sobre cada deployment, no solo por fecha)**:
+  - `api`/production: deployment `714dda27-c951-4029-af08-e5b4e0882784`, `status: SUCCESS`, `branch: master`, `commitHash: 8fa8df5c67f9115bd797f35d2cf31070006364bf` ✅ (= HEAD de `master`/`origin/master`, PR #89, verificado también con `git log origin/master -1`).
+  - `web`/production: deployment `a611a86c-46d9-4c39-b05f-bc5cfb0307e7`, `status: SUCCESS`, `branch: master`, `commitHash: 8fa8df5c67f9115bd797f35d2cf31070006364bf` ✅ (mismo commit).
+  - Auto-deploy (`serviceInstanceAutoDeployStatus`) ahora `enabled: true` en los 4 pares: `api`/production, `web`/production, `api`/staging, `web`/staging. Ya no debería volver a desincronizarse de `master`.
+  - Health post-deploy: `GET /health` → 200, `GET /healthz` → 200 `{status:ok, db:ok}` en API producción. `GET /login` → 200 en web producción (headers de seguridad presentes: CSP, HSTS, X-Frame-Options, etc. — no hay header de versión/commit expuesto, por diseño).
+- **Pendiente, no bloqueante**: verificar manualmente en el dashboard de Railway si las pasarelas de pago (`STRIPE_SECRET_KEY`, `MERCADOPAGO_ACCESS_TOKEN`, `FINTOC_API_KEY`, etc.) están en modo live o test — bloqueado para este agente por el sandbox (`railway variables` denegado tanto en lectura de valores como `--help`).
+- Repo del agente quedó linkeado a `patient-serenity` / `production` / servicio `api`. Cambiar ambiente/servicio con `railway environment <nombre>` / `railway service <nombre>`.
+
 ---
 
 ## security

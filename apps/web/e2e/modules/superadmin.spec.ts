@@ -108,6 +108,32 @@ test.describe('SUP — superadmin', () => {
     const detail = (await api('superadmin', 'GET', `/superadmin/gyms/${n.id}`)).data
     for (const key of SECRETS) expect(detail, `/superadmin/gyms/:id expone ${key}`).not.toHaveProperty(key)
   })
+
+  // H-SUPERADMIN-01 (QA producción, 2026-10-12): lib/api.ts saltaba el intento de
+  // refresh entero en cualquier ruta /superadmin para evitar un redirect en bucle,
+  // pero eso también mataba el refresh silencioso de un superadmin con sesión
+  // válida — cada 15 min (expiración del access token) quedaba con "Token inválido
+  // o expirado" en vez de refrescar solo, como sí pasa en el resto del panel.
+  test('SUP-07 access token vencido en /superadmin se refresca solo, no desloguea', async ({ page }) => {
+    const p = await open(page, '/superadmin')
+    await expect(page.getByRole('heading', { name: 'Gimnasios' })).toBeVisible()
+
+    // Access token corrupto, refresh token intacto (storageState trae uno válido)
+    await page.evaluate(() => localStorage.setItem('fitapp_token', 'token-vencido-o-invalido'))
+    await page.reload()
+    await page.waitForLoadState('networkidle')
+
+    // Debe seguir en /superadmin con los datos cargados — no "Token inválido o
+    // expirado" ni redirect a /login — y el token en localStorage debe haber
+    // cambiado (prueba de que el refresh realmente corrió).
+    await expect(page).toHaveURL(/\/superadmin$/)
+    await expect(page.getByRole('heading', { name: 'Gimnasios' })).toBeVisible()
+    await expect(page.getByText(norte.slug)).toBeVisible()
+    await expect(page.getByText(/Token inválido o expirado/)).toHaveCount(0)
+    const newToken = await page.evaluate(() => localStorage.getItem('fitapp_token'))
+    expect(newToken).not.toBe('token-vencido-o-invalido')
+    p.expectNoErrors()
+  })
 })
 
 test.describe('SUP — otros roles', () => {
