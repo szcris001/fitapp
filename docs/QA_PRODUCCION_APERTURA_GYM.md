@@ -93,13 +93,31 @@ subdominio `updates.tribu-box.cl` verificado en Resend (DKIM + 2 CNAME de SPF
 **Verificado con un envío real de punta a punta** (2026-10-13): `POST
 /gyms/me/email-test` contra producción → email recibido en una casilla real
 (outlook.com) con remitente `QA Apertura Producción 2
-<notificaciones@updates.tribu-box.cl>`, asunto y cuerpo correctos. Objetivo 1
-ya no tiene ningún hallazgo abierto de email.
+<notificaciones@updates.tribu-box.cl>`, asunto y cuerpo correctos.
+
+**De paso, un segundo bug encontrado al revisar el código de email**:
+`forgotPassword()` (`auth.service.ts`) tenía su propio SMTP duplicado, nunca
+migrado a Resend — "Olvidé mi contraseña" seguía roto en producción pese al
+fix anterior. Corregido (reusa `sendEmail()`/`buildFrom()` de `lib/email.ts`,
+de paso escapando HTML que antes se interpolaba crudo). Verificado con envío
+real: llega correctamente.
+
+Rebrand FitApp → Tribu-Box aplicado a todo lo que ve el usuario (correos,
+panel de superadmin, web, mobile) — confirmado visualmente en los dos
+correos de prueba (bienvenida y recuperar contraseña), ambos con el footer
+"Powered by Tribu-Box" correcto. El correo de bienvenida y el de recuperar
+contraseña ahora también usan el logo de plataforma (`/superadmin/config`)
+si hay uno subido; sin logo, caen al emoji de siempre (comportamiento
+esperado, no un bug).
+
+Objetivo 1 ya no tiene ningún hallazgo abierto de email.
 
 ## Pendiente del Objetivo 1
 
-- [x] Gym creado (`qa-apertura-produccin-2`, tras un par de reintentos por
-  H-SUPERADMIN-01/02).
-- [x] Email transaccional funcionando de punta a punta (H-PROD-EMAIL-01).
+- [x] Gym creado (`qa-apertura-produccin-2`, `prueba4`, tras un par de
+  reintentos por H-SUPERADMIN-01/02).
+- [x] Email transaccional funcionando de punta a punta: bienvenida,
+  recuperar contraseña (H-PROD-EMAIL-01 + fix de `forgotPassword`).
+- [x] Rebrand FitApp → Tribu-Box verificado visualmente en los correos.
 - [ ] Coach, alumnos, tipos de clase + horario, planes, WOD, configuración
   básica — siguiente paso.
