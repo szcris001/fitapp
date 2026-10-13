@@ -112,6 +112,14 @@ esperado, no un bug).
 
 Objetivo 1 ya no tiene ningún hallazgo abierto de email.
 
+## Hallazgo H-PROD-UX-01 — input de hora en crear/editar clase mostraba AM/PM — **CORREGIDO** (PR #96)
+
+`<input type="time">` nativo sigue el locale del navegador/OS para 12h vs
+24h, no algo que controle el código. Cristian lo encontró queriendo poner
+"13:00" sin elegir AM/PM al crear una clase real. Fix: `lang="es-CL"` en los
+4 inputs de hora (crear clase, editar clase) fuerza 24h en Chrome
+independientemente del navegador.
+
 ## Pendiente del Objetivo 1
 
 - [x] Gym creado (`qa-apertura-produccin-2`, `prueba4`, tras un par de
@@ -119,5 +127,15 @@ Objetivo 1 ya no tiene ningún hallazgo abierto de email.
 - [x] Email transaccional funcionando de punta a punta: bienvenida,
   recuperar contraseña (H-PROD-EMAIL-01 + fix de `forgotPassword`).
 - [x] Rebrand FitApp → Tribu-Box verificado visualmente en los correos.
-- [ ] Coach, alumnos, tipos de clase + horario, planes, WOD, configuración
-  básica — siguiente paso.
+- [x] Coach creado (`/dashboard/staff`).
+- [x] Alumnos creados (`/dashboard/users`) — sin correo de bienvenida, por
+  diseño (backlog, ver memoria `project_welcome_email_staff_backlog`).
+- [x] Tipos de clase + horario (`/dashboard/settings/class-types`,
+  `/dashboard/classes/new`) — encontrado y corregido H-PROD-UX-01 (hora
+  AM/PM) en el camino.
+- [x] Planes de membresía (`/dashboard/plans`).
+- [x] WOD creado (`/dashboard/wods/new`).
+
+**Objetivo 1 completo.** Siguiente: Objetivo 2 (usabilidad del alumno —
+reservar, ver WOD, registrar resultado, pagar) sobre los datos ya creados en
+`prueba4`.
