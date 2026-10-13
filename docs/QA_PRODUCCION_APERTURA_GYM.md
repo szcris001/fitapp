@@ -190,3 +190,40 @@ la API limpia salvo los 2 archivos del bug de DST preexistente (ver abajo).
 E2E de planes 13/13, E2E completo de web 99/100 (el único que falla,
 `USR-06`, confirmado que **ya fallaba en `master` sin este cambio** — ver
 `project_dst_membership_date_bug`, segundo hallazgo ahí).
+
+### Flujo de reserva, progreso y perfil del alumno — verificado completo en producción
+
+Con la membresía Trial asignada por Cristian, confirmado en vivo desde el
+emulador (toques reales sobre la app, coordenadas sacadas con
+`uiautomator dump` para no depender de capturas):
+
+- **Reservar clase**: tocar "Reservar lugar" en Halterofilia 18:00-19:00 →
+  diálogo "Reservado — Tu lugar está confirmado" → la tarjeta pasa a
+  `1/15` con badge "Inscrito ✓". Detalle de la clase lista al alumno
+  inscrito y ofrece "Cancelar reserva".
+- **Progreso → Gimnasia**: progresiones de habilidades (Handstand Walk,
+  Double Under) vienen precargadas (son globales, no dependen de la
+  configuración del gym). Tocar "Marcar" en un hito → checkmark, barra de
+  progreso actualizada (0/5 → 1/5), "Siguiente" recalculado. Funciona.
+- **Progreso → Marcas personales**: vacío con el mensaje correcto ("El
+  administrador debe configurar la biblioteca de movimientos") — no
+  configuramos movimientos para este gym en el Objetivo 1, comportamiento
+  esperado, no un bug.
+- **Perfil → Mi Plan**: muestra el plan activo (Trial, "30 días
+  restantes", "Vence 12 de noviembre" — consistente, sin el off-by-one
+  que sí aparece en el dashboard admin web), catálogo de "Planes
+  disponibles" con la duración real de cada uno, e historial de pagos.
+  **No se probó "Contratar plan"** (dispara un checkout real de pasarela;
+  no confirmamos todavía si las pasarelas de este gym están en modo
+  live o test — ver pendiente abajo).
+
+### Pendiente de Objetivo 2 (requiere a Cristian o datos que no tengo)
+
+- **Registrar resultado de WOD / leaderboard**: no encontré la opción
+  desde la vista de alumno en la app — puede ser solo de coach. Falta
+  loguear como coach (no tengo esa contraseña) para confirmarlo.
+- **Flujo de pago real**: falta que Cristian confirme si las pasarelas de
+  `prueba4` están en modo live o test antes de tocar "Contratar plan" o
+  cualquier checkout real.
+- **App del coach**: sin probar — mismo motivo, no tengo las credenciales
+  del coach creado en el Objetivo 1.
