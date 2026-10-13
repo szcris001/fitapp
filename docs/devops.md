@@ -32,6 +32,8 @@ Resuelto el 2026-10-12 (Cristian, desde su propia terminal — las escrituras co
 
 Verificado tras el fix: `api` y `web` de producción en commit `8fa8df5c67f9115bd797f35d2cf31070006364bf` (= `master` HEAD, PR #89), `status: SUCCESS`; `serviceInstanceAutoDeployStatus.enabled = true` en los 4 pares. No debería volver a desincronizarse — si pasa, repetir el `source connect` de arriba (no basta con el toggle solo).
 
+**Confirmado funcionando end-to-end (2026-10-12, PR #90)**: el merge a `master` del commit `08baad4f02fb48399f8ab2586ced81d67f3b6edd` disparó un deploy automático en `api` y `web` de producción sin intervención manual — `createdAt` de ambos deployments ~1 min después del commit (`reason: "deploy"`), terminaron en `SUCCESS` con el `commitHash` correcto, health OK. El fix del auto-deploy quedó validado con un caso real, no solo con el estado del flag.
+
 Para confirmar el commit real desplegado (no asumir por fecha):
 ```bash
 railway api 'query { deployment(id: "<deployment id de railway status>") { status meta } }'   # meta.commitHash, meta.branch

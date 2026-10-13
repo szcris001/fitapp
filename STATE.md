@@ -717,6 +717,7 @@
   - Health post-deploy: `GET /health` → 200, `GET /healthz` → 200 `{status:ok, db:ok}` en API producción. `GET /login` → 200 en web producción (headers de seguridad presentes: CSP, HSTS, X-Frame-Options, etc. — no hay header de versión/commit expuesto, por diseño).
 - **Pendiente, no bloqueante**: verificar manualmente en el dashboard de Railway si las pasarelas de pago (`STRIPE_SECRET_KEY`, `MERCADOPAGO_ACCESS_TOKEN`, `FINTOC_API_KEY`, etc.) están en modo live o test — bloqueado para este agente por el sandbox (`railway variables` denegado tanto en lectura de valores como `--help`).
 - Repo del agente quedó linkeado a `patient-serenity` / `production` / servicio `api`. Cambiar ambiente/servicio con `railway environment <nombre>` / `railway service <nombre>`.
+- **Verificación del fix (2026-10-12, PR #90 "refresh de token /superadmin + fast-jwt", commit `08baad4f02fb48399f8ab2586ced81d67f3b6edd`)**: el auto-deploy funcionó solo, sin tocar el dashboard. `api` y `web` de producción iniciaron build ~1 minuto después del merge (`createdAt: 2026-10-12T15:04:05Z` en ambos deployments, `reason: "deploy"`, vs. merge commit `2026-10-12T12:04:03-03:00` = `15:04:03Z`) y terminaron en `SUCCESS` con `commitHash: 08baad4f...` en ambos. Health OK (`/health`, `/healthz`, `/login` → 200). Auto-deploy confirmado funcionando end-to-end — no hace falta seguir de guardia por esto.
 
 ---
 

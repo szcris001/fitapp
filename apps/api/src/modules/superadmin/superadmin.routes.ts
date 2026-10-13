@@ -118,9 +118,16 @@ export async function superAdminRoutes(app: FastifyInstance) {
 
     const { gymName, gymSlug, adminName, adminEmail, adminPassword, subscriptionPlan, trialDays } = parsed.data
 
-    // Solo bloquea si el slug está en uso por un gym NO eliminado
-    const existingSlug = await prisma.gym.findFirst({ where: { slug: gymSlug, deletedAt: null } })
-    if (existingSlug) return reply.status(409).send({ error: 'El slug ya está en uso' })
+    // Solo bloquea si el slug está en uso por un gym NO eliminado. Si el dueño
+    // del slug está en el historial (soft delete), se lo liberamos dentro de la
+    // misma transacción más abajo — `slug` es @unique a nivel de columna sin
+    // importar `deletedAt`, así que sin esto la creación fallaba con "Un valor
+    // ya está registrado en el sistema" al reusar el slug de un gym recién
+    // eliminado (QA producción 2026-10-12, H-SUPERADMIN-02).
+    const existingSlug = await prisma.gym.findFirst({ where: { slug: gymSlug } })
+    if (existingSlug && !existingSlug.deletedAt) {
+      return reply.status(409).send({ error: 'El slug ya está en uso' })
+    }
 
     const passwordHash = await bcrypt.hash(adminPassword, 10)
 
@@ -139,6 +146,14 @@ export async function superAdminRoutes(app: FastifyInstance) {
     let gym
     try {
       gym = await prisma.$transaction(async (tx) => {
+        if (existingSlug) {
+          // Libera el slug del gym eliminado para que el nuevo pueda usarlo
+          await tx.gym.update({
+            where: { id: existingSlug.id },
+            data: { slug: `${existingSlug.slug}-eliminado-${Date.now()}` },
+          })
+        }
+
         const newGym = await tx.gym.create({
           data: {
             name: gymName,
