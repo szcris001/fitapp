@@ -1287,13 +1287,13 @@ export function ClassPanel({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-3)' }}>Hora inicio</label>
-                <input type="time" value={editForm.startTime}
+                <input type="time" lang="es-CL" value={editForm.startTime}
                   onChange={e => setEditForm(f => ({ ...f, startTime: e.target.value }))}
                   className="input text-sm w-full" />
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-3)' }}>Hora fin</label>
-                <input type="time" value={editForm.endTime}
+                <input type="time" lang="es-CL" value={editForm.endTime}
                   onChange={e => setEditForm(f => ({ ...f, endTime: e.target.value }))}
                   className="input text-sm w-full" />
               </div>

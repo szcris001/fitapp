@@ -307,11 +307,11 @@ export default function NewClassPage() {
                   style={{ backgroundColor: 'var(--surface-hover)', border: '1px solid var(--border-1)' }}>
                   <span className="text-xs w-4 shrink-0" style={{ color: 'var(--text-4)' }}>{i + 1}.</span>
                   <div className="flex items-center gap-2 flex-1">
-                    <input type="time" value={block.start}
+                    <input type="time" lang="es-CL" value={block.start}
                       onChange={e => updateTimeBlock(i, 'start', e.target.value)}
                       className="input text-sm flex-1" />
                     <span className="text-xs" style={{ color: 'var(--text-4)' }}>→</span>
-                    <input type="time" value={block.end}
+                    <input type="time" lang="es-CL" value={block.end}
                       onChange={e => updateTimeBlock(i, 'end', e.target.value)}
                       className="input text-sm flex-1" />
                   </div>
