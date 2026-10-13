@@ -216,14 +216,40 @@ emulador (toques reales sobre la app, coordenadas sacadas con
   **No se probó "Contratar plan"** (dispara un checkout real de pasarela;
   no confirmamos todavía si las pasarelas de este gym están en modo
   live o test — ver pendiente abajo).
+- **Registrar resultado de WOD** (`MemberWodScreen.tsx`, "Ver pizarra" →
+  "Registrar mi resultado"): sí existe para el alumno, no es solo de
+  coach como se pensó en una pasada anterior de esta prueba. Probado en
+  vivo — categoría RX, 120 reps → guarda, aparece "Mi resultado: 120
+  (RX)" y el contador de resultados pasa a 1.
 
 ### Pendiente de Objetivo 2 (requiere a Cristian o datos que no tengo)
 
-- **Registrar resultado de WOD / leaderboard**: no encontré la opción
-  desde la vista de alumno en la app — puede ser solo de coach. Falta
-  loguear como coach (no tengo esa contraseña) para confirmarlo.
 - **Flujo de pago real**: falta que Cristian confirme si las pasarelas de
   `prueba4` están en modo live o test antes de tocar "Contratar plan" o
   cualquier checkout real.
-- **App del coach**: sin probar — mismo motivo, no tengo las credenciales
-  del coach creado en el Objetivo 1.
+- **App del coach**: sin probar — no tengo las credenciales del coach
+  creado en el Objetivo 1.
+- **Leaderboard**: no se encontró esa feature en la navegación del
+  alumno — probablemente no existe todavía (no es un bug, revisar si
+  está en el roadmap antes de buscarla de nuevo).
+
+**Objetivo 2 completo** para lo que es seguro probar sin Cristian
+presente (sin pagos reales, sin credenciales de coach).
+
+### Hallazgo H-PROD-MOBILE-01 — "Mi próxima clase" quedaba con datos viejos — **CORREGIDO** (PR #101, pendiente de merge)
+
+`HomeScreen.tsx` solo hacía `fetchData()` en el mount inicial. Las tabs de
+React Navigation no se desmontan al cambiar de tab, así que el flujo real
+de un alumno — reservar una clase desde "Clases" y volver a "Inicio" — la
+tarjeta "Mi próxima clase" seguía mostrando "No tienes clases reservadas"
+con el estado de la primera vez que se montó la pantalla.
+
+**Fix**: `useFocusEffect(useCallback(() => { fetchData() }, []))`, mismo
+patrón que ya usan las pantallas admin (`StaffScreen.tsx`, etc.) — solo
+faltaba en la pantalla del alumno.
+
+**Verificado en vivo** en emulador Android contra producción: login como
+`alumno1` → reservar Halterofilia desde Clases → volver a Inicio → "Mi
+próxima clase" ahora muestra "HOY 18:00 · Halterofilia · Reservado ✓".
+`pnpm typecheck` limpio. Sin test automatizado — no hay infraestructura de
+tests de componentes RN en el repo todavía.
