@@ -47,7 +47,7 @@ Test de regresión en `superadmin.integration.test.ts` (`DELETE
 /api/superadmin/gyms/:id (soft delete)`): soft-delete → crear un gym nuevo
 con el mismo slug → 201, y el gym viejo queda con el slug renombrado.
 
-## Hallazgo H-PROD-EMAIL-01 — ningún email sale desde producción — **migrado a Resend, pendiente verificación del dominio**
+## Hallazgo H-PROD-EMAIL-01 — ningún email sale desde producción — **CORREGIDO, verificado con envío real**
 
 Al crear el gym, el correo de bienvenida falló con `Connection timeout`.
 `/superadmin/config` → SMTP de plataforma está vacío, así que el código caía
@@ -82,15 +82,24 @@ tenant. Dominio elegido: `tribu-box.cl` (comprado en NIC.cl para este fin).
 - Tests actualizados en `email.test.ts` (27 tests, mock de `fetch` para los
   casos con `RESEND_API_KEY`).
 
-**Pendiente** (lo hace Cristian con un wizard, fuera del repo): crear cuenta
-en Resend, verificar el dominio `tribu-box.cl` (registros DNS en NIC.cl), y
-cargar `RESEND_API_KEY`/`RESEND_FROM_EMAIL` en Railway (servicio `api`,
-production y staging). Hasta que eso termine, producción sigue cayendo al
-fallback de Ethereal (no falla, pero tampoco manda correos reales).
+**Setup de infraestructura** (Cristian, fuera del repo, 2026-10-12/13):
+dominio comprado en NIC.cl (`tribu-box.cl`), DNS delegado a Cloudflare (NIC.cl
+no permite editar registros TXT/CNAME directamente, solo elegir nameservers),
+subdominio `updates.tribu-box.cl` verificado en Resend (DKIM + 2 CNAME de SPF
++ DMARC opcional), `RESEND_API_KEY`/`RESEND_FROM_EMAIL`
+(`notificaciones@updates.tribu-box.cl`) cargadas en Railway para `api` en
+`production` y `staging` vía `railway variables set`.
+
+**Verificado con un envío real de punta a punta** (2026-10-13): `POST
+/gyms/me/email-test` contra producción → email recibido en una casilla real
+(outlook.com) con remitente `QA Apertura Producción 2
+<notificaciones@updates.tribu-box.cl>`, asunto y cuerpo correctos. Objetivo 1
+ya no tiene ningún hallazgo abierto de email.
 
 ## Pendiente del Objetivo 1
 
-- [x] Gym creado (`qa-apertura-2026-10` o el slug que haya quedado tras los
-  reintentos).
+- [x] Gym creado (`qa-apertura-produccin-2`, tras un par de reintentos por
+  H-SUPERADMIN-01/02).
+- [x] Email transaccional funcionando de punta a punta (H-PROD-EMAIL-01).
 - [ ] Coach, alumnos, tipos de clase + horario, planes, WOD, configuración
-  básica — siguiente paso una vez resuelto (o aceptado) H-PROD-EMAIL-01.
+  básica — siguiente paso.
