@@ -2,66 +2,56 @@ import nodemailer from 'nodemailer'
 import { prisma } from './prisma'
 import { toMajorUnits } from './money'
 
-// nodemailer usa 2 minutos de connectionTimeout por defecto: un SMTP mal configurado o
-// inalcanzable (host equivocado, firewall) deja cualquier endpoint que envíe un correo
-// (p. ej. POST /superadmin/gyms) colgado ese tiempo antes de caer al catch. 10s es de
-// sobra para un SMTP real y evita ese bloqueo.
+// nodemailer usa 2 minutos de connectionTimeout por defecto — demasiado para un fallback
+// de dev. Mismo motivo para el timeout del fetch a Resend más abajo.
 const SMTP_TIMEOUT_MS = 10_000
 const smtpTimeouts = { connectionTimeout: SMTP_TIMEOUT_MS, greetingTimeout: SMTP_TIMEOUT_MS, socketTimeout: SMTP_TIMEOUT_MS }
 
-type GymSmtp = {
-  smtpHost?: string | null
-  smtpPort?: number | null
-  smtpUser?: string | null
-  smtpPass?: string | null
-  smtpFrom?: string | null
-  name: string
+// Railway bloquea SMTP saliente en el plan Hobby (y Free/Trial) — ver
+// docs/QA_PRODUCCION_APERTURA_GYM.md, H-PROD-EMAIL-01. Por eso el envío real usa la API
+// HTTPS de Resend en vez de SMTP. SMTP por gym (gym.smtpHost/smtpUser/smtpPass) queda sin
+// uso: Resend verifica un dominio por cuenta, no credenciales arbitrarias por tenant —
+// decisión de producto confirmada con Cristian 2026-10-12, un solo dominio para todos los
+// gyms. El nombre que ve el destinatario sigue siendo el del gym (buildFrom), solo la
+// dirección de envío es compartida.
+function buildFrom(displayName: string): string {
+  const email = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+  return `${displayName} <${email}>`
 }
 
-async function getPlatformSmtp() {
-  try {
-    const s = await prisma.platformSettings.findUnique({ where: { id: 'system' } })
-    return s ?? {}
-  } catch {
-    return {}
-  }
-}
-
-async function getTransporter(gym: GymSmtp) {
-  const platform = await getPlatformSmtp() as any
-  const host = gym.smtpHost || platform.smtpHost || process.env.SMTP_HOST
-  const port = gym.smtpPort || platform.smtpPort || Number(process.env.SMTP_PORT) || 587
-  const user = gym.smtpUser || platform.smtpUser || process.env.SMTP_USER
-  const pass = gym.smtpPass || platform.smtpPass || process.env.SMTP_PASS
-
-  if (!user || !pass) {
-    // Fallback: Ethereal test account (emails visible at ethereal.email)
-    const testAccount = await nodemailer.createTestAccount()
-    console.info(`[Email] No SMTP configured — using Ethereal test account: ${testAccount.user}`)
-    return {
-      transporter: nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: { user: testAccount.user, pass: testAccount.pass },
-        ...smtpTimeouts,
-      }),
-      ethereal: true,
-      from: `FitApp Test <${testAccount.user}>`,
+/**
+ * Envía un email. Con RESEND_API_KEY configurado (producción), usa la API de Resend.
+ * Sin esa variable (dev local), cae a una cuenta de prueba Ethereal — mismo
+ * comportamiento que tenía el fallback de SMTP antes de esta migración.
+ */
+async function sendEmail(params: { from: string; to: string; subject: string; html: string }): Promise<{ ethereal: boolean; previewUrl?: string }> {
+  const apiKey = process.env.RESEND_API_KEY
+  if (apiKey) {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal: AbortSignal.timeout(SMTP_TIMEOUT_MS),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Resend ${res.status}: ${body || res.statusText}`)
     }
+    return { ethereal: false }
   }
 
-  return {
-    transporter: nodemailer.createTransport({
-      host: host || 'smtp.gmail.com',
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-      ...smtpTimeouts,
-    }),
-    ethereal: false,
-    from: gym.smtpFrom || process.env.SMTP_FROM || `${gym.name} <${user}>`,
-  }
+  const testAccount = await nodemailer.createTestAccount()
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.ethereal.email',
+    port: 587,
+    secure: false,
+    auth: { user: testAccount.user, pass: testAccount.pass },
+    ...smtpTimeouts,
+  })
+  const info = await transporter.sendMail(params)
+  const previewUrl = nodemailer.getTestMessageUrl(info) as string
+  console.info(`[Email] Sin RESEND_API_KEY — usando Ethereal: ${previewUrl}`)
+  return { ethereal: true, previewUrl }
 }
 
 function replacePlaceholders(template: string, vars: Record<string, string>): string {
@@ -126,14 +116,11 @@ export async function sendExpiryReminder(gymId: string, member: {
 }) {
   const gym = await prisma.gym.findUnique({
     where: { id: gymId },
-    select: {
-      name: true, logoUrl: true, smtpHost: true, smtpPort: true, smtpUser: true, smtpPass: true, smtpFrom: true,
-      emailExpirySubject: true, emailExpiryBody: true,
-    },
+    select: { name: true, logoUrl: true, emailExpirySubject: true, emailExpiryBody: true },
   })
   if (!gym) return
 
-  const { transporter, ethereal, from } = await getTransporter(gym)
+  const from = buildFrom(gym.name)
 
   const endsStr = member.endsAt.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })
   const urgencyColor = member.daysLeft <= 1 ? '#ef4444' : member.daysLeft <= 3 ? '#f59e0b' : '#6366f1'
@@ -181,10 +168,8 @@ export async function sendExpiryReminder(gymId: string, member: {
     )
   }
 
-  const info = await transporter.sendMail({ from, to: member.email, subject, html: htmlBody })
-  if (ethereal) {
-    console.info(`[Email] Expiry reminder preview: ${nodemailer.getTestMessageUrl(info)}`)
-  }
+  const { ethereal, previewUrl } = await sendEmail({ from, to: member.email, subject, html: htmlBody })
+  if (ethereal) console.info(`[Email] Expiry reminder preview: ${previewUrl}`)
 }
 
 export async function sendPaymentConfirmation(gymId: string, data: {
@@ -201,14 +186,11 @@ export async function sendPaymentConfirmation(gymId: string, data: {
 }) {
   const gym = await prisma.gym.findUnique({
     where: { id: gymId },
-    select: {
-      name: true, logoUrl: true, smtpHost: true, smtpPort: true, smtpUser: true, smtpPass: true, smtpFrom: true,
-      emailPaymentSubject: true, emailPaymentBody: true,
-    },
+    select: { name: true, logoUrl: true, emailPaymentSubject: true, emailPaymentBody: true },
   })
   if (!gym) return
 
-  const { transporter, ethereal, from } = await getTransporter(gym)
+  const from = buildFrom(gym.name)
 
   const amountStr = toMajorUnits(data.amount, data.currency).toLocaleString('es-CL')
   const methodLabel: Record<string, string> = {
@@ -279,10 +261,8 @@ export async function sendPaymentConfirmation(gymId: string, data: {
     )
   }
 
-  const info = await transporter.sendMail({ from, to: data.memberEmail, subject, html: htmlBody })
-  if (ethereal) {
-    console.info(`[Email] Payment confirmation preview: ${nodemailer.getTestMessageUrl(info)}`)
-  }
+  const { ethereal, previewUrl } = await sendEmail({ from, to: data.memberEmail, subject, html: htmlBody })
+  if (ethereal) console.info(`[Email] Payment confirmation preview: ${previewUrl}`)
 }
 
 export async function sendBulkToGyms(options: {
@@ -306,23 +286,7 @@ export async function sendBulkToGyms(options: {
     select: { id: true, name: true, ownerEmail: true },
   })
 
-  const platform = await getPlatformSmtp() as any
-  const host = platform.smtpHost || process.env.SMTP_HOST
-  const port = platform.smtpPort || Number(process.env.SMTP_PORT) || 587
-  const user = platform.smtpUser || process.env.SMTP_USER
-  const pass = platform.smtpPass || process.env.SMTP_PASS
-  const from = platform.smtpFrom || process.env.SMTP_FROM || 'FitApp <noreply@fitapp.cl>'
-
-  if (!user || !pass) {
-    return { sent: 0, failed: gyms.length, errors: ['SMTP no configurado'] }
-  }
-
-  const nodemailer = (await import('nodemailer')).default
-  const transporter = nodemailer.createTransport({
-    host: host || 'smtp.gmail.com', port, secure: port === 465,
-    auth: { user, pass },
-    ...smtpTimeouts,
-  })
+  const from = buildFrom('FitApp')
 
   let sent = 0
   let failed = 0
@@ -338,7 +302,7 @@ export async function sendBulkToGyms(options: {
       `<p style="color:#374151;font-size:15px;line-height:1.7;white-space:pre-line;">${bodyText}</p>`,
     )
     try {
-      await transporter.sendMail({ from, to: gym.ownerEmail, subject, html })
+      await sendEmail({ from, to: gym.ownerEmail, subject, html })
       sent++
     } catch (e: any) {
       failed++
@@ -359,11 +323,11 @@ export async function sendBulkEmail(
 ): Promise<{ sent: number; failed: number }> {
   const gym = await prisma.gym.findUnique({
     where: { id: gymId },
-    select: { name: true, logoUrl: true, smtpHost: true, smtpPort: true, smtpUser: true, smtpPass: true, smtpFrom: true },
+    select: { name: true, logoUrl: true },
   })
   if (!gym) return { sent: 0, failed: options.recipients.length }
 
-  const { transporter, from } = await getTransporter(gym)
+  const from = buildFrom(gym.name)
   let sent = 0
   let failed = 0
 
@@ -377,7 +341,7 @@ export async function sendBulkEmail(
       gym.logoUrl,
     )
     try {
-      await transporter.sendMail({ from, to: recipient.email, subject, html })
+      await sendEmail({ from, to: recipient.email, subject, html })
       sent++
     } catch {
       failed++
@@ -396,12 +360,7 @@ export async function sendWelcomeEmail(data: {
 }) {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
   const loginUrl = `${frontendUrl}/login`
-
-  // Usa SMTP del sistema (el gym nuevo no tiene SMTP aún)
-  const { transporter, ethereal, from } = await getTransporter({
-    name: 'FitApp',
-    smtpHost: null, smtpPort: null, smtpUser: null, smtpPass: null, smtpFrom: null,
-  })
+  const from = buildFrom('FitApp')
 
   const html = wrapInLayout(
     'FitApp', '#6366f1', '🏋️', `¡Bienvenido a FitApp, ${data.gymName}!`,
@@ -430,7 +389,7 @@ export async function sendWelcomeEmail(data: {
     </a>`,
   )
 
-  const info = await transporter.sendMail({
+  const { ethereal, previewUrl } = await sendEmail({
     from,
     to: data.adminEmail,
     subject: `🏋️ Bienvenido a FitApp — ${data.gymName}`,
@@ -438,9 +397,8 @@ export async function sendWelcomeEmail(data: {
   })
 
   if (ethereal) {
-    const url = nodemailer.getTestMessageUrl(info) as string
-    console.info(`[Email] Welcome email preview: ${url}`)
-    return { previewUrl: url }
+    console.info(`[Email] Welcome email preview: ${previewUrl}`)
+    return { previewUrl }
   }
   return {}
 }
@@ -448,17 +406,14 @@ export async function sendWelcomeEmail(data: {
 export async function sendTestEmail(gymId: string): Promise<{ success: boolean; previewUrl?: string; to: string }> {
   const gym = await prisma.gym.findUnique({
     where: { id: gymId },
-    select: {
-      name: true, email: true, logoUrl: true,
-      smtpHost: true, smtpPort: true, smtpUser: true, smtpPass: true, smtpFrom: true,
-    },
+    select: { name: true, email: true, logoUrl: true },
   })
   if (!gym) throw new Error('Gimnasio no encontrado')
 
-  const to = gym.email || gym.smtpUser || process.env.SMTP_USER || 'test@fitapp.cl'
-  const { transporter, ethereal, from } = await getTransporter(gym)
+  const to = gym.email || 'test@fitapp.cl'
+  const from = buildFrom(gym.name)
 
-  const info = await transporter.sendMail({
+  const { ethereal, previewUrl } = await sendEmail({
     from,
     to,
     subject: `✉️ Correo de prueba — ${gym.name}`,
@@ -470,8 +425,7 @@ export async function sendTestEmail(gymId: string): Promise<{ success: boolean; 
     ),
   })
 
-  const previewUrl = ethereal ? (nodemailer.getTestMessageUrl(info) as string) : undefined
-  if (previewUrl) console.info(`[Email] Test email preview: ${previewUrl}`)
+  if (ethereal) console.info(`[Email] Test email preview: ${previewUrl}`)
 
   return { success: true, previewUrl, to }
 }
