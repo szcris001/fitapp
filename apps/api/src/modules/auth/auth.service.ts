@@ -175,6 +175,17 @@ export async function loginUser(data: LoginInput) {
 
   await clearLoginAttempts(lockoutKey)
 
+  // Un MEMBER sin membresía activa no puede ni entrar a la app — mismo criterio que
+  // classes.service.ts usa para bloquear la reserva (status ACTIVE/TRIAL, endsAt vigente).
+  // Decisión de producto confirmada con Cristian (QA app móvil, 2026-10-13): antes
+  // dejaba entrar y navegar libre, y recién se enteraba al intentar reservar.
+  if (user.role === 'MEMBER') {
+    const activeMembership = await prisma.membership.findFirst({
+      where: { userId: user.id, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: new Date() } },
+    })
+    if (!activeMembership) throw new Error('No tienes una membresía activa. Contacta a tu gimnasio para reactivarla.')
+  }
+
   return {
     userId: user.id,
     gymId: gym.id,

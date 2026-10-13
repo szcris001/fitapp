@@ -92,6 +92,17 @@ beforeAll(async () => {
     data: { gymId, name: 'QA Refresh User2', email: TEST_USER2_EMAIL, passwordHash, role: 'MEMBER' },
   })
   userId2 = user2.id
+
+  // Membresía activa — requerida desde 2026-10-13 para que un MEMBER pueda loguear
+  // (ver auth.service.ts loginUser). Se borra en cascada con el Plan al borrar el gym.
+  const testPlan = await prisma.plan.create({
+    data: { gymId, name: 'QA Refresh Test Plan', priceCents: 1000, durationDays: 30 },
+  })
+  const membershipData = (uid: string) => ({
+    userId: uid, planId: testPlan.id, status: 'ACTIVE' as const,
+    startsAt: new Date(), endsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), pricePaid: 1000,
+  })
+  await prisma.membership.createMany({ data: [membershipData(userId), membershipData(userId2)] })
 })
 
 afterAll(async () => {

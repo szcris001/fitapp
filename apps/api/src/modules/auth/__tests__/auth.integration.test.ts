@@ -125,6 +125,22 @@ beforeAll(async () => {
   })
   memberUserId = member.id
 
+  // Membresía activa — requerida desde 2026-10-13 para que un MEMBER pueda loguear
+  // (QA app móvil: antes entraba igual y recién se enteraba al intentar reservar).
+  const testPlan = await prisma.plan.create({
+    data: { gymId, name: 'QA Auth Test Plan', priceCents: 1000, durationDays: 30 },
+  })
+  await prisma.membership.create({
+    data: {
+      userId: member.id,
+      planId: testPlan.id,
+      status: 'ACTIVE',
+      startsAt: new Date(),
+      endsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      pricePaid: 1000,
+    },
+  })
+
   // Limpiar superadmin residual
   await prisma.user.deleteMany({
     where: {
@@ -343,6 +359,31 @@ describe('Auth Integration — POST /api/auth/login', () => {
     })
 
     expect(response.statusCode).toBe(401)
+  })
+
+  // Decisión de producto confirmada con Cristian (QA app móvil, 2026-10-13): un MEMBER
+  // sin membresía activa no debe poder ni loguear — antes entraba y navegaba libre, y
+  // recién se enteraba al intentar reservar una clase (classes.service.ts bookClass).
+  it('MEMBER sin membresía activa → 401, no deja loguear', async () => {
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const noMembershipEmail = 'qa-member-sin-membresia@auth-test.local'
+    await prisma.user.deleteMany({ where: { gymId, email: noMembershipEmail } })
+    const user = await prisma.user.create({
+      data: { gymId, name: 'QA Member Sin Membresía', email: noMembershipEmail, passwordHash, role: 'MEMBER' },
+    })
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { email: noMembershipEmail, password: TEST_PASSWORD, gymSlug: TEST_GYM_SLUG },
+      })
+
+      expect(response.statusCode).toBe(401)
+      expect(response.json().error).toMatch(/membresía activa/i)
+    } finally {
+      await prisma.user.deleteMany({ where: { id: user.id } })
+    }
   })
 })
 

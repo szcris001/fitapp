@@ -110,6 +110,44 @@ contraseña ahora también usan el logo de plataforma (`/superadmin/config`)
 si hay uno subido; sin logo, caen al emoji de siempre (comportamiento
 esperado, no un bug).
 
+## Objetivo 2 — usabilidad del alumno
+
+> El alumno solo tiene acceso real a la **app móvil** — el panel web
+> desloguea automáticamente cualquier sesión con rol `MEMBER`. Probado
+> contra producción desde un emulador Android local (Expo Go), apuntando
+> `apps/mobile/src/lib/api.ts` a la API de producción (cambio solo local,
+> nunca se commitea).
+
+### Hallazgo H-PROD-UX-02 — un alumno sin membresía activa podía loguear y navegar libre — **CORREGIDO**
+
+Repro en vivo: alumno recién creado (sin plan asignado) logueaba
+normalmente en la app, veía el home, la pizarra del box (WOD del día) y el
+listado de clases — recién se enteraba de que no tenía membresía activa al
+tocar "Reservar lugar" (error correcto, pero tarde).
+
+**Decisión de producto** (confirmada con Cristian 2026-10-13): bloquear el
+login completo para un `MEMBER` sin membresía activa, en vez de dejarlo
+entrar y navegar.
+
+**Fix**: `loginUser()` (`auth.service.ts`) valida, para `role === 'MEMBER'`,
+que exista una `Membership` con `status` en `ACTIVE`/`TRIAL` y `endsAt`
+vigente — mismo criterio que ya usaba `bookClass` en `classes.service.ts`
+para bloquear la reserva. Sin membresía activa, el login devuelve 401 con
+`"No tienes una membresía activa. Contacta a tu gimnasio para reactivarla."`
+en vez de emitir un token.
+
+Test de regresión: crea un `MEMBER` sin ninguna `Membership` y confirma
+401 con ese mensaje — falla sin el fix (200), pasa con el fix.
+
+### Hallazgo — bug preexistente encontrado de paso (no corregido, fuera de alcance)
+
+`nextMembershipPeriod()` (`lib/membership.ts`) usa `setDate()` para sumar
+30 días, lo que queda 1 hora desfasado cuando el período cruza el cambio
+de horario de verano en Chile — ya fallaba en `master` antes de esta
+sesión (2 tests: `activateMembership.integration.test.ts`,
+`autorenew.integration.test.ts`). Cristian confirmó dejarlo para después
+(ver memoria `project_dst_membership_date_bug`).
+
 Objetivo 1 ya no tiene ningún hallazgo abierto de email.
 
 ## Pendiente del Objetivo 1
