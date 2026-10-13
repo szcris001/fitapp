@@ -510,7 +510,7 @@ export default function PlatformConfigPage() {
           <div>
             <label style={lbl}>Remitente (From)</label>
             <input value={smtp.from} onChange={e => setSmtp(s => ({ ...s, from: e.target.value }))}
-              placeholder='FitApp <onboarding@resend.dev>' style={inp} />
+              placeholder='Tribu-Box <onboarding@resend.dev>' style={inp} />
           </div>
 
           <div className="grid grid-cols-2 gap-4" style={{ borderTop: '1px solid #2d2d4e', paddingTop: 16 }}>
@@ -520,7 +520,7 @@ export default function PlatformConfigPage() {
                 onChange={e => setSmtp(s => ({ ...s, reminderDays: e.target.value }))}
                 style={{ ...inp, width: 100 }} />
               <p style={{ color: '#475569', fontSize: 11, marginTop: 4 }}>
-                Días antes del vencimiento FitApp para avisar
+                Días antes del vencimiento de Tribu-Box para avisar
               </p>
             </div>
             <div>

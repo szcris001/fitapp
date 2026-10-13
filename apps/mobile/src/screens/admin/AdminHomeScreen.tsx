@@ -110,7 +110,7 @@ export default function AdminHomeScreen({ navigation }: any) {
                 <Text style={[s.gymLogoText, { color: c.primary }]}>{gym?.name?.[0]}</Text>
               </View>
             )}
-            <Text style={s.gymName}>{gym?.name || 'FitApp'}</Text>
+            <Text style={s.gymName}>{gym?.name || 'Tribu-Box'}</Text>
           </View>
           <View style={[s.roleBadge, { backgroundColor: c.primary + '18', borderColor: c.primary + '35' }]}>
             <Text style={[s.roleText, { color: c.primary }]}>{roleLabel}</Text>

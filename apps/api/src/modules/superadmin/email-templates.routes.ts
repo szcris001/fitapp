@@ -7,10 +7,10 @@ import { sendBulkToGyms } from '../../lib/email'
 const SYSTEM_TEMPLATES = [
   {
     slug: 'subscription_expiry',
-    name: 'Vencimiento de suscripción FitApp',
-    description: 'Se envía automáticamente al admin del gimnasio cuando su plan FitApp está por vencer.',
-    subject: '⚠️ Tu suscripción FitApp vence en {{dias}} días — {{gimnasio}}',
-    body: 'Hola {{gimnasio}},\n\nTu suscripción al plan {{plan}} vence el {{fecha}}.\n\nRenueva para seguir usando FitApp sin interrupciones.\n\nSaludos,\nEl equipo de FitApp',
+    name: 'Vencimiento de suscripción Tribu-Box',
+    description: 'Se envía automáticamente al admin del gimnasio cuando su plan Tribu-Box está por vencer.',
+    subject: '⚠️ Tu suscripción Tribu-Box vence en {{dias}} días — {{gimnasio}}',
+    body: 'Hola {{gimnasio}},\n\nTu suscripción al plan {{plan}} vence el {{fecha}}.\n\nRenueva para seguir usando Tribu-Box sin interrupciones.\n\nSaludos,\nEl equipo de Tribu-Box',
     placeholders: ['{{gimnasio}}', '{{plan}}', '{{dias}}', '{{fecha}}'],
     isSystem: true,
   },
@@ -18,7 +18,7 @@ const SYSTEM_TEMPLATES = [
     slug: 'promo',
     name: 'Correo promocional / Anuncio',
     description: 'Plantilla base para envíos manuales a todos los gimnasios activos.',
-    subject: '🚀 Novedad en FitApp para {{gimnasio}}',
+    subject: '🚀 Novedad en Tribu-Box para {{gimnasio}}',
     body: 'Hola {{gimnasio}},\n\nTenemos una novedad para ti...',
     placeholders: ['{{gimnasio}}', '{{nombre}}'],
     isSystem: true,

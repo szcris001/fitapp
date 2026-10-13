@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { prisma } from '../../lib/prisma'
 import { redis } from '../../lib/redis'
 import { RegisterInput, LoginInput } from './auth.schema'
-import { sendEmail, buildFrom, escapeHtml } from '../../lib/email'
+import { sendEmail, buildFrom, escapeHtml, wrapInLayout, getPlatformLogoUrl } from '../../lib/email'
 
 const REFRESH_TOKEN_EXPIRES_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? '7', 10)
 
@@ -223,43 +223,31 @@ export async function forgotPassword(email: string, gymSlug?: string) {
 
   const gym = user._gym
   const gymNameRaw = gym?.name || 'Tribu-Box'
-  const gymName = escapeHtml(gymNameRaw)
   const userName = escapeHtml(user.name)
+  const logoUrl = await getPlatformLogoUrl()
+
+  const html = wrapInLayout(
+    gymNameRaw, '#6366f1', '🔑', 'Recuperar contraseña',
+    `<p style="color:#374151;font-size:15px;margin:0 0 8px;">Hola <strong>${userName}</strong>,</p>
+    <p style="color:#6b7280;font-size:14px;margin:0 0 28px;line-height:1.6;">
+      Recibimos una solicitud para restablecer tu contraseña en <strong>${escapeHtml(gymNameRaw)}</strong>.
+      Este link es válido por <strong>1 hora</strong>.
+    </p>
+    <a href="${resetUrl}"
+      style="display:block;text-align:center;background:#6366f1;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 24px;border-radius:12px;">
+      Restablecer contraseña →
+    </a>
+    <p style="color:#9ca3af;font-size:12px;margin:20px 0 0;text-align:center;">
+      Si no solicitaste esto, ignora este correo. Tu contraseña no cambiará.
+    </p>`,
+    logoUrl,
+  )
 
   await sendEmail({
     from: buildFrom(gymNameRaw),
     to: email,
     subject: `🔑 Recuperar contraseña — ${gymNameRaw}`,
-    html: `
-<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-    <div style="background:#6366f1;padding:32px 40px;text-align:center;">
-      <p style="margin:0;font-size:36px;">🔑</p>
-      <h1 style="margin:12px 0 0;color:#fff;font-size:22px;font-weight:700;">Recuperar contraseña</h1>
-    </div>
-    <div style="padding:32px 40px;">
-      <p style="color:#374151;font-size:15px;margin:0 0 8px;">Hola <strong>${userName}</strong>,</p>
-      <p style="color:#6b7280;font-size:14px;margin:0 0 28px;line-height:1.6;">
-        Recibimos una solicitud para restablecer tu contraseña en <strong>${gymName}</strong>.
-        Este link es válido por <strong>1 hora</strong>.
-      </p>
-      <a href="${resetUrl}"
-        style="display:block;text-align:center;background:#6366f1;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 24px;border-radius:12px;">
-        Restablecer contraseña →
-      </a>
-      <p style="color:#9ca3af;font-size:12px;margin:20px 0 0;text-align:center;">
-        Si no solicitaste esto, ignora este correo. Tu contraseña no cambiará.
-      </p>
-    </div>
-    <div style="background:#f9fafb;padding:16px 40px;border-top:1px solid #f3f4f6;text-align:center;">
-      <p style="color:#d1d5db;font-size:12px;margin:0;">${gymName} · Powered by Tribu-Box</p>
-    </div>
-  </div>
-</body>
-</html>`,
+    html,
   })
 }
 

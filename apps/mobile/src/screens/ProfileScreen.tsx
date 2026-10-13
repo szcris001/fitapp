@@ -500,7 +500,7 @@ export default function ProfileScreen({ navigation }: any) {
             style={[styles.settingRow, { borderBottomWidth: 1, borderBottomColor: c.border }]}
             onPress={() => Alert.alert(
               'Política de Privacidad',
-              'Puedes consultar nuestra Política de Privacidad en:\nhttps://fitapp.tudominio.com/privacy\n\nRecopilamos nombre, email, datos de membresía y registros de entrenamiento para operar el servicio.',
+              'Puedes consultar nuestra Política de Privacidad en:\nhttps://tribu-box.cl/privacy\n\nRecopilamos nombre, email, datos de membresía y registros de entrenamiento para operar el servicio.',
               [{ text: 'Entendido' }]
             )}
             activeOpacity={0.7}

@@ -17,13 +17,15 @@ import bcrypt from 'bcryptjs'
 // (Ethereal) en CI y poder verificar a quién/con qué remitente se llamó. vi.mock()
 // se eleva antes de cualquier const, así que los vi.fn() se crean con vi.hoisted().
 const { sendEmail, buildFrom } = vi.hoisted(() => ({
-  sendEmail: vi.fn(async () => ({ ethereal: false })),
+  sendEmail: vi.fn(async (_params: { from: string; to: string; subject: string; html: string }) => ({ ethereal: false })),
   buildFrom: vi.fn((name: string) => `${name} <noreply@test.local>`),
 }))
 vi.mock('../../../lib/email', () => ({
   sendEmail,
   buildFrom,
   escapeHtml: (v: string) => v,
+  wrapInLayout: (...args: unknown[]) => String(args[4] ?? ''),
+  getPlatformLogoUrl: vi.fn().mockResolvedValue(null),
 }))
 
 import { authRoutes } from '../auth.routes'
