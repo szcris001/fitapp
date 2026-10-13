@@ -14,9 +14,16 @@ const smtpTimeouts = { connectionTimeout: SMTP_TIMEOUT_MS, greetingTimeout: SMTP
 // decisión de producto confirmada con Cristian 2026-10-12, un solo dominio para todos los
 // gyms. El nombre que ve el destinatario sigue siendo el del gym (buildFrom), solo la
 // dirección de envío es compartida.
-function buildFrom(displayName: string): string {
+export function buildFrom(displayName: string): string {
   const email = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
   return `${displayName} <${email}>`
+}
+
+// Logo de la plataforma (el mismo que el menú lateral del dashboard web), usado en los
+// correos que no son de un gym en particular (bienvenida, recuperar contraseña).
+export async function getPlatformLogoUrl(): Promise<string | null> {
+  const asset = await prisma.platformAsset.findUnique({ where: { key: 'platform_logo' } })
+  return asset?.url ?? null
 }
 
 /**
@@ -24,7 +31,7 @@ function buildFrom(displayName: string): string {
  * Sin esa variable (dev local), cae a una cuenta de prueba Ethereal — mismo
  * comportamiento que tenía el fallback de SMTP antes de esta migración.
  */
-async function sendEmail(params: { from: string; to: string; subject: string; html: string }): Promise<{ ethereal: boolean; previewUrl?: string }> {
+export async function sendEmail(params: { from: string; to: string; subject: string; html: string }): Promise<{ ethereal: boolean; previewUrl?: string }> {
   const apiKey = process.env.RESEND_API_KEY
   if (apiKey) {
     const res = await fetch('https://api.resend.com/emails', {
@@ -64,7 +71,7 @@ function replacePlaceholders(template: string, vars: Record<string, string>): st
 // de un envío masivo usando la plantilla "oficial" del gym (QA comunicaciones, 2026-10-07).
 // Solo para texto que se inserta en el BODY del HTML — el asunto del correo no es HTML,
 // no hay que escaparlo (se vería "&amp;" literal).
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -80,7 +87,7 @@ function escapeVars(vars: Record<string, string>): Record<string, string> {
 // gymName y headerTitle se escapan acá, una sola vez — son los dos parámetros que todos
 // los callers arman con texto de usuario (nombre del gym, a veces mezclado con texto fijo
 // propio); `body` NO se escapa acá, cada caller ya lo arma pre-escapado donde corresponde.
-function wrapInLayout(gymNameRaw: string, headerColor: string, headerEmoji: string, headerTitleRaw: string, body: string, logoUrl?: string | null): string {
+export function wrapInLayout(gymNameRaw: string, headerColor: string, headerEmoji: string, headerTitleRaw: string, body: string, logoUrl?: string | null): string {
   const gymName = escapeHtml(gymNameRaw)
   const headerTitle = escapeHtml(headerTitleRaw)
   const apiBase = process.env.PUBLIC_API_URL || 'http://localhost:3001'
@@ -100,7 +107,7 @@ function wrapInLayout(gymNameRaw: string, headerColor: string, headerEmoji: stri
       ${body}
     </div>
     <div style="background:#f9fafb;padding:16px 40px;border-top:1px solid #f3f4f6;text-align:center;">
-      <p style="color:#d1d5db;font-size:12px;margin:0;">${gymName} · Powered by FitApp</p>
+      <p style="color:#d1d5db;font-size:12px;margin:0;">${gymName} · Powered by Tribu-Box</p>
     </div>
   </div>
 </body>
@@ -286,7 +293,7 @@ export async function sendBulkToGyms(options: {
     select: { id: true, name: true, ownerEmail: true },
   })
 
-  const from = buildFrom('FitApp')
+  const from = buildFrom('Tribu-Box')
 
   let sent = 0
   let failed = 0
@@ -360,13 +367,14 @@ export async function sendWelcomeEmail(data: {
 }) {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
   const loginUrl = `${frontendUrl}/login`
-  const from = buildFrom('FitApp')
+  const from = buildFrom('Tribu-Box')
+  const logoUrl = await getPlatformLogoUrl()
 
   const html = wrapInLayout(
-    'FitApp', '#6366f1', '🏋️', `¡Bienvenido a FitApp, ${data.gymName}!`,
+    'Tribu-Box', '#6366f1', '🤝', `¡Bienvenido a la comunidad, ${data.gymName}!`,
     `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${escapeHtml(data.adminName)}</strong>,</p>
     <p style="color:#6b7280;font-size:15px;margin:0 0 24px;line-height:1.6;">
-      Tu cuenta de administrador para <strong>${escapeHtml(data.gymName)}</strong> ha sido creada. Usa las siguientes credenciales para ingresar por primera vez:
+      <strong>${escapeHtml(data.gymName)}</strong> ya es parte de Tribu-Box. Tu cuenta de administrador está lista — usa estas credenciales para ingresar por primera vez y empezar a armar tu comunidad:
     </p>
     <div style="background:#f3f4f6;border-radius:12px;padding:20px;margin-bottom:24px;">
       <div style="margin-bottom:12px;">
@@ -385,14 +393,15 @@ export async function sendWelcomeEmail(data: {
     <p style="color:#ef4444;font-size:13px;margin:0 0 24px;">⚠️ Se te pedirá cambiar esta contraseña al iniciar sesión por primera vez.</p>
     <a href="${loginUrl}"
       style="display:block;text-align:center;background:#6366f1;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 24px;border-radius:12px;">
-      Ingresar a FitApp →
+      Ingresar a Tribu-Box →
     </a>`,
+    logoUrl,
   )
 
   const { ethereal, previewUrl } = await sendEmail({
     from,
     to: data.adminEmail,
-    subject: `🏋️ Bienvenido a FitApp — ${data.gymName}`,
+    subject: `🤝 Bienvenido a Tribu-Box — ${data.gymName}`,
     html,
   })
 
@@ -410,7 +419,7 @@ export async function sendTestEmail(gymId: string): Promise<{ success: boolean; 
   })
   if (!gym) throw new Error('Gimnasio no encontrado')
 
-  const to = gym.email || 'test@fitapp.cl'
+  const to = gym.email || 'test@tribu-box.cl'
   const from = buildFrom(gym.name)
 
   const { ethereal, previewUrl } = await sendEmail({
@@ -420,7 +429,7 @@ export async function sendTestEmail(gymId: string): Promise<{ success: boolean; 
     html: wrapInLayout(
       gym.name, '#6366f1', '✉️', 'Prueba de correo exitosa',
       `<p style="color:#374151;font-size:16px;margin:0 0 16px;">La configuración de correo de <strong>${escapeHtml(gym.name)}</strong> está funcionando correctamente.</p>
-      <p style="color:#6b7280;font-size:14px;margin:0;">Este es un correo de prueba enviado desde FitApp.</p>`,
+      <p style="color:#6b7280;font-size:14px;margin:0;">Este es un correo de prueba enviado desde Tribu-Box.</p>`,
       gym.logoUrl,
     ),
   })

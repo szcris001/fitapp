@@ -399,7 +399,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   <div className="min-w-0 flex-1 text-left">
                     <p className="font-semibold text-sm leading-tight truncate" style={{ color: 'var(--text-1)' }}>
-                      {gym?.name || 'FitApp'}
+                      {gym?.name || 'Tribu-Box'}
                     </p>
                     <p className="text-xs mt-0.5 truncate flex items-center gap-1" style={{ color: 'var(--brand-accent)' }}>
                       <Building2 className="w-3 h-3 inline" />
@@ -412,7 +412,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               ) : (
                 <div className="cursor-pointer" onClick={() => router.push('/dashboard')}>
                   <p className="font-semibold text-sm leading-tight truncate" style={{ color: 'var(--text-1)' }}>
-                    {gym?.name || 'FitApp'}
+                    {gym?.name || 'Tribu-Box'}
                   </p>
                   <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-4)' }}>
                     {isCoach ? 'Coach' : 'Administrador'}
@@ -807,7 +807,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           const bgColor = isSuspended ? '#ef4444' : daysLeft <= 5 ? '#f59e0b' : '#6366f1'
           const msg = isSuspended
-            ? 'Tu suscripción ha vencido. Renueva para continuar usando FitApp.'
+            ? 'Tu suscripción ha vencido. Renueva para continuar usando Tribu-Box.'
             : `Período de prueba: ${daysLeft} día${daysLeft !== 1 ? 's' : ''} restante${daysLeft !== 1 ? 's' : ''}.`
 
           return (

@@ -42,7 +42,7 @@ function ResetPasswordForm() {
             style={{ backgroundColor: 'var(--brand-primary)' }}>
             <Dumbbell className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">FitApp</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Tribu-Box</h1>
           <p className="text-slate-500 text-sm mt-1">Nueva contraseña</p>
         </div>
 

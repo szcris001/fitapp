@@ -18,7 +18,7 @@ const sora = Sora({
 })
 
 export const metadata: Metadata = {
-  title: 'FitApp — Panel de administración',
+  title: 'Tribu-Box — Panel de administración',
   description: 'Sistema de gestión para centros deportivos',
 }
 

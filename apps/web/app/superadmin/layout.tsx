@@ -121,7 +121,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
               style={{ backgroundColor: '#7c3aed' }}>
               <Shield className="w-4 h-4 text-white" />
             </div>
-            <span className="font-semibold text-sm text-white">FitApp</span>
+            <span className="font-semibold text-sm text-white">Tribu-Box</span>
             <span className="text-xs px-2 py-0.5 rounded-full font-medium"
               style={{ backgroundColor: '#2d1d5e', color: '#a78bfa', border: '1px solid #4c3999' }}>
               Super Admin

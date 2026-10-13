@@ -300,7 +300,7 @@ export default function SubscriptionsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Suscripciones y pagos</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Planes de FitApp, suscripciones de gimnasios y cobros</p>
+          <p className="text-slate-500 text-sm mt-0.5">Planes de Tribu-Box, suscripciones de gimnasios y cobros</p>
         </div>
       </div>
 

@@ -248,7 +248,7 @@ export default function LoginScreen() {
                   ) : (
                     <View style={s.logoText}>
                       <Text style={s.logoSymbol}>⚡</Text>
-                      <Text style={s.logoName}>FITAPP</Text>
+                      <Text style={s.logoName}>TRIBU-BOX</Text>
                     </View>
                   )}
                 </Animated.View>
