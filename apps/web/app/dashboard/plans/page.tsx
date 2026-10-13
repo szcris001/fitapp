@@ -9,9 +9,6 @@ import {
   Search, FlaskConical, Infinity, Calendar, Layers, RotateCcw,
 } from 'lucide-react'
 
-// Toda membresía dura 30 días (regla de negocio; la API ignora cualquier otra duración)
-const MEMBERSHIP_DAYS = 30
-
 const currencies = ['CLP', 'ARS', 'COP', 'MXN', 'PEN', 'BRL', 'USD']
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -34,6 +31,7 @@ type FormShape = {
   description: string
   priceCents: string
   currency: string
+  durationDays: string
   maxClasses: string
   isTrial: boolean
   autoRenewEnabled: boolean
@@ -42,7 +40,7 @@ type FormShape = {
 
 const emptyForm = (): FormShape => ({
   name: '', description: '', priceCents: '', currency: 'CLP',
-  maxClasses: '', isTrial: false,
+  durationDays: '30', maxClasses: '', isTrial: false,
   autoRenewEnabled: false, autoRenewDaysBefore: '3',
 })
 
@@ -184,7 +182,7 @@ function PlanCard({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}>
         <FeatureRow
           icon={<Calendar style={{ width: 14, height: 14 }} />}
-          text={`${MEMBERSHIP_DAYS} días de vigencia`}
+          text={`${plan.durationDays} días de vigencia`}
         />
         <FeatureRow
           icon={<Layers style={{ width: 14, height: 14 }} />}
@@ -268,6 +266,7 @@ function EditCard({
     // El formulario trabaja en la unidad que escribe la persona (pesos, dólares…)
     priceCents: String(toMajorUnits(plan.priceCents, plan.currency)),
     currency: plan.currency,
+    durationDays: String(plan.durationDays),
     maxClasses: plan.maxClasses != null ? String(plan.maxClasses) : '',
     isTrial: plan.isTrial ?? false,
     autoRenewEnabled: plan.autoRenewEnabled ?? false,
@@ -460,6 +459,20 @@ function PlanFormFields({
         </>
       )}
 
+      {/* Duración */}
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-3)', marginBottom: 6 }}>
+          Duración (días)
+        </label>
+        <input
+          type="number" min={1} max={730}
+          value={form.durationDays}
+          onChange={e => setForm(f => ({ ...f, durationDays: e.target.value }))}
+          placeholder="30"
+          className="input"
+        />
+      </div>
+
       {/* Max classes */}
       <div>
         <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-3)', marginBottom: 6 }}>
@@ -530,6 +543,7 @@ export default function PlansPage() {
         description: createForm.description || undefined,
         priceCents: createForm.isTrial ? 0 : toMinorUnits(Number(createForm.priceCents), createForm.currency),
         currency: createForm.currency,
+        durationDays: Number(createForm.durationDays) || undefined,
         maxClasses: createForm.maxClasses ? Number(createForm.maxClasses) : undefined,
         isTrial: createForm.isTrial,
         autoRenewEnabled: createForm.isTrial ? false : createForm.autoRenewEnabled,
@@ -555,6 +569,7 @@ export default function PlansPage() {
         description: form.description || undefined,
         priceCents: form.isTrial ? 0 : toMinorUnits(Number(form.priceCents), form.currency),
         currency: form.currency,
+        durationDays: Number(form.durationDays) || undefined,
         maxClasses: form.maxClasses ? Number(form.maxClasses) : null,
         isTrial: form.isTrial,
         autoRenewEnabled: form.isTrial ? false : form.autoRenewEnabled,

@@ -139,3 +139,54 @@ independientemente del navegador.
 **Objetivo 1 completo.** Siguiente: Objetivo 2 (usabilidad del alumno —
 reservar, ver WOD, registrar resultado, pagar) sobre los datos ya creados en
 `prueba4`.
+
+## Objetivo 2 — usabilidad del alumno
+
+> El alumno solo tiene acceso real a la **app móvil** — el panel web
+> desloguea automáticamente cualquier sesión con rol `MEMBER`. Probado
+> contra producción desde un emulador Android local (Expo Go), apuntando
+> `apps/mobile/src/lib/api.ts` a la API de producción (cambio solo local,
+> nunca se commitea).
+
+Login y navegación del alumno (`nadaje4255@copytosh.com`, gym `prueba4`)
+confirmados: home con "Pizarra del box" (WOD del día), listado de clases
+con filtro por tipo, detalle de clase con cupos.
+
+Intentar reservar sin membresía activa dio el error correcto y esperado
+("No tienes una membresía activa") — comportamiento ya existente, sin
+cambios. Se evaluó bloquear el login completo para un alumno sin membresía
+(encontrado al repro este caso), pero se descartó: rompía el flujo real de
+un alumno nuevo subiendo su comprobante de transferencia antes de que el
+admin confirme el pago (encontrado por el E2E `payments.spec.ts` en CI).
+Queda como estaba.
+
+### Feature — duración de membresía configurable por plan
+
+A pedido explícito de Cristian (4ta vez que se plantea el tema — ver
+memoria `project_plan_duration_backlog`, ya no aplica, el backlog se
+resolvió): `Plan.durationDays` ahora se respeta de verdad. Antes, toda
+membresía duraba 30 días fijos sin importar lo que dijera el plan
+(decisión de producto de 2026-06-13, confirmada 2 veces más, revertida
+hoy).
+
+**Hecho**:
+- `createPlanSchema`/`updatePlanSchema` aceptan `durationDays` (1-730,
+  default 30 al crear).
+- `nextMembershipPeriod()` (`lib/membership.ts`) recibe `durationDays`
+  como parámetro — ya no usa el constante `MEMBERSHIP_DAYS` fijo. Los 5
+  callers (activar membresía, renovar, pago manual, transferencia,
+  confirmar transferencia) pasan `plan.durationDays`.
+- Textos de descripción en los checkouts de pasarelas (Stripe, Mercado
+  Pago, Kushki, Flow, boletas/facturas) usan la duración real del plan.
+- Web (`/dashboard/plans`): nuevo campo "Duración (días)" en crear/editar
+  plan; la tarjeta del plan muestra la duración real en vez de "30 días"
+  fijo para todos.
+
+**Verificado**: tests de regresión en `plans.integration.test.ts` (crear
+con `durationDays` custom, default 30 si no se envía) y
+`activateMembership.integration.test.ts` (plan de 7 días → `endsAt` real
+de 7 días, no 30 — falla sin el fix, pasa con el fix). Suite completa de
+la API limpia salvo los 2 archivos del bug de DST preexistente (ver abajo).
+E2E de planes 13/13, E2E completo de web 99/100 (el único que falla,
+`USR-06`, confirmado que **ya fallaba en `master` sin este cambio** — ver
+`project_dst_membership_date_bug`, segundo hallazgo ahí).

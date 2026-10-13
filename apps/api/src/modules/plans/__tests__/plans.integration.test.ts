@@ -348,7 +348,11 @@ describe('Plans: POST /api/plans — crear plan', () => {
     createdPlanIds.push(res.json().id)
   })
 
-  it('durationDays enviado se ignora → el plan siempre dura 30 días', async () => {
+  // Hasta 2026-10-06, durationDays enviado se ignoraba (siempre forzado a 30) por decisión
+  // de producto — revertida 2026-10-13 a pedido explícito de Cristian (4ta vez que se
+  // planteó el tema; ver memoria project_plan_duration_backlog). Ahora cada plan respeta
+  // su propia duración.
+  it('durationDays enviado se respeta → el plan dura lo que indique, no 30 fijos', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/plans',
@@ -356,7 +360,7 @@ describe('Plans: POST /api/plans — crear plan', () => {
       payload: { name: 'Plan Trimestral QA', priceCents: 10000, durationDays: 90 },
     })
     expect(res.statusCode).toBe(201)
-    expect(res.json().durationDays).toBe(30)
+    expect(res.json().durationDays).toBe(90)
     createdPlanIds.push(res.json().id)
 
     const upd = await app.inject({
@@ -366,7 +370,19 @@ describe('Plans: POST /api/plans — crear plan', () => {
       payload: { durationDays: 365 },
     })
     expect(upd.statusCode).toBe(200)
-    expect(upd.json().durationDays).toBe(30)
+    expect(upd.json().durationDays).toBe(365)
+  })
+
+  it('durationDays no enviado al crear → default 30', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/plans',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'Plan Sin Duración Explícita QA', priceCents: 5000 },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().durationDays).toBe(30)
+    createdPlanIds.push(res.json().id)
   })
 
   it('admin crea plan válido → 201 con gymId del token', async () => {
@@ -878,12 +894,12 @@ describe('Plans: POST /api/memberships — assignMembership', () => {
     // Plan isTrial=true → status forzado a TRIAL, pricePaid=0
     expect(body.status).toBe('TRIAL')
     expect(body.pricePaid).toBe(0)
-    // endsAt = startsAt + 30 días — assignMembership fuerza siempre 30 días,
-    // sin importar el durationDays del plan (decisión 2026-06-13, ver STATE.md)
+    // endsAt = startsAt + durationDays del plan (7, no 30 — decisión revertida 2026-10-13,
+    // ver memoria project_plan_duration_backlog)
     const endsAt = new Date(body.endsAt)
     const start = new Date(body.startsAt)
     const diffDays = Math.round((endsAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-    expect(diffDays).toBe(30)
+    expect(diffDays).toBe(7)
 
     createdMembershipIds.push(body.id)
   })
