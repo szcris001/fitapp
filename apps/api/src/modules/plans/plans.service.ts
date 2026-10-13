@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput } from './plans.schema'
 import { handlePrismaError } from '../../lib/prismaError'
-import { MEMBERSHIP_DAYS, nextMembershipPeriod } from '../../lib/membership'
+import { nextMembershipPeriod } from '../../lib/membership'
 import { addLocalDays, getGymTimezone, startOfGymDay } from '../../lib/gym-day'
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
@@ -15,7 +15,7 @@ export async function listPlans(gymId: string, includeInactive = false) {
 
 export async function createPlan(gymId: string, data: CreatePlanInput) {
   try {
-    return await prisma.plan.create({ data: { ...data, durationDays: MEMBERSHIP_DAYS, gymId } })
+    return await prisma.plan.create({ data: { ...data, gymId } })
   } catch (err) {
     handlePrismaError(err)
   }
@@ -32,6 +32,7 @@ export async function updatePlan(gymId: string, planId: string, data: UpdatePlan
         ...(data.description !== undefined && { description: data.description }),
         ...(data.priceCents !== undefined && { priceCents: data.priceCents }),
         ...(data.currency !== undefined && { currency: data.currency }),
+        ...(data.durationDays !== undefined && { durationDays: data.durationDays }),
         ...(data.maxClasses !== undefined && { maxClasses: data.maxClasses }),
         ...(data.isTrial !== undefined && { isTrial: data.isTrial }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
@@ -69,11 +70,11 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
   if (DATE_ONLY.test(data.startsAt)) {
     const timezone = await getGymTimezone(gymId)
     startsAt = startOfGymDay(data.startsAt, timezone)
-    endsAt = startOfGymDay(addLocalDays(data.startsAt, MEMBERSHIP_DAYS), timezone)
+    endsAt = startOfGymDay(addLocalDays(data.startsAt, plan.durationDays), timezone)
   } else {
     startsAt = new Date(data.startsAt)
     endsAt = new Date(startsAt)
-    endsAt.setDate(endsAt.getDate() + MEMBERSHIP_DAYS)
+    endsAt.setDate(endsAt.getDate() + plan.durationDays)
   }
 
   await prisma.membership.updateMany({
@@ -117,7 +118,7 @@ export async function renewMembership(gymId: string, userId: string) {
   if (!lastMembership) throw new Error('No hay membresía previa para renovar')
 
   // Renovar antes del vencimiento no hace perder los días que quedaban
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId, lastMembership.plan.durationDays)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },

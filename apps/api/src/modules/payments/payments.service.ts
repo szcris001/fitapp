@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma'
 import * as mpClient from '../../lib/mp-client'
 import { emitirDTE, DteInput } from '../../lib/dte'
 import { sendPaymentConfirmation } from '../../lib/email'
-import { MEMBERSHIP_DAYS, nextMembershipPeriod } from '../../lib/membership'
+import { nextMembershipPeriod } from '../../lib/membership'
 import { toMajorUnits } from '../../lib/money'
 import { HttpError } from '../../lib/http-error'
 import { logger } from '../../lib/logger'
@@ -37,7 +37,7 @@ async function activateMembership(userId: string, planId: string, paymentMethod:
   const plan = await prisma.plan.findUnique({ where: { id: planId } })
   if (!plan) throw new Error('Plan no encontrado')
 
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId, plan.durationDays)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -160,7 +160,7 @@ export async function createCheckoutSession(gymId: string, planId: string, userI
     line_items: [{
       price_data: {
         currency: plan.currency.toLowerCase(),
-        product_data: { name: plan.name, description: `Membresía ${MEMBERSHIP_DAYS} días — ${plan.name}` },
+        product_data: { name: plan.name, description: `Membresía ${plan.durationDays} días — ${plan.name}` },
         unit_amount: plan.priceCents,
       },
       quantity: 1,
@@ -196,7 +196,7 @@ export async function createSelfCheckout(userId: string, planId: string, autoRen
     line_items: [{
       price_data: {
         currency: plan.currency.toLowerCase(),
-        product_data: { name: plan.name, description: `Membresía ${MEMBERSHIP_DAYS} días` },
+        product_data: { name: plan.name, description: `Membresía ${plan.durationDays} días` },
         unit_amount: plan.priceCents,
       },
       quantity: 1,
@@ -258,7 +258,7 @@ export async function handleStripeWebhook(payload: Buffer, signature: string) {
     const nextAutoRenewAt = wantsAutoRenew && plan.autoRenewDaysBefore
       ? (() => {
           const d = new Date()
-          d.setDate(d.getDate() + MEMBERSHIP_DAYS - plan.autoRenewDaysBefore)
+          d.setDate(d.getDate() + plan.durationDays - plan.autoRenewDaysBefore)
           return d
         })()
       : undefined
@@ -349,7 +349,7 @@ export async function createMercadoPagoCheckout(gymId: string, planId: string, u
     items: [{
       id: planId,
       title: plan.name,
-      description: `Membresía ${MEMBERSHIP_DAYS} días`,
+      description: `Membresía ${plan.durationDays} días`,
       quantity: 1,
       // CLP has no subunits — store value is already in the base currency unit
       unit_price: toMajorUnits(plan.priceCents, plan.currency),
@@ -765,7 +765,7 @@ export async function createKushkiCheckout(gymId: string, planId: string, userId
     cancelURL: `${process.env.FRONTEND_URL}/payment/cancelled`,
     callbackURL: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/callback/kushki`,
     userType: '0',
-    paymentDescription: `Membresía ${MEMBERSHIP_DAYS} días — ${plan.name}`,
+    paymentDescription: `Membresía ${plan.durationDays} días — ${plan.name}`,
   }
 
   const res = await fetch(`${baseUrl}/card/v1/charges`, {
@@ -936,7 +936,7 @@ export async function createMachCheckout(gymId: string, planId: string, userId: 
   const body = {
     amount: amountCLP,
     currency: 'CLP',
-    description: `${plan.name} — ${MEMBERSHIP_DAYS} días`,
+    description: `${plan.name} — ${plan.durationDays} días`,
     external_id: externalId,
     payer_email: user.email,
     callback_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/payments/webhook/mach`,
@@ -1060,7 +1060,7 @@ export async function registerManualPayment(
   const plan = await getPlan(planId, gymId)
   const gym = await getGym(gymId)
 
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId, plan.durationDays)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -1077,7 +1077,7 @@ export async function registerManualPayment(
       priceCents: plan.priceCents,
       currency: plan.currency,
       planName: plan.name,
-      planDays: MEMBERSHIP_DAYS,
+      planDays: plan.durationDays,
       receiverRut,
       receiverName,
       receiverEmail: user.email,
@@ -1165,7 +1165,7 @@ export async function submitTransferReceipt(gymId: string, userId: string, planI
 
   // La membresía vigente sigue activa mientras el admin revisa el comprobante: si se
   // rechaza, el alumno no pierde su plan. El período real se calcula al confirmar.
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId)
+  const { startsAt, endsAt } = await nextMembershipPeriod(userId, plan.durationDays)
 
   return prisma.membership.create({
     data: {
@@ -1205,7 +1205,7 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
   if (membership.transferStatus !== 'PENDING_REVIEW') throw new Error('Esta transferencia ya fue procesada')
 
   // Extiende desde la membresía vigente (si la hay) y la reemplaza, igual que los otros medios de pago
-  const { startsAt, endsAt } = await nextMembershipPeriod(membership.userId, { excludeId: membershipId })
+  const { startsAt, endsAt } = await nextMembershipPeriod(membership.userId, membership.plan.durationDays, { excludeId: membershipId })
   const [, updated] = await prisma.$transaction([
     prisma.membership.updateMany({
       where: { userId: membership.userId, id: { not: membershipId }, status: { in: ['ACTIVE', 'TRIAL'] } },

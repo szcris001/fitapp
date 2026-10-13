@@ -8,11 +8,16 @@ const PLAN_CURRENCIES = ['CLP', 'ARS', 'COP', 'MXN', 'PEN', 'BRL', 'USD'] as con
 // de un 400 de validación.
 const MAX_PRICE_CENTS = 2_000_000_000
 
+// Duración de membresía configurable por plan (decisión 2026-10-13, revierte la anterior
+// de 2026-06-13/2026-09-27/2026-10-06 de forzar 30 días fijos — ver memoria
+// project_plan_duration_backlog). Tope de 2 años: generoso para planes anuales, evita un
+// valor absurdo que rompa el cálculo de endsAt.
 export const createPlanSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().optional(),
   priceCents: z.number().int().min(0).max(MAX_PRICE_CENTS),
   currency: z.enum(PLAN_CURRENCIES).default('CLP'),
+  durationDays: z.number().int().min(1).max(730).default(30),
   maxClasses: z.number().int().positive().optional(),
   isTrial: z.boolean().default(false),
   // El modelo soporta autoRenewEnabled/autoRenewDaysBefore/autoRenewMaxRetries desde el
@@ -29,6 +34,7 @@ export const updatePlanSchema = z.object({
   description: z.string().optional(),
   priceCents: z.number().int().min(0).max(MAX_PRICE_CENTS).optional(),
   currency: z.enum(PLAN_CURRENCIES).optional(),
+  durationDays: z.number().int().min(1).max(730).optional(),
   maxClasses: z.number().int().positive().nullable().optional(),
   isTrial: z.boolean().optional(),
   // Reactivar un plan pausado (DELETE /plans/:id lo pausa; esto permite deshacerlo).

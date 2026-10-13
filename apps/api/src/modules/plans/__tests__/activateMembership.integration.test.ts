@@ -349,6 +349,27 @@ describe('activateMembership — primera membresía del usuario', () => {
     expect(activeCount).toBe(1)
   })
 
+  // Hasta 2026-10-06, todo plan duraba 30 días fijos sin importar su durationDays — revertido
+  // 2026-10-13 a pedido explícito de Cristian (ver memoria project_plan_duration_backlog).
+  // planTrialId (durationDays: 7) ya existía como fixture pero nunca se usaba en un test.
+  it('Caso 1b: plan con durationDays distinto a 30 (7 días) → endsAt respeta esa duración, no 30', async () => {
+    const before = new Date()
+    const result = await triggerActivate({ planId: planTrialId })
+
+    expect(result.membershipId).toBeDefined()
+    const membership = await prisma.membership.findUnique({ where: { id: result.membershipId } })
+    expect(membership).not.toBeNull()
+
+    const expectedEndsAt7d = new Date(before.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const diff7d = Math.abs(membership!.endsAt.getTime() - expectedEndsAt7d.getTime())
+    expect(diff7d).toBeLessThan(2000)
+
+    // Si el bug volviera (forzar 30 días), esto fallaría: la diferencia sería ~23 días
+    const expectedEndsAt30d = new Date(before.getTime() + 30 * 24 * 60 * 60 * 1000)
+    const diff30d = Math.abs(membership!.endsAt.getTime() - expectedEndsAt30d.getTime())
+    expect(diff30d).toBeGreaterThan(20 * 24 * 60 * 60 * 1000)
+  })
+
   it('Caso 2: pricePaid y currency son copiados del plan', async () => {
     const result = await triggerActivate()
     const membership = await prisma.membership.findUnique({
