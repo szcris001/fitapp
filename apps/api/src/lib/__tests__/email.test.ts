@@ -9,8 +9,8 @@
  *   - sendBulkEmail           (5 tests, incluye escape de HTML en body y nombre de alumno)
  *   - sendWelcomeEmail        (3 tests)
  *   - sendTestEmail           (3 tests)
- *   - sendBulkToGyms          (2 tests)
- *   Total: 26 tests
+ *   - sendBulkToGyms          (3 tests)
+ *   Total: 27 tests
  *
  * Estrategia de mocking:
  *   - nodemailer se mockea completamente con vi.mock(). El factory crea vi.fn()
@@ -18,6 +18,10 @@
  *   - En cada beforeEach se crea un nuevo currentSendMail (vi.fn()) y se configura
  *     createTransport para devolver { sendMail: currentSendMail }. Así cada test
  *     parte de un sendMail limpio sin contaminar otros tests.
+ *   - Sin RESEND_API_KEY en el entorno (se borra en beforeEach), sendEmail() cae al
+ *     fallback de Ethereal/nodemailer — por eso la mayoría de los tests no tocan fetch.
+ *     Los tests que sí fijan RESEND_API_KEY mockean `fetch` global con vi.stubGlobal()
+ *     (se limpia con vi.unstubAllGlobals() en afterEach).
  *   - vi.restoreAllMocks() en afterEach restaura los vi.spyOn (prisma) pero NO
  *     afecta a vi.mock() — los mocks de módulo son fijos por proceso.
  *   - prisma.gym.findUnique y findMany se mockean con vi.spyOn() para controlar
@@ -68,11 +72,6 @@ const BASE_GYM = {
   name: 'QA Gym Email',
   logoUrl: null,
   email: 'gym@qa.com',
-  smtpHost: null,
-  smtpPort: null,
-  smtpUser: null,
-  smtpPass: null,
-  smtpFrom: null,
   emailExpirySubject: null,
   emailExpiryBody: null,
   emailPaymentSubject: null,
@@ -128,17 +127,16 @@ beforeEach(() => {
 
   // Mock prisma (vi.spyOn es restaurable via vi.restoreAllMocks en afterEach)
   gymFindUniqueSpy = vi.spyOn(prisma.gym, 'findUnique').mockResolvedValue(BASE_GYM as any)
-  vi.spyOn(prisma.platformSettings, 'findUnique').mockResolvedValue(null)
 
-  // Sin SMTP de entorno → fuerza path Ethereal en getTransporter()
-  delete process.env.SMTP_USER
-  delete process.env.SMTP_PASS
-  delete process.env.SMTP_HOST
+  // Sin RESEND_API_KEY → fuerza el path de fallback Ethereal en sendEmail()
+  delete process.env.RESEND_API_KEY
+  delete process.env.RESEND_FROM_EMAIL
 })
 
 afterEach(() => {
   // Restaura vi.spyOn (prisma). vi.mock() no se ve afectado.
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -425,22 +423,25 @@ describe('sendTestEmail', () => {
     expect(callArgs.to).toBe('contacto@migym.com')
   })
 
-  it('con SMTP real configurado, createTransport también lleva timeouts cortos', async () => {
-    gymFindUniqueSpy.mockResolvedValue({
-      ...BASE_GYM,
-      smtpHost: 'smtp.unreachable-mailserver.test',
-      smtpUser: 'gym@unreachable-mailserver.test',
-      smtpPass: 'secret',
-    } as any)
+  it('con RESEND_API_KEY configurado → llama a la API de Resend en vez de Ethereal', async () => {
+    process.env.RESEND_API_KEY = 're_test_123'
+    process.env.RESEND_FROM_EMAIL = 'notificaciones@tribu-box.cl'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any)
+    vi.stubGlobal('fetch', fetchMock)
 
-    await sendTestEmail('gym-id-1')
+    const result = await sendTestEmail('gym-id-1')
 
     expect(nodemailer.createTestAccount).not.toHaveBeenCalled()
-    const transportOptions = vi.mocked(nodemailer.createTransport).mock.calls[0][0] as any
-    expect(transportOptions.host).toBe('smtp.unreachable-mailserver.test')
-    expect(transportOptions.connectionTimeout).toBeLessThanOrEqual(10_000)
-    expect(transportOptions.greetingTimeout).toBeLessThanOrEqual(10_000)
-    expect(transportOptions.socketTimeout).toBeLessThanOrEqual(10_000)
+    expect(nodemailer.createTransport).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://api.resend.com/emails')
+    expect(init.headers.Authorization).toBe('Bearer re_test_123')
+    const body = JSON.parse(init.body)
+    expect(body.to).toBe(BASE_GYM.email)
+    expect(body.from).toContain('notificaciones@tribu-box.cl')
+    expect(result.success).toBe(true)
+    expect(result.previewUrl).toBeUndefined()
   })
 })
 
@@ -454,8 +455,7 @@ describe('sendBulkToGyms', () => {
     body: 'Hola {{nombre}}, hay novedades en FitApp.',
   }
 
-  it('sin SMTP configurado (sin env vars) → retorna { sent: 0, failed: N, errors: ["SMTP no configurado"] }', async () => {
-    // Sin SMTP_USER/SMTP_PASS (limpiados en beforeEach) y platformSettings devuelve null
+  it('sin RESEND_API_KEY → cae a Ethereal y envía igual a cada gym', async () => {
     vi.spyOn(prisma.gym, 'findMany').mockResolvedValue([
       { id: 'g1', name: 'Gym Alpha', ownerEmail: 'owner@alpha.com' } as any,
       { id: 'g2', name: 'Gym Beta', ownerEmail: 'owner@beta.com' } as any,
@@ -463,16 +463,15 @@ describe('sendBulkToGyms', () => {
 
     const result = await sendBulkToGyms(bulkGymsOptions)
 
-    expect(result.sent).toBe(0)
-    expect(result.failed).toBe(2)
-    expect(result.errors).toContain('SMTP no configurado')
-    expect(currentSendMail).not.toHaveBeenCalled()
+    expect(result.sent).toBe(2)
+    expect(result.failed).toBe(0)
+    expect(currentSendMail).toHaveBeenCalledTimes(2)
   })
 
-  it('con SMTP en env vars → crea transporter y envía a ownerEmail de cada gym', async () => {
-    process.env.SMTP_USER = 'platform@fitapp.cl'
-    process.env.SMTP_PASS = 'platform-secret'
-    process.env.SMTP_HOST = 'smtp.example.com'
+  it('con RESEND_API_KEY configurado → llama a la API de Resend para cada gym', async () => {
+    process.env.RESEND_API_KEY = 're_test_123'
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any)
+    vi.stubGlobal('fetch', fetchMock)
 
     vi.spyOn(prisma.gym, 'findMany').mockResolvedValue([
       { id: 'g1', name: 'Gym Alpha', ownerEmail: 'owner@alpha.com' } as any,
@@ -484,18 +483,29 @@ describe('sendBulkToGyms', () => {
     expect(result.sent).toBe(2)
     expect(result.failed).toBe(0)
     expect(result.errors).toHaveLength(0)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(currentSendMail).not.toHaveBeenCalled()
 
-    // sendBulkToGyms reimporta nodemailer dinámicamente y llama createTransport
-    expect(nodemailer.createTransport).toHaveBeenCalledOnce()
-    expect(currentSendMail).toHaveBeenCalledTimes(2)
+    const [, init1] = fetchMock.mock.calls[0]
+    expect(JSON.parse(init1.body).subject).toBe('Anuncio para Gym Alpha')
+  })
 
-    const [call1, call2] = currentSendMail.mock.calls
-    expect(call1[0].subject).toBe('Anuncio para Gym Alpha')
-    expect(call2[0].subject).toBe('Anuncio para Gym Beta')
+  it('con RESEND_API_KEY, Resend rechaza un envío → ese gym cuenta como failed con el error', async () => {
+    process.env.RESEND_API_KEY = 're_test_123'
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 422, statusText: 'Unprocessable', text: async () => '{"message":"Invalid to"}' } as any)
+      .mockResolvedValueOnce({ ok: true, status: 200 } as any)
+    vi.stubGlobal('fetch', fetchMock)
 
-    // Cleanup
-    delete process.env.SMTP_USER
-    delete process.env.SMTP_PASS
-    delete process.env.SMTP_HOST
+    vi.spyOn(prisma.gym, 'findMany').mockResolvedValue([
+      { id: 'g1', name: 'Gym Alpha', ownerEmail: 'owner@alpha.com' } as any,
+      { id: 'g2', name: 'Gym Beta', ownerEmail: 'owner@beta.com' } as any,
+    ])
+
+    const result = await sendBulkToGyms(bulkGymsOptions)
+
+    expect(result.sent).toBe(1)
+    expect(result.failed).toBe(1)
+    expect(result.errors[0]).toContain('Gym Alpha')
   })
 })

@@ -47,22 +47,46 @@ Test de regresión en `superadmin.integration.test.ts` (`DELETE
 /api/superadmin/gyms/:id (soft delete)`): soft-delete → crear un gym nuevo
 con el mismo slug → 201, y el gym viejo queda con el slug renombrado.
 
-## Hallazgo H-PROD-EMAIL-01 — ningún email sale desde producción — **en investigación**
+## Hallazgo H-PROD-EMAIL-01 — ningún email sale desde producción — **migrado a Resend, pendiente verificación del dominio**
 
 Al crear el gym, el correo de bienvenida falló con `Connection timeout`.
-`/superadmin/config` → SMTP de plataforma está vacío, así que el código cae
+`/superadmin/config` → SMTP de plataforma está vacío, así que el código caía
 al fallback de Ethereal (`smtp.ethereal.email:587`), que normalmente conecta
-sin problema. Que **incluso ese fallback** diera timeout sugiere que Railway
-bloquea conexiones salientes por el puerto SMTP (587), no un bug de lógica —
-común en varios PaaS por antispam. Si se confirma, **ningún correo real sale
-de producción hoy**: bienvenida, comunicaciones masivas, confirmación de
-pago, recuperar contraseña.
+sin problema. Que **incluso ese fallback** diera timeout era la pista.
 
-Pendiente: confirmar con una prueba de conectividad real desde el contenedor
-de Railway. Si se confirma el bloqueo, la solución de fondo no es un fix de
-código sino una decisión de producto/infra: migrar el envío de email a un
-proveedor por API HTTP (Resend, SendGrid, Postmark, etc. — no usan el puerto
-SMTP) en vez de SMTP crudo, o pedirle a Railway que desbloquee el puerto.
+**Causa confirmada** (no una suposición): la [documentación oficial de
+Railway](https://docs.railway.com/networking/outbound-networking) dice
+textualmente que SMTP solo está disponible desde el plan Pro — los planes
+Free/Trial/Hobby **tienen SMTP saliente deshabilitado a propósito**
+(antispam), sin excepción de host de destino. El proyecto `patient-serenity`
+está en plan Hobby. Por eso fallaba hasta el fallback a Ethereal: ambos son
+SMTP.
+
+**Decisión de producto** (confirmada con Cristian 2026-10-12): migrar el
+envío a la API HTTPS de Resend (recomendado por la propia Railway) en vez de
+subir a Railway Pro. Esto implica dejar de soportar SMTP propio por gym —
+Resend verifica un dominio por cuenta, no credenciales arbitrarias por
+tenant. Dominio elegido: `tribu-box.cl` (comprado en NIC.cl para este fin).
+
+**Hecho**:
+- `apps/api/src/lib/email.ts` reescrito: `sendEmail()` usa la API HTTPS de
+  Resend (`RESEND_API_KEY`) cuando está configurada; sin esa variable (dev
+  local) cae al fallback de Ethereal de siempre — mismo comportamiento que
+  antes, sin necesidad de cuenta de Resend para desarrollar localmente.
+  `buildFrom()` sigue poniendo el nombre del gym como display name del
+  remitente; solo la dirección de envío (`RESEND_FROM_EMAIL`) es compartida
+  entre todos los gyms.
+- Campos `gym.smtpHost/smtpUser/smtpPass/smtpFrom` y la config SMTP de
+  plataforma quedan sin uso (no se borró el schema ni la UI de
+  `/superadmin/config` — limpieza pendiente, no bloqueante).
+- Tests actualizados en `email.test.ts` (27 tests, mock de `fetch` para los
+  casos con `RESEND_API_KEY`).
+
+**Pendiente** (lo hace Cristian con un wizard, fuera del repo): crear cuenta
+en Resend, verificar el dominio `tribu-box.cl` (registros DNS en NIC.cl), y
+cargar `RESEND_API_KEY`/`RESEND_FROM_EMAIL` en Railway (servicio `api`,
+production y staging). Hasta que eso termine, producción sigue cayendo al
+fallback de Ethereal (no falla, pero tampoco manda correos reales).
 
 ## Pendiente del Objetivo 1
 
