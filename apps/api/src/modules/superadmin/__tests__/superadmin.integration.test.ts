@@ -688,6 +688,38 @@ describe('Superadmin: DELETE /api/superadmin/gyms/:id (soft delete)', () => {
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/ya está eliminado/i)
   })
+
+  // H-SUPERADMIN-02 (QA producción, 2026-10-12): `slug` es @unique a nivel de
+  // columna sin importar `deletedAt`, así que crear un gym nuevo reusando el
+  // slug de uno recién eliminado fallaba con un 400 genérico de Prisma ("Un
+  // valor ya está registrado en el sistema") en vez de funcionar, como sí deja
+  // el chequeo en código (`deletedAt: null`) que da a entender que se permite.
+  it('crear un gym nuevo con el slug de uno eliminado → 201, libera el slug viejo', async () => {
+    // qa-sa-delete-target (targetGymId) ya está soft-deleted en este punto
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/superadmin/gyms',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        gymName: 'QA SA Reusa Slug',
+        gymSlug: 'qa-sa-delete-target',
+        adminName: 'Admin Reusa Slug',
+        adminEmail: 'qa-sa-reusa-slug-admin@test.local',
+        adminPassword: 'password123',
+      },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    expect(body.gym.slug).toBe('qa-sa-delete-target')
+    expect(body.gym.id).not.toBe(targetGymId)
+    createdGymIds.push(body.gym.id)
+
+    // El gym viejo sigue existiendo (soft-deleted) pero con el slug liberado
+    const oldGym = await prisma.gym.findUnique({ where: { id: targetGymId } })
+    expect(oldGym!.slug).not.toBe('qa-sa-delete-target')
+    expect(oldGym!.slug).toMatch(/^qa-sa-delete-target-eliminado-\d+$/)
+    expect(oldGym!.deletedAt).not.toBeNull()
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
