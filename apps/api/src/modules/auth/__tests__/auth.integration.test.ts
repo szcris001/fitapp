@@ -7,10 +7,25 @@
  * Limpia sus propios datos con IDs conocidos al finalizar.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import Fastify, { FastifyInstance } from 'fastify'
 import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
+
+// forgotPassword() de auth.service.ts manda el correo vía lib/email.ts (migrado de
+// SMTP a Resend, QA producción 2026-10-13) — se mockea para no depender de red real
+// (Ethereal) en CI y poder verificar a quién/con qué remitente se llamó. vi.mock()
+// se eleva antes de cualquier const, así que los vi.fn() se crean con vi.hoisted().
+const { sendEmail, buildFrom } = vi.hoisted(() => ({
+  sendEmail: vi.fn(async () => ({ ethereal: false })),
+  buildFrom: vi.fn((name: string) => `${name} <noreply@test.local>`),
+}))
+vi.mock('../../../lib/email', () => ({
+  sendEmail,
+  buildFrom,
+  escapeHtml: (v: string) => v,
+}))
+
 import { authRoutes } from '../auth.routes'
 import { prisma } from '../../../lib/prisma'
 import { registerTenantContext } from '../../../lib/tenant-hook'
@@ -660,5 +675,26 @@ describe('Auth Integration — /auth/login ignora un JWT ajeno en el header', ()
       payload: { email: TEST_ADMIN_EMAIL, gymSlug: TEST_GYM_SLUG },
     })
     expect(response.statusCode).toBe(200)
+  })
+
+  // Hasta 2026-10-13, forgotPassword() tenía su propio SMTP duplicado (no pasaba por
+  // lib/email.ts) y en producción fallaba en silencio: Railway bloquea SMTP saliente
+  // en el plan Hobby, igual que el resto del envío de correo (H-PROD-EMAIL-01). Este
+  // test confirma que ahora sí llama a sendEmail() (vía Resend) para un usuario real.
+  it('POST /auth/forgot-password con un usuario real → llama a sendEmail con el gym correcto', async () => {
+    sendEmail.mockClear()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/forgot-password',
+      payload: { email: TEST_ADMIN_EMAIL, gymSlug: TEST_GYM_SLUG },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(sendEmail).toHaveBeenCalledOnce()
+    const callArgs = sendEmail.mock.calls[0][0]
+    expect(callArgs.to).toBe(TEST_ADMIN_EMAIL)
+    expect(callArgs.subject).toContain(TEST_GYM_NAME)
+    expect(callArgs.html).toContain(TEST_GYM_NAME)
   })
 })

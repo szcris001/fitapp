@@ -1,10 +1,9 @@
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
-import nodemailer from 'nodemailer'
 import { prisma } from '../../lib/prisma'
 import { redis } from '../../lib/redis'
 import { RegisterInput, LoginInput } from './auth.schema'
-import { logger } from '../../lib/logger'
+import { sendEmail, buildFrom, escapeHtml } from '../../lib/email'
 
 const REFRESH_TOKEN_EXPIRES_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? '7', 10)
 
@@ -196,7 +195,7 @@ export async function forgotPassword(email: string, gymSlug?: string) {
   } else {
     const gym = await prisma.gym.findUnique({
       where: { slug: gymSlug },
-      select: { id: true, name: true, smtpHost: true, smtpPort: true, smtpUser: true, smtpPass: true, smtpFrom: true },
+      select: { id: true, name: true },
     })
     if (gym) {
       user = await prisma.user.findFirst({ where: { email, gymId: gym.id } })
@@ -222,31 +221,15 @@ export async function forgotPassword(email: string, gymSlug?: string) {
 
   const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`
 
-  // Build transporter — gym SMTP or system SMTP
   const gym = user._gym
-  const host = gym?.smtpHost || process.env.SMTP_HOST
-  const port = gym?.smtpPort || Number(process.env.SMTP_PORT) || 587
-  const smtpUser = gym?.smtpUser || process.env.SMTP_USER
-  const smtpPass = gym?.smtpPass || process.env.SMTP_PASS
-  const from = gym?.smtpFrom || process.env.SMTP_FROM || 'FitApp <noreply@fitapp.cl>'
-  const gymName = gym?.name || 'FitApp'
+  const gymNameRaw = gym?.name || 'Tribu-Box'
+  const gymName = escapeHtml(gymNameRaw)
+  const userName = escapeHtml(user.name)
 
-  if (!smtpUser || !smtpPass) {
-    logger.warn('[Auth] SMTP no configurado, no se puede enviar correo de recuperación')
-    return
-  }
-
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user: smtpUser, pass: smtpPass },
-  })
-
-  await transporter.sendMail({
-    from,
+  await sendEmail({
+    from: buildFrom(gymNameRaw),
     to: email,
-    subject: `🔑 Recuperar contraseña — ${gymName}`,
+    subject: `🔑 Recuperar contraseña — ${gymNameRaw}`,
     html: `
 <!DOCTYPE html>
 <html lang="es">
@@ -258,7 +241,7 @@ export async function forgotPassword(email: string, gymSlug?: string) {
       <h1 style="margin:12px 0 0;color:#fff;font-size:22px;font-weight:700;">Recuperar contraseña</h1>
     </div>
     <div style="padding:32px 40px;">
-      <p style="color:#374151;font-size:15px;margin:0 0 8px;">Hola <strong>${user.name}</strong>,</p>
+      <p style="color:#374151;font-size:15px;margin:0 0 8px;">Hola <strong>${userName}</strong>,</p>
       <p style="color:#6b7280;font-size:14px;margin:0 0 28px;line-height:1.6;">
         Recibimos una solicitud para restablecer tu contraseña en <strong>${gymName}</strong>.
         Este link es válido por <strong>1 hora</strong>.
@@ -272,7 +255,7 @@ export async function forgotPassword(email: string, gymSlug?: string) {
       </p>
     </div>
     <div style="background:#f9fafb;padding:16px 40px;border-top:1px solid #f3f4f6;text-align:center;">
-      <p style="color:#d1d5db;font-size:12px;margin:0;">${gymName} · Powered by FitApp</p>
+      <p style="color:#d1d5db;font-size:12px;margin:0;">${gymName} · Powered by Tribu-Box</p>
     </div>
   </div>
 </body>

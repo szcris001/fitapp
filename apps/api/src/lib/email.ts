@@ -14,7 +14,7 @@ const smtpTimeouts = { connectionTimeout: SMTP_TIMEOUT_MS, greetingTimeout: SMTP
 // decisión de producto confirmada con Cristian 2026-10-12, un solo dominio para todos los
 // gyms. El nombre que ve el destinatario sigue siendo el del gym (buildFrom), solo la
 // dirección de envío es compartida.
-function buildFrom(displayName: string): string {
+export function buildFrom(displayName: string): string {
   const email = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
   return `${displayName} <${email}>`
 }
@@ -24,7 +24,7 @@ function buildFrom(displayName: string): string {
  * Sin esa variable (dev local), cae a una cuenta de prueba Ethereal — mismo
  * comportamiento que tenía el fallback de SMTP antes de esta migración.
  */
-async function sendEmail(params: { from: string; to: string; subject: string; html: string }): Promise<{ ethereal: boolean; previewUrl?: string }> {
+export async function sendEmail(params: { from: string; to: string; subject: string; html: string }): Promise<{ ethereal: boolean; previewUrl?: string }> {
   const apiKey = process.env.RESEND_API_KEY
   if (apiKey) {
     const res = await fetch('https://api.resend.com/emails', {
@@ -64,7 +64,7 @@ function replacePlaceholders(template: string, vars: Record<string, string>): st
 // de un envío masivo usando la plantilla "oficial" del gym (QA comunicaciones, 2026-10-07).
 // Solo para texto que se inserta en el BODY del HTML — el asunto del correo no es HTML,
 // no hay que escaparlo (se vería "&amp;" literal).
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
