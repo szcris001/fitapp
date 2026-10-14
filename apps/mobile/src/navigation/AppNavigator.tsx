@@ -32,16 +32,9 @@ import CreateMemberScreen from '../screens/admin/CreateMemberScreen'
 import AssignMembershipScreen from '../screens/admin/AssignMembershipScreen'
 import WodManagementScreen from '../screens/admin/WodManagementScreen'
 import CreateWodScreen from '../screens/admin/CreateWodScreen'
-import MoreScreen from '../screens/admin/MoreScreen'
-import PlansScreen from '../screens/admin/PlansScreen'
-import PaymentsScreen from '../screens/admin/PaymentsScreen'
-import StaffScreen from '../screens/admin/StaffScreen'
+import StaffProfileScreen from '../screens/admin/StaffProfileScreen'
 import AIAlertsScreen from '../screens/admin/AIAlertsScreen'
-import CommunicationsScreen from '../screens/admin/CommunicationsScreen'
-import SettingsScreen from '../screens/admin/SettingsScreen'
-import ReportsScreen from '../screens/admin/ReportsScreen'
 import QRScannerScreen from '../screens/admin/QRScannerScreen'
-import ThemeDemoScreen from '../screens/ThemeDemoScreen'
 
 const Stack = createNativeStackNavigator()
 const Tab = createBottomTabNavigator()
@@ -619,13 +612,21 @@ function ThemedTabNavigator({ role }: { role: string }) {
   }
 
   if (role === 'ADMIN' || role === 'COACH') {
+    // El coach no crea ni administra alumnos (eso es solo del admin, ver
+    // MembersScreen.tsx) — en vez del tab "Alumnos" tiene "Progreso" (mismo
+    // ProgressScreen que el alumno; qué debería ver ahí un coach específicamente
+    // queda para profundizar después, por ahora es acceso básico).
     return (
       <Tab.Navigator screenOptions={screenOptions} tabBar={tabBar}>
         <Tab.Screen name="AdminHome" component={AdminHomeScreen} options={{ tabBarLabel: 'Inicio' }} />
-        <Tab.Screen name="Members" component={MembersStack} options={{ tabBarLabel: 'Alumnos' }} />
+        {role === 'COACH' ? (
+          <Tab.Screen name="Progress" component={ProgressScreen} options={{ tabBarLabel: 'Progreso' }} />
+        ) : (
+          <Tab.Screen name="Members" component={MembersStack} options={{ tabBarLabel: 'Alumnos' }} />
+        )}
         <Tab.Screen name="AdminClasses" component={AdminClassesStack} options={{ tabBarLabel: 'Clases' }} />
         <Tab.Screen name="AdminWOD" component={WodStack} options={{ tabBarLabel: 'WOD' }} />
-        <Tab.Screen name="More" component={MoreStack} options={{ tabBarLabel: 'Más' }} />
+        <Tab.Screen name="Profile" component={StaffProfileStack} options={{ tabBarLabel: 'Perfil' }} />
       </Tab.Navigator>
     )
   }
@@ -693,19 +694,14 @@ function WodStack() {
   )
 }
 
-function MoreStack() {
+// Planes/Pagos/Personal/Reportes/Alertas IA/Comunicación/Configuración dejaron de
+// ser accesibles desde el móvil (quedan solo en la web) al sacar el tab "Más" a
+// pedido de Cristian — salvo Alertas IA, que el home del admin sigue enlazando.
+function StaffProfileStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="MoreMenu" component={MoreScreen} />
-      <Stack.Screen name="Plans" component={PlansScreen} />
-      <Stack.Screen name="Payments" component={PaymentsScreen} />
-      <Stack.Screen name="Staff" component={StaffScreen} />
+      <Stack.Screen name="StaffProfileMain" component={StaffProfileScreen} />
       <Stack.Screen name="AIAlerts" component={AIAlertsScreen} />
-      <Stack.Screen name="Communications" component={CommunicationsScreen} />
-      <Stack.Screen name="Settings" component={SettingsScreen} />
-      <Stack.Screen name="Reports" component={ReportsScreen} />
-      <Stack.Screen name="ThemeDemo" component={ThemeDemoScreen} />
-      <Stack.Screen name="Profile" component={ProfileScreen} />
     </Stack.Navigator>
   )
 }

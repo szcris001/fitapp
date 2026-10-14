@@ -7,6 +7,7 @@ import { useAuthStore } from '../../store/auth.store'
 import { useTheme } from '../../theme/ThemeContext'
 import { usePlatformAssets } from '../../context/PlatformAssetsContext'
 import api, { API_BASE as API_URL, mediaUrl } from '../../lib/api'
+import { localDateStr } from '../../lib/date'
 
 export default function AdminHomeScreen({ navigation }: any) {
   const { user } = useAuthStore()
@@ -18,6 +19,8 @@ export default function AdminHomeScreen({ navigation }: any) {
   const [gym, setGym] = useState<any>(null)
   const [stats, setStats] = useState<any>(null)
   const [todayClasses, setTodayClasses] = useState<any[]>([])
+  const [todayWods, setTodayWods] = useState<any[]>([])
+  const [selectedWodIdx, setSelectedWodIdx] = useState(0)
   const [alerts, setAlerts] = useState<any>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -38,10 +41,11 @@ export default function AdminHomeScreen({ navigation }: any) {
 
   const fetchData = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0]
+      const today = localDateStr()
       const requests: Promise<any>[] = [
         api.get('/gyms/me'),
         api.get(`/classes?from=${today}&to=${today}`),
+        api.get(`/wods?from=${today}&to=${today}`),
       ]
       if (isAdmin) {
         requests.push(api.get('/gyms/me/stats'))
@@ -50,9 +54,10 @@ export default function AdminHomeScreen({ navigation }: any) {
       const results = await Promise.allSettled(requests)
       if (results[0].status === 'fulfilled') setGym(results[0].value.data)
       if (results[1].status === 'fulfilled') setTodayClasses(results[1].value.data)
+      if (results[2].status === 'fulfilled') { setTodayWods(results[2].value.data || []); setSelectedWodIdx(0) }
       if (isAdmin) {
-        if (results[2].status === 'fulfilled') setStats(results[2].value.data)
-        if (results[3].status === 'fulfilled') setAlerts(results[3].value.data)
+        if (results[3].status === 'fulfilled') setStats(results[3].value.data)
+        if (results[4].status === 'fulfilled') setAlerts(results[4].value.data)
       }
     } catch { }
     finally { setLoading(false); setRefreshing(false) }
@@ -68,6 +73,14 @@ export default function AdminHomeScreen({ navigation }: any) {
   const roleLabel = user?.role === 'ADMIN' ? 'Admin'
     : user?.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Coach'
   const alertCount = (alerts?.atRiskMembers?.length || 0) + (alerts?.expiringMemberships?.length || 0)
+
+  // Las 3 próximas según la hora actual (no todas las del día) — una clase en curso
+  // (ya empezó, no terminó) cuenta como la más próxima.
+  const now = new Date()
+  const upcomingClasses = todayClasses
+    .filter(cls => new Date(cls.endsAt) > now)
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+    .slice(0, 3)
 
   const s = makeStyles(c)
 
@@ -157,12 +170,14 @@ export default function AdminHomeScreen({ navigation }: any) {
 
         {/* Today's classes */}
         <Text style={[s.sectionTitle, { color: c.text3 }]}>CLASES DE HOY</Text>
-        {todayClasses.length === 0 ? (
+        {upcomingClasses.length === 0 ? (
           <View style={[s.emptyCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <Text style={[s.emptyText, { color: c.text3 }]}>No hay clases programadas para hoy</Text>
+            <Text style={[s.emptyText, { color: c.text3 }]}>
+              {todayClasses.length === 0 ? 'No hay clases programadas para hoy' : 'No quedan clases por venir hoy'}
+            </Text>
           </View>
         ) : (
-          todayClasses.map(cls => {
+          upcomingClasses.map(cls => {
             const booked = cls._count?.bookings || 0
             const occupancy = cls.capacity > 0 ? Math.round((booked / cls.capacity) * 100) : 0
             const isFull = booked >= cls.capacity
@@ -193,6 +208,69 @@ export default function AdminHomeScreen({ navigation }: any) {
             )
           })
         )}
+
+        {/* Pizarra del box — mismo WOD que ve el alumno, tocar lleva a editarlo */}
+        <Text style={[s.sectionTitle, { color: c.text3 }]}>PIZARRA DEL BOX</Text>
+        {todayWods.length === 0 ? (
+          <View style={[s.emptyCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <Text style={[s.emptyText, { color: c.text3 }]}>Sin WOD publicado hoy</Text>
+          </View>
+        ) : (() => {
+          const wod = todayWods[selectedWodIdx] || todayWods[0]
+          const accent = wod?.classType?.color || c.primary
+          return (
+            <>
+              {todayWods.length > 1 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 24, paddingBottom: 8 }}>
+                  {todayWods.map((w: any, i: number) => {
+                    const tabAccent = w.classType?.color || c.primary
+                    const selected = i === selectedWodIdx
+                    return (
+                      <TouchableOpacity
+                        key={w.id}
+                        onPress={() => setSelectedWodIdx(i)}
+                        style={[
+                          s.wodTab,
+                          selected
+                            ? { backgroundColor: tabAccent }
+                            : { backgroundColor: tabAccent + '20', borderColor: tabAccent + '60', borderWidth: 1 },
+                        ]}
+                      >
+                        <Text style={[s.wodTabText, { color: selected ? '#fff' : tabAccent }]}>
+                          {w.classType?.name || 'WOD'}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </ScrollView>
+              )}
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={[s.classCard, { backgroundColor: c.surface, borderColor: c.border }]}
+                onPress={() => navigation.navigate('AdminWOD', { screen: 'CreateWod', params: { wodId: wod.id } })}
+              >
+                <View style={[s.classBar, { backgroundColor: accent }]} />
+                <View style={s.classContent}>
+                  <Text style={[s.className, { color: c.text1 }]}>{wod.title || 'Entrenamiento del día'}</Text>
+                  {(wod.blocks || []).map((block: any, bi: number) => (
+                    <View key={bi} style={{ marginTop: 8 }}>
+                      {block.title && (
+                        <Text style={[s.wodBlockTitle, { color: accent }]}>
+                          {block.title}{block.timecap ? ` · ${block.timecap}` : ''}
+                        </Text>
+                      )}
+                      {(block.movements || []).map((m: any, mi: number) => (
+                        <Text key={mi} style={[s.wodMovement, { color: c.text2 }]}>
+                          {m.sets && m.reps ? `${m.sets}×${m.reps} ` : m.reps ? `${m.reps} ` : ''}{m.movementName}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </TouchableOpacity>
+            </>
+          )
+        })()}
 
         {/* Expiring memberships */}
         {alerts?.expiringMemberships?.length > 0 && (
@@ -277,6 +355,10 @@ function makeStyles(c: any) {
     className: { fontSize: 16, fontWeight: '600' },
     slots: { fontWeight: '700', fontSize: 13 },
     classTime: { fontSize: 13, marginBottom: 10 },
+    wodBlockTitle: { fontSize: 13, fontWeight: '700', marginBottom: 3 },
+    wodMovement: { fontSize: 13, marginBottom: 2 },
+    wodTab: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
+    wodTabText: { fontSize: 12, fontWeight: '700' },
     progressBar: { height: 4, borderRadius: 2 },
     progressFill: { height: 4, borderRadius: 2 },
     expiringRow: {
