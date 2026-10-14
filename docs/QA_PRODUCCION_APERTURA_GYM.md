@@ -253,3 +253,43 @@ faltaba en la pantalla del alumno.
 próxima clase" ahora muestra "HOY 18:00 · Halterofilia · Reservado ✓".
 `pnpm typecheck` limpio. Sin test automatizado — no hay infraestructura de
 tests de componentes RN en el repo todavía.
+
+## Objetivo 3 — usabilidad del coach
+
+Probado en vivo en el emulador Android contra producción, login como
+`Juan Perez` (coach de `prueba4`, creado en Objetivo 1).
+
+### Hallazgo H-PROD-WEB-01 — no se podía resetear la contraseña de un coach/admin ya creado — **CORREGIDO** (PR #103, pendiente de merge)
+
+Encontrado por Cristian al crear el coach: `/dashboard/staff` solo
+permite setear la contraseña al crear, no hay forma de resetearla
+después desde Editar — aunque el backend ya soporta
+`POST /users/:id/reset-password` (mismo endpoint que ya usa
+`/dashboard/users/:id` para alumnos). Se agregó el mismo
+`ResetPasswordModal` a la página de staff. Detalle completo en el PR.
+
+**Nota aparte, no corregida**: `apps/mobile` no maneja
+`mustChangePassword` en ningún lado (ni coach ni alumno) — si alguien
+entra desde la app móvil después de un reset, no hay pantalla que lo
+obligue a cambiarla. Gap preexistente, pendiente de decidir si se
+aborda.
+
+### Verificado sin hallazgos — app del coach
+
+- **Login**: con `gymSlug` + email + password, funciona igual que
+  alumno/admin.
+- **Inicio**: "Clases de hoy" lista correctamente las clases del gym
+  con cupos (0/15, etc.).
+- **Alumnos**: lista con filtros (Todos/Activo/Prueba/Vencido),
+  búsqueda, detalle de alumno (vista de solo lectura — sin opciones de
+  edición financiera, correctamente acotada para el rol coach).
+- **Clases → Ver detalle y asistencia**: muestra inscritos/asistieron/
+  capacidad/en espera, aviso de "Asistencia automática — se marcará al
+  finalizar la clase", botones "+ Agregar alumno" y "Eliminar clase".
+- **WOD**: lista de WODs, edición de uno existente (bloques,
+  movimientos, timecap) funciona.
+- **Más**: perfil y cerrar sesión — correctamente sin acceso a
+  Reportes/Pagos/Configuración (eso es solo admin).
+
+**Objetivo 3 completo** para lo que se pudo probar con un coach real
+sin pagos ni checkout.
