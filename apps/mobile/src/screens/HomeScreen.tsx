@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   RefreshControl, Image, Animated, ImageBackground,
@@ -7,7 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { DisciplineIcon } from '../components/DisciplineIcon'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useNavigation } from '@react-navigation/native'
+import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { useAuthStore } from '../store/auth.store'
 import { useTheme } from '../theme/ThemeContext'
 import api, { API_BASE as API_URL, mediaUrl } from '../lib/api'
@@ -43,13 +43,17 @@ export default function HomeScreen() {
   const tickerLoop = useRef<any>(null)
 
   useEffect(() => {
-    fetchData()
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 350,
       useNativeDriver: true,
     }).start()
   }, [])
+
+  // Sin esto, "Mi próxima clase" quedaba con los datos de la última vez que se montó
+  // la pantalla: reservar desde Clases y volver a Inicio (misma tab, no se desmonta)
+  // seguía mostrando "No tienes clases reservadas" (QA producción 2026-10-13).
+  useFocusEffect(useCallback(() => { fetchData() }, []))
 
   useEffect(() => {
     tickerLoop.current?.stop()
