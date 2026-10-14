@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from '../../lib/prisma'
 import { HttpError } from '../../lib/http-error'
 import { atRiskMembersWhere } from './retention'
+import { daysBetweenGymLocal, getGymTimezone } from '../../lib/gym-day'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -12,6 +13,7 @@ const AI_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5'
 
 export async function getRetentionAlerts(gymId: string) {
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+  const timezone = await getGymTimezone(gymId)
 
   const [membersAtRisk, expiringSoon, inactiveMembers] = await Promise.all([
     prisma.user.findMany({
@@ -73,7 +75,7 @@ export async function getRetentionAlerts(gymId: string) {
       email: m.user.email,
       plan: m.plan.name,
       endsAt: m.endsAt,
-      daysLeft: Math.ceil((m.endsAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+      daysLeft: daysBetweenGymLocal(new Date(), m.endsAt, timezone),
     })),
     inactive: inactiveMembers,
   }

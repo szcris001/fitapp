@@ -11,6 +11,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native'
 import { useAuthStore } from '../store/auth.store'
 import { useTheme } from '../theme/ThemeContext'
 import api, { API_BASE as API_URL, mediaUrl } from '../lib/api'
+import { daysUntilLocal } from '../lib/membership-days'
 import { BottomSheet } from '../components/BottomSheet'
 
 export default function HomeScreen() {
@@ -166,9 +167,7 @@ export default function HomeScreen() {
     return 'Buenas noches'
   }
 
-  const daysLeft = membership?.endsAt
-    ? Math.ceil((new Date(membership.endsAt).getTime() - Date.now()) / 86400000)
-    : null
+  const daysLeft = membership?.endsAt ? daysUntilLocal(membership.endsAt) : null
   const urgency = daysLeft === null ? 0 : daysLeft <= 3 ? 1 : daysLeft <= 7 ? 0.6 : daysLeft <= 14 ? 0.3 : 0
   const counterColor = daysLeft === null || daysLeft > 14
     ? c.success

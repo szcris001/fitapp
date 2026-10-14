@@ -8,7 +8,7 @@
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
 // Minutos que la zona horaria está adelantada respecto de UTC en ese instante
-function offsetMinutes(instant: Date, timezone: string): number {
+export function offsetMinutes(instant: Date, timezone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone, hourCycle: 'h23',
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -43,6 +43,37 @@ export function startOfGymDay(localDate: string, timezone: string): Date {
 export function addLocalDays(localDate: string, days: number): string {
   const [y, m, d] = localDate.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+}
+
+/**
+ * Suma `days` a la fecha calendario de `instant` en la zona del gym, preservando su hora
+ * de pared exacta (hora, minuto, segundo y milisegundo) en esa zona — a diferencia de
+ * `Date.setDate()`, que preserva la hora de pared del proceso, no la del gym.
+ */
+export function addGymLocalDays(instant: Date, days: number, timezone: string): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(instant)
+  const get = (t: string) => Number(parts.find(p => p.type === t)!.value)
+  const ms = instant.getUTCMilliseconds()
+  const wall = Date.UTC(get('year'), get('month') - 1, get('day') + days, get('hour'), get('minute'), get('second'), ms)
+  // Converge en 2 pasos: corrige por el offset vigente en la aproximación, igual que
+  // atGymLocalTime — solo difiere cerca de un cambio de horario entre ambas fechas.
+  const first = wall - offsetMinutes(new Date(wall), timezone) * 60_000
+  return new Date(wall - offsetMinutes(new Date(first), timezone) * 60_000)
+}
+
+/**
+ * Días calendario completos entre dos instantes, en la zona del gym (puede ser
+ * negativo si `to` es anterior a `from`). A diferencia de restar milisegundos y
+ * dividir por 86 400 000, no se corre 1 día si el período cruza un cambio de
+ * horario (real, o el del proceso donde corre el código — ver nextMembershipPeriod).
+ */
+export function daysBetweenGymLocal(from: Date, to: Date, timezone: string): number {
+  const [fy, fm, fd] = gymLocalDate(from, timezone).split('-').map(Number)
+  const [ty, tm, td] = gymLocalDate(to, timezone).split('-').map(Number)
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000)
 }
 
 /** Rango [inicio del día local, inicio del día siguiente) para filtros de Prisma */

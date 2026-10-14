@@ -4,7 +4,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../lib/api'
 import { toMajorUnits } from '../../../../lib/money'
-import { GYM_TIMEZONE } from '../../../../lib/gym-timezone'
+import { GYM_TIMEZONE, daysUntilGymLocal } from '../../../../lib/gym-timezone'
 import {
   ArrowLeft, Edit2, CheckCircle, CreditCard, Banknote,
   RefreshCw, X, ExternalLink, Wallet, Camera, KeyRound,
@@ -603,9 +603,7 @@ export default function UserDetailPage() {
 
   /* ── Derived data ── */
   const activeMembership = member.memberships?.find((m: any) => m.status === 'ACTIVE')
-  const daysLeft = activeMembership
-    ? Math.ceil((new Date(activeMembership.endsAt).getTime() - Date.now()) / 86_400_000)
-    : null
+  const daysLeft = activeMembership ? daysUntilGymLocal(activeMembership.endsAt) : null
   const currentAvatar = member.avatarUrl ? mediaUrl(member.avatarUrl) : null
   const displayAvatar = avatarPreview ?? currentAvatar
 
