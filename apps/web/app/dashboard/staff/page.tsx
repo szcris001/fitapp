@@ -3,7 +3,54 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api, { mediaUrl } from '../../../lib/api'
-import { Users2, UserPlus, Camera, Edit2, Check, X } from 'lucide-react'
+import { Users2, UserPlus, Camera, Edit2, Check, X, KeyRound } from 'lucide-react'
+
+/* ─── Reset Password Modal ──────────────────────── */
+function ResetPasswordModal({ userId, onClose, onSuccess }: { userId: string; onClose: () => void; onSuccess: () => void }) {
+  const [newPassword, setNewPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newPassword.length < 6) { setError('Mínimo 6 caracteres'); return }
+    setSaving(true)
+    setError('')
+    try {
+      await api.post(`/users/${userId}/reset-password`, { newPassword })
+      onSuccess()
+      onClose()
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al resetear contraseña')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}
+        onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden modal-animate card" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border-1)' }}>
+            <h2 className="font-semibold" style={{ color: 'var(--text-1)' }}>Resetear contraseña</h2>
+            <button onClick={onClose}><X className="w-4 h-4" style={{ color: 'var(--text-4)' }} /></button>
+          </div>
+          <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            {error && <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl px-4 py-2.5 text-sm">{error}</div>}
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Nueva contraseña temporal *</label>
+              <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                required minLength={6} placeholder="Mínimo 6 caracteres" className="input" autoFocus />
+            </div>
+            <button type="submit" disabled={saving} className="btn-brand w-full py-2.5 disabled:opacity-50">
+              {saving ? 'Guardando...' : 'Resetear'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </>
+  )
+}
 
 export default function StaffPage() {
   const { user, loadFromStorage } = useAuthStore()
@@ -25,6 +72,7 @@ export default function StaffPage() {
   const [editAvatarPreview, setEditAvatarPreview] = useState<string | null>(null)
   const editFileRef = useRef<HTMLInputElement>(null)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [resetPasswordId, setResetPasswordId] = useState<string | null>(null)
 
   const router = useRouter()
 
@@ -273,6 +321,14 @@ export default function StaffPage() {
                             <option value="ADMIN">Administrador</option>
                           </select>
                           <div className="flex gap-2">
+                            <button type="button" onClick={() => setResetPasswordId(s.id)}
+                              className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg"
+                              style={{ color: 'var(--text-3)', border: '1px solid var(--border-1)' }}
+                              onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--surface-hover)')}
+                              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
+                              <KeyRound className="w-3.5 h-3.5" />
+                              Resetear contraseña
+                            </button>
                             <button onClick={() => handleSaveEdit(s.id)} disabled={savingEdit}
                               className="btn-brand flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-50">
                               <Check className="w-3.5 h-3.5" />
@@ -329,6 +385,14 @@ export default function StaffPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {resetPasswordId && (
+        <ResetPasswordModal
+          userId={resetPasswordId}
+          onClose={() => setResetPasswordId(null)}
+          onSuccess={() => setSuccess('Contraseña reseteada. El coach deberá cambiarla al ingresar.')}
+        />
       )}
     </div>
   )
