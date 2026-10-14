@@ -287,16 +287,23 @@ vez. `assignUserToClass()` ahora exige la misma membresía activa que
 
 ### Hallazgo H-PROD-MOBILE-03 — el escáner QR de asistencia existe pero no tiene ningún botón que lleve a él — **documentado, no corregido**
 
-`QRScannerScreen.tsx` está completamente implementado (cámara, lectura
-de QR tipo `attendance`, llamada a
+`QRScannerScreen.tsx` (lado coach) está completamente implementado
+(cámara, lectura de QR tipo `attendance`, llamada a
 `POST /classes/:classId/attendance/qr` — ese endpoint también existe y
 funciona) y registrado en el navigator (`AppNavigator.tsx`), pero
 **ningún lugar de la app llama `navigation.navigate('QRScanner')`** —
 ni el detalle de clase del coach (`ClassDetailAdminScreen.tsx`, que
 solo tiene "+ Agregar alumno" y "Eliminar clase") ni ningún otro lado.
-Es una función terminada pero inalcanzable desde la UI — probablemente
-quedó el botón sin conectar. Cristian decidió dejarlo documentado por
-ahora, no agregar el botón todavía.
+
+Es más: el lado alumno también existe y también está huérfano.
+`QRScreen.tsx` genera el QR del alumno (`{userId, type:'attendance'}`,
+mismo formato que espera el scanner del coach) con su UI completa —
+pero ni siquiera está importado en `AppNavigator.tsx`, no hay ni
+`Stack.Screen` para él. Es una función de punta a punta (ambos lados,
+UI + backend) completamente construida y coherente, pero 100%
+desconectada de la navegación en los dos extremos — probablemente
+quedó así a medio conectar. Cristian decidió dejarlo documentado por
+ahora, no conectar los botones todavía.
 
 ### Verificado sin hallazgos — app del coach
 
