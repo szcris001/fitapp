@@ -612,10 +612,18 @@ function ThemedTabNavigator({ role }: { role: string }) {
   }
 
   if (role === 'ADMIN' || role === 'COACH') {
+    // El coach no crea ni administra alumnos (eso es solo del admin, ver
+    // MembersScreen.tsx) — en vez del tab "Alumnos" tiene "Progreso" (mismo
+    // ProgressScreen que el alumno; qué debería ver ahí un coach específicamente
+    // queda para profundizar después, por ahora es acceso básico).
     return (
       <Tab.Navigator screenOptions={screenOptions} tabBar={tabBar}>
         <Tab.Screen name="AdminHome" component={AdminHomeScreen} options={{ tabBarLabel: 'Inicio' }} />
-        <Tab.Screen name="Members" component={MembersStack} options={{ tabBarLabel: 'Alumnos' }} />
+        {role === 'COACH' ? (
+          <Tab.Screen name="Progress" component={ProgressScreen} options={{ tabBarLabel: 'Progreso' }} />
+        ) : (
+          <Tab.Screen name="Members" component={MembersStack} options={{ tabBarLabel: 'Alumnos' }} />
+        )}
         <Tab.Screen name="AdminClasses" component={AdminClassesStack} options={{ tabBarLabel: 'Clases' }} />
         <Tab.Screen name="AdminWOD" component={WodStack} options={{ tabBarLabel: 'WOD' }} />
         <Tab.Screen name="Profile" component={StaffProfileStack} options={{ tabBarLabel: 'Perfil' }} />
