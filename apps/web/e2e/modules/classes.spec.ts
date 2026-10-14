@@ -85,6 +85,19 @@ async function classesOf(classTypeId: string, from: string, to: string) {
     .filter(c => c.classTypeId === classTypeId)
 }
 
+/** Alumno propio con membresía activa — los NORTE.member* fijos tienen semántica que
+ * otros specs dependen de (p.ej. member2 "sin reservas hace 20 días" para retención). */
+async function createActiveMember(tag: string) {
+  const email = `qa-e2e-${PREFIX.toLowerCase()}-${tag.toLowerCase()}-${RUN}@qa-norte.test`
+  const { data: user } = await api('admin', 'POST', '/users', {
+    name: `${PREFIX} ${tag} ${RUN}`, email, password: 'QaE2e2026!', role: 'MEMBER',
+  })
+  const { data: plans } = await api('admin', 'GET', '/plans')
+  const plan = (plans as { id: string; name: string }[]).find(p => p.name === QA.gyms.norte.plans.mensual.name)!
+  await api('admin', 'POST', '/payments/manual', { userId: user.id, planId: plan.id, paymentMethod: 'cash' })
+  return { id: user.id as string, email }
+}
+
 // Tipos (y sus clases/WOD) creados por este spec; los de corridas abortadas también
 test.afterAll(async () => {
   test.setTimeout(60_000)
@@ -376,8 +389,8 @@ test.describe('CLS — asistencia (coach)', () => {
     // empezado (ver fix adjunto a PATCH /bookings/:bookingId/attend).
     const day = localDay(-farOffset(3))
     const cls = await createClass(type.id, day, '10:00', '11:00')
-    const student = NORTE.member5
-    const { status } = await api('admin', 'POST', '/bookings/assign', { classId: cls.id, userId: await userId(student.email) })
+    const student = await createActiveMember('Asistencia')
+    const { status } = await api('admin', 'POST', '/bookings/assign', { classId: cls.id, userId: student.id })
     expect(status).toBe(201)
 
     const bookingStatus = async () => {
