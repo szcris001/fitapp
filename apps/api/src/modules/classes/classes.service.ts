@@ -472,6 +472,17 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   const targetUser = await prisma.user.findFirst({ where: { id: targetUserId, gymId } })
   if (!targetUser) throw new Error('Usuario no encontrado en este gym')
 
+  const now = new Date()
+
+  // Misma regla que bookClass: sin membresía activa no se puede reservar, ni
+  // siquiera si es el coach quien agrega al alumno — evita que alguien siga yendo a
+  // clases indefinidamente sin renovar porque el coach lo agrega cada vez a mano
+  // (QA H-PROD-MOBILE-02, Cristian 2026-10-14).
+  const activeMembership = await prisma.membership.findFirst({
+    where: { userId: targetUserId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
+  })
+  if (!activeMembership) throw new Error('El alumno no tiene una membresía activa')
+
   // El coach puede incorporar a un alumno a una clase en curso (lo agrega "fuera
   // de horario", viéndolo presente ahí mismo) — en ese caso queda ATTENDED de
   // una vez, es el coach confirmando presencia en el momento. Pero si la clase
@@ -482,7 +493,6 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   // alguien a una clase de hace días también quedaba auto-marcado, rompiendo
   // el caso de uso de "cargar datos de prueba de una clase vieja para después
   // probar el marcado manual" (QA H-MOBILE-03, docs/QA_MOBILE_MAESTRO.md).
-  const now = new Date()
   const alreadyStarted = cls.startsAt <= now
   const recentlyEnded = now <= new Date(cls.endsAt.getTime() + 15 * 60 * 1000)
   const markAttendedNow = alreadyStarted && recentlyEnded
