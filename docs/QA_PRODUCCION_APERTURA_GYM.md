@@ -259,7 +259,7 @@ tests de componentes RN en el repo todavía.
 Probado en vivo en el emulador Android contra producción, login como
 `Juan Perez` (coach de `prueba4`, creado en Objetivo 1).
 
-### Hallazgo H-PROD-WEB-01 — no se podía resetear la contraseña de un coach/admin ya creado — **CORREGIDO** (PR #103, pendiente de merge)
+### Hallazgo H-PROD-WEB-01 — no se podía resetear la contraseña de un coach/admin ya creado — **CORREGIDO** (PR #103)
 
 Encontrado por Cristian al crear el coach: `/dashboard/staff` solo
 permite setear la contraseña al crear, no hay forma de resetearla
@@ -274,6 +274,30 @@ entra desde la app móvil después de un reset, no hay pantalla que lo
 obligue a cambiarla. Gap preexistente, pendiente de decidir si se
 aborda.
 
+### Hallazgo H-PROD-MOBILE-02 — "+ Agregar alumno" no exigía membresía activa — **CORREGIDO** (PR #105)
+
+Probando "+ Agregar alumno" en el detalle de una clase: se pudo
+inscribir a un alumno con membresía "Inactiva"/"Sin membresía" sin
+ningún error — a diferencia de cuando el alumno se reserva a sí mismo
+("No tienes una membresía activa"). Confirmado con Cristian que es un
+hueco, no comportamiento buscado: un alumno podía seguir yendo a
+clases indefinidamente sin renovar si el coach lo agregaba a mano cada
+vez. `assignUserToClass()` ahora exige la misma membresía activa que
+`bookClass()`. Detalle completo en el PR.
+
+### Hallazgo H-PROD-MOBILE-03 — el escáner QR de asistencia existe pero no tiene ningún botón que lleve a él — **documentado, no corregido**
+
+`QRScannerScreen.tsx` está completamente implementado (cámara, lectura
+de QR tipo `attendance`, llamada a
+`POST /classes/:classId/attendance/qr` — ese endpoint también existe y
+funciona) y registrado en el navigator (`AppNavigator.tsx`), pero
+**ningún lugar de la app llama `navigation.navigate('QRScanner')`** —
+ni el detalle de clase del coach (`ClassDetailAdminScreen.tsx`, que
+solo tiene "+ Agregar alumno" y "Eliminar clase") ni ningún otro lado.
+Es una función terminada pero inalcanzable desde la UI — probablemente
+quedó el botón sin conectar. Cristian decidió dejarlo documentado por
+ahora, no agregar el botón todavía.
+
 ### Verificado sin hallazgos — app del coach
 
 - **Login**: con `gymSlug` + email + password, funciona igual que
@@ -285,9 +309,12 @@ aborda.
   edición financiera, correctamente acotada para el rol coach).
 - **Clases → Ver detalle y asistencia**: muestra inscritos/asistieron/
   capacidad/en espera, aviso de "Asistencia automática — se marcará al
-  finalizar la clase", botones "+ Agregar alumno" y "Eliminar clase".
-- **WOD**: lista de WODs, edición de uno existente (bloques,
-  movimientos, timecap) funciona.
+  finalizar la clase", botones "+ Agregar alumno" (ver H-PROD-MOBILE-02)
+  y "Eliminar clase".
+- **WOD → Nuevo**: crear un WOD desde cero (tipo de clase, título,
+  fecha, bloque con movimiento) funciona de punta a punta — "WOD
+  creado". Edición de uno existente (bloques, movimientos, timecap)
+  también funciona.
 - **Más**: perfil y cerrar sesión — correctamente sin acceso a
   Reportes/Pagos/Configuración (eso es solo admin).
 
