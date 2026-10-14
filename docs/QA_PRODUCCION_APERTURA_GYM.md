@@ -327,3 +327,26 @@ ahora, no conectar los botones todavía.
 
 **Objetivo 3 completo** para lo que se pudo probar con un coach real
 sin pagos ni checkout.
+
+## Objetivo 2 (profundización) — más usabilidad del alumno
+
+Tras cerrar Objetivo 3, a pedido de Cristian se siguió probando a
+fondo la app del alumno (más allá de lo ya cubierto en Objetivo 2).
+
+### Hallazgo H-PROD-MOBILE-04 — la campana de notificaciones del home crashea al tocarla — **documentado, no corregido**
+
+Mismo patrón que H-PROD-MOBILE-03 (QR), pero más grave porque este
+botón sí es visible y alcanzable: **toda la pantalla de Inicio del
+alumno** tiene el ícono de campana (arriba a la derecha) que llama
+`navigation.navigate('notifications')` (`HomeScreen.tsx`). Ese screen
+name nunca se registró en `AppNavigator.tsx` — React Navigation tira
+el error "The action 'NAVIGATE' with payload..." visible en pantalla.
+Confirmado tocando la campana en vivo contra producción.
+
+`NotificationsScreen.tsx` sí existe como archivo y tiene UI completa,
+pero su contenido es enteramente mock/hardcodeado (notificaciones de
+ejemplo como "Nuevo récord personal — 80kg en Back Squat" que nunca
+pasó, guardadas en `AsyncStorage` la primera vez que se abre) — no
+está conectado a ningún dato real del backend. Cristian decidió
+dejarlo documentado por ahora, sin ocultar la campana ni conectar el
+mock.
