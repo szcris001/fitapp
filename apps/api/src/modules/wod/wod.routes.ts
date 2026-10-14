@@ -335,6 +335,52 @@ export async function wodRoutes(app: FastifyInstance) {
     })
   })
 
+  // ─── RESULTS: GET historial propio (todos los WODs) ──────────────────────────
+  app.get('/wod-results/me', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+
+    const results = await prisma.wodResult.findMany({
+      where: { userId: user.userId, gymId: user.gymId },
+      orderBy: { wod: { date: 'desc' } },
+      take: 50,
+      include: {
+        wod: { select: { id: true, title: true, date: true, scoreType: true, classType: { select: { name: true } } } },
+      },
+    })
+
+    const withRank = await Promise.all(results.map(async (r) => {
+      const { wod } = r
+      let rank: number | null = null
+      let totalInCategory: number | null = null
+      if (wod.scoreType !== 'CUSTOM') {
+        const isAscending = wod.scoreType === 'TIME'
+        const [better, total] = await Promise.all([
+          prisma.wodResult.count({
+            where: { wodId: wod.id, rx: r.rx, score: isAscending ? { lt: r.score } : { gt: r.score } },
+          }),
+          prisma.wodResult.count({ where: { wodId: wod.id, rx: r.rx } }),
+        ])
+        rank = better + 1
+        totalInCategory = total
+      }
+      return {
+        id: r.id,
+        wodId: wod.id,
+        wodTitle: wod.title,
+        wodDate: wod.date,
+        classTypeName: wod.classType.name,
+        score: r.score,
+        scoreText: r.scoreText,
+        scoreFormatted: formatScore(r.score, r.scoreText, wod.scoreType),
+        rx: r.rx,
+        rank,
+        totalInCategory,
+      }
+    }))
+
+    return reply.send(withRank)
+  })
+
   // ─── RESULTS: GET /me (miembro ve su propio resultado) ──────────────────────
   app.get('/wods/:id/results/me', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user as AuthUser
