@@ -19,7 +19,7 @@ export default function CreateMemberScreen({ navigation }: any) {
     }
     setSaving(true)
     try {
-      await api.post('/users', {
+      const { data: newMember } = await api.post('/users', {
         name: form.name,
         email: form.email,
         password: form.password,
@@ -28,7 +28,10 @@ export default function CreateMemberScreen({ navigation }: any) {
         birthDate: form.birthDate || undefined,
         role: 'MEMBER',
       })
-      Alert.alert('✅ Alumno creado', '', [{ text: 'OK', onPress: () => navigation.goBack() }])
+      Alert.alert('✅ Alumno creado', 'Ahora asignale un plan para activar su membresía.', [{
+        text: 'OK',
+        onPress: () => navigation.replace('AssignMembership', { memberId: newMember.id, memberName: newMember.name }),
+      }])
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.error || 'No se pudo crear el alumno')
     } finally { setSaving(false) }

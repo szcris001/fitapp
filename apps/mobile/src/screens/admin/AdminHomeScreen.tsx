@@ -7,6 +7,7 @@ import { useAuthStore } from '../../store/auth.store'
 import { useTheme } from '../../theme/ThemeContext'
 import { usePlatformAssets } from '../../context/PlatformAssetsContext'
 import api, { API_BASE as API_URL, mediaUrl } from '../../lib/api'
+import { localDateStr } from '../../lib/date'
 
 export default function AdminHomeScreen({ navigation }: any) {
   const { user } = useAuthStore()
@@ -38,7 +39,7 @@ export default function AdminHomeScreen({ navigation }: any) {
 
   const fetchData = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0]
+      const today = localDateStr()
       const requests: Promise<any>[] = [
         api.get('/gyms/me'),
         api.get(`/classes?from=${today}&to=${today}`),
@@ -68,6 +69,14 @@ export default function AdminHomeScreen({ navigation }: any) {
   const roleLabel = user?.role === 'ADMIN' ? 'Admin'
     : user?.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Coach'
   const alertCount = (alerts?.atRiskMembers?.length || 0) + (alerts?.expiringMemberships?.length || 0)
+
+  // Las 3 próximas según la hora actual (no todas las del día) — una clase en curso
+  // (ya empezó, no terminó) cuenta como la más próxima.
+  const now = new Date()
+  const upcomingClasses = todayClasses
+    .filter(cls => new Date(cls.endsAt) > now)
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+    .slice(0, 3)
 
   const s = makeStyles(c)
 
@@ -157,12 +166,14 @@ export default function AdminHomeScreen({ navigation }: any) {
 
         {/* Today's classes */}
         <Text style={[s.sectionTitle, { color: c.text3 }]}>CLASES DE HOY</Text>
-        {todayClasses.length === 0 ? (
+        {upcomingClasses.length === 0 ? (
           <View style={[s.emptyCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <Text style={[s.emptyText, { color: c.text3 }]}>No hay clases programadas para hoy</Text>
+            <Text style={[s.emptyText, { color: c.text3 }]}>
+              {todayClasses.length === 0 ? 'No hay clases programadas para hoy' : 'No quedan clases por venir hoy'}
+            </Text>
           </View>
         ) : (
-          todayClasses.map(cls => {
+          upcomingClasses.map(cls => {
             const booked = cls._count?.bookings || 0
             const occupancy = cls.capacity > 0 ? Math.round((booked / cls.capacity) * 100) : 0
             const isFull = booked >= cls.capacity
