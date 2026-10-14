@@ -190,3 +190,66 @@ la API limpia salvo los 2 archivos del bug de DST preexistente (ver abajo).
 E2E de planes 13/13, E2E completo de web 99/100 (el único que falla,
 `USR-06`, confirmado que **ya fallaba en `master` sin este cambio** — ver
 `project_dst_membership_date_bug`, segundo hallazgo ahí).
+
+### Flujo de reserva, progreso y perfil del alumno — verificado completo en producción
+
+Con la membresía Trial asignada por Cristian, confirmado en vivo desde el
+emulador (toques reales sobre la app, coordenadas sacadas con
+`uiautomator dump` para no depender de capturas):
+
+- **Reservar clase**: tocar "Reservar lugar" en Halterofilia 18:00-19:00 →
+  diálogo "Reservado — Tu lugar está confirmado" → la tarjeta pasa a
+  `1/15` con badge "Inscrito ✓". Detalle de la clase lista al alumno
+  inscrito y ofrece "Cancelar reserva".
+- **Progreso → Gimnasia**: progresiones de habilidades (Handstand Walk,
+  Double Under) vienen precargadas (son globales, no dependen de la
+  configuración del gym). Tocar "Marcar" en un hito → checkmark, barra de
+  progreso actualizada (0/5 → 1/5), "Siguiente" recalculado. Funciona.
+- **Progreso → Marcas personales**: vacío con el mensaje correcto ("El
+  administrador debe configurar la biblioteca de movimientos") — no
+  configuramos movimientos para este gym en el Objetivo 1, comportamiento
+  esperado, no un bug.
+- **Perfil → Mi Plan**: muestra el plan activo (Trial, "30 días
+  restantes", "Vence 12 de noviembre" — consistente, sin el off-by-one
+  que sí aparece en el dashboard admin web), catálogo de "Planes
+  disponibles" con la duración real de cada uno, e historial de pagos.
+  **No se probó "Contratar plan"** (dispara un checkout real de pasarela;
+  no confirmamos todavía si las pasarelas de este gym están en modo
+  live o test — ver pendiente abajo).
+- **Registrar resultado de WOD** (`MemberWodScreen.tsx`, "Ver pizarra" →
+  "Registrar mi resultado"): sí existe para el alumno, no es solo de
+  coach como se pensó en una pasada anterior de esta prueba. Probado en
+  vivo — categoría RX, 120 reps → guarda, aparece "Mi resultado: 120
+  (RX)" y el contador de resultados pasa a 1.
+
+### Pendiente de Objetivo 2 (requiere a Cristian o datos que no tengo)
+
+- **Flujo de pago real**: falta que Cristian confirme si las pasarelas de
+  `prueba4` están en modo live o test antes de tocar "Contratar plan" o
+  cualquier checkout real.
+- **App del coach**: sin probar — no tengo las credenciales del coach
+  creado en el Objetivo 1.
+- **Leaderboard**: no se encontró esa feature en la navegación del
+  alumno — probablemente no existe todavía (no es un bug, revisar si
+  está en el roadmap antes de buscarla de nuevo).
+
+**Objetivo 2 completo** para lo que es seguro probar sin Cristian
+presente (sin pagos reales, sin credenciales de coach).
+
+### Hallazgo H-PROD-MOBILE-01 — "Mi próxima clase" quedaba con datos viejos — **CORREGIDO** (PR #101, pendiente de merge)
+
+`HomeScreen.tsx` solo hacía `fetchData()` en el mount inicial. Las tabs de
+React Navigation no se desmontan al cambiar de tab, así que el flujo real
+de un alumno — reservar una clase desde "Clases" y volver a "Inicio" — la
+tarjeta "Mi próxima clase" seguía mostrando "No tienes clases reservadas"
+con el estado de la primera vez que se montó la pantalla.
+
+**Fix**: `useFocusEffect(useCallback(() => { fetchData() }, []))`, mismo
+patrón que ya usan las pantallas admin (`StaffScreen.tsx`, etc.) — solo
+faltaba en la pantalla del alumno.
+
+**Verificado en vivo** en emulador Android contra producción: login como
+`alumno1` → reservar Halterofilia desde Clases → volver a Inicio → "Mi
+próxima clase" ahora muestra "HOY 18:00 · Halterofilia · Reservado ✓".
+`pnpm typecheck` limpio. Sin test automatizado — no hay infraestructura de
+tests de componentes RN en el repo todavía.
