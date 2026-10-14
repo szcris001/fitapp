@@ -118,7 +118,7 @@ export async function renewMembership(gymId: string, userId: string) {
   if (!lastMembership) throw new Error('No hay membresía previa para renovar')
 
   // Renovar antes del vencimiento no hace perder los días que quedaban
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId, lastMembership.plan.durationDays)
+  const { startsAt, endsAt } = await nextMembershipPeriod(gymId, userId, lastMembership.plan.durationDays)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },

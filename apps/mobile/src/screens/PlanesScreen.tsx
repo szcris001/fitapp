@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuthStore } from '../store/auth.store'
 import api, { API_BASE } from '../lib/api'
 import { toMajorUnits } from '../lib/money'
+import { daysUntilLocal } from '../lib/membership-days'
 import { BottomSheet } from '../components/BottomSheet'
 
 const METHOD_LABEL: Record<string, string> = {
@@ -434,9 +435,7 @@ export default function PlanesScreen({ navigation }: { navigation?: any }) {
   }, [])
 
   const activeMembership = memberships.find(m => m.status === 'ACTIVE' || m.status === 'TRIAL')
-  const daysLeft = activeMembership
-    ? Math.ceil((new Date(activeMembership.endsAt).getTime() - Date.now()) / 86_400_000)
-    : null
+  const daysLeft = activeMembership ? daysUntilLocal(activeMembership.endsAt) : null
 
   if (loading) {
     return (

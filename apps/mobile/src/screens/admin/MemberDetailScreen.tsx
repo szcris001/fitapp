@@ -6,6 +6,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native'
 import { useAuthStore } from '../../store/auth.store'
 import api from '../../lib/api'
+import { daysUntilLocal } from '../../lib/membership-days'
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: '#22c55e', TRIAL: '#f59e0b', EXPIRED: '#ef4444', INACTIVE: '#6b7280',
@@ -67,9 +68,7 @@ export default function MemberDetailScreen({ route, navigation }: any) {
   const membershipStatus = activeMembership
     ? (new Date(activeMembership.endsAt) > new Date() ? activeMembership.status : 'EXPIRED')
     : 'INACTIVE'
-  const daysLeft = activeMembership?.endsAt
-    ? Math.ceil((new Date(activeMembership.endsAt).getTime() - Date.now()) / 86400000)
-    : null
+  const daysLeft = activeMembership?.endsAt ? daysUntilLocal(activeMembership.endsAt) : null
 
   const bestRms: Record<string, any> = {}
   for (const rm of rms) {

@@ -37,7 +37,7 @@ async function activateMembership(userId: string, planId: string, paymentMethod:
   const plan = await prisma.plan.findUnique({ where: { id: planId } })
   if (!plan) throw new Error('Plan no encontrado')
 
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId, plan.durationDays)
+  const { startsAt, endsAt } = await nextMembershipPeriod(plan.gymId, userId, plan.durationDays)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -1060,7 +1060,7 @@ export async function registerManualPayment(
   const plan = await getPlan(planId, gymId)
   const gym = await getGym(gymId)
 
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId, plan.durationDays)
+  const { startsAt, endsAt } = await nextMembershipPeriod(gymId, userId, plan.durationDays)
 
   await prisma.membership.updateMany({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] } },
@@ -1165,7 +1165,7 @@ export async function submitTransferReceipt(gymId: string, userId: string, planI
 
   // La membresía vigente sigue activa mientras el admin revisa el comprobante: si se
   // rechaza, el alumno no pierde su plan. El período real se calcula al confirmar.
-  const { startsAt, endsAt } = await nextMembershipPeriod(userId, plan.durationDays)
+  const { startsAt, endsAt } = await nextMembershipPeriod(gymId, userId, plan.durationDays)
 
   return prisma.membership.create({
     data: {
@@ -1205,7 +1205,7 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
   if (membership.transferStatus !== 'PENDING_REVIEW') throw new Error('Esta transferencia ya fue procesada')
 
   // Extiende desde la membresía vigente (si la hay) y la reemplaza, igual que los otros medios de pago
-  const { startsAt, endsAt } = await nextMembershipPeriod(membership.userId, membership.plan.durationDays, { excludeId: membershipId })
+  const { startsAt, endsAt } = await nextMembershipPeriod(gymId, membership.userId, membership.plan.durationDays, { excludeId: membershipId })
   const [, updated] = await prisma.$transaction([
     prisma.membership.updateMany({
       where: { userId: membership.userId, id: { not: membershipId }, status: { in: ['ACTIVE', 'TRIAL'] } },

@@ -30,3 +30,19 @@ export function gymLocalToIso(day: string, hhmm: string, timezone: string = GYM_
   }
   return new Date(t).toISOString()
 }
+
+/**
+ * Días calendario que faltan hasta `target`, contados en la zona del gym (no la del
+ * navegador). Restar milisegundos y dividir por 86 400 000 (como antes) se corre 1 día
+ * cada vez que el período cruza un cambio de horario — real en Chile, o el de la TZ
+ * donde corra el proceso si `nextMembershipPeriod` no estuviera fijado a la del gym.
+ * Contar días calendario en vez de milisegundos es inmune a ambos casos (hallazgo QA
+ * 2026-10-14, "31d restantes" en vez de "30d").
+ */
+export function daysUntilGymLocal(target: Date | string, timezone: string = GYM_TIMEZONE): number {
+  const toLocalUtcMidnight = (d: Date) => {
+    const [y, m, day] = d.toLocaleDateString('sv', { timeZone: timezone }).split('-').map(Number)
+    return Date.UTC(y, m - 1, day)
+  }
+  return Math.round((toLocalUtcMidnight(new Date(target)) - toLocalUtcMidnight(new Date())) / 86_400_000)
+}
