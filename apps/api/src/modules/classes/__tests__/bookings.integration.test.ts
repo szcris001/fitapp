@@ -1195,6 +1195,24 @@ describe('assignUserToClass: coach incorpora alumnos', () => {
     createdClassIds.splice(createdClassIds.indexOf(overlapClass), 1)
     await prisma.classType.delete({ where: { id: otherType.id } })
   })
+
+  it('alumno sin membresía activa → bloqueado también cuando asigna el coach (QA H-PROD-MOBILE-02)', async () => {
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const noMember = await prisma.user.create({
+      data: { gymId: gymAId, name: 'No Member Assign', email: 'qa-bookings-assign-no-member@test.local', passwordHash, role: 'MEMBER' },
+    })
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(9) })
+    createdClassIds.push(classId)
+
+    try {
+      await expect(
+        assignUserToClass(gymAId, noMember.id, classId)
+      ).rejects.toThrow('El alumno no tiene una membresía activa')
+    } finally {
+      await prisma.booking.deleteMany({ where: { classId } })
+      await prisma.user.delete({ where: { id: noMember.id } })
+    }
+  })
 })
 
 // ─── Suite 13: confirmWaitlistBooking ─────────────────────────────────────────
