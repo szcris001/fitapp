@@ -9,6 +9,7 @@ function ResetPasswordForm() {
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
+  const [doneRole, setDoneRole] = useState<string | null>(null)
   const [error, setError] = useState('')
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -25,7 +26,8 @@ function ResetPasswordForm() {
     setLoading(true)
     setError('')
     try {
-      await api.post('/auth/reset-password', { token, password })
+      const res = await api.post('/auth/reset-password', { token, password })
+      setDoneRole(res.data?.role ?? null)
       setDone(true)
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al restablecer la contraseña')
@@ -64,14 +66,26 @@ function ResetPasswordForm() {
               <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto">
                 <CheckCircle className="w-7 h-7 text-green-600" />
               </div>
-              <div>
-                <p className="font-semibold text-slate-900">Contraseña actualizada</p>
-                <p className="text-sm text-slate-500 mt-1">Ya puedes iniciar sesión con tu nueva contraseña.</p>
-              </div>
-              <button onClick={() => router.push('/login')}
-                className="w-full btn-brand py-2.5 rounded-lg text-sm font-medium">
-                Ir al login
-              </button>
+              {doneRole === 'MEMBER' ? (
+                <div>
+                  <p className="font-semibold text-slate-900">Contraseña actualizada</p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Esta cuenta es de alumno: no se ingresa desde esta página web.
+                    Abrí la app de tu gimnasio en tu celular e iniciá sesión con tu contraseña nueva.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <p className="font-semibold text-slate-900">Contraseña actualizada</p>
+                    <p className="text-sm text-slate-500 mt-1">Ya puedes iniciar sesión con tu nueva contraseña.</p>
+                  </div>
+                  <button onClick={() => router.push('/login')}
+                    className="w-full btn-brand py-2.5 rounded-lg text-sm font-medium">
+                    Ir al login
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
