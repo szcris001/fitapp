@@ -5,10 +5,12 @@ import {
   KeyboardAvoidingView, Platform, SectionList,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useNavigation } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../theme/ThemeContext'
 import api from '../lib/api'
 import { BottomSheet } from '../components/BottomSheet'
+import { useAuthStore } from '../store/auth.store'
 
 // ── Orden de categorías estándar CF ──────────────────────────────────────────
 const CAT_OLYMPIC = 'Levantamiento olímpico'
@@ -62,8 +64,10 @@ export default function ProgressScreen() {
   const { theme } = useTheme()
   const c = theme.colors
   const insets = useSafeAreaInsets()
+  const navigation = useNavigation<any>()
+  const { user } = useAuthStore()
 
-  const [activeTab, setActiveTab] = useState<'marcas' | 'gimnasia'>('marcas')
+  const [activeTab, setActiveTab] = useState<'marcas' | 'gimnasia' | 'resultados'>('marcas')
   const [loading, setLoading] = useState(true)
 
   // Marcas personales
@@ -73,6 +77,9 @@ export default function ProgressScreen() {
   // Gimnasia
   const [skills, setSkills] = useState<any[]>([])
   const [achievedMap, setAchievedMap] = useState<Record<string, string[]>>({})
+
+  // Resultados de WOD (pizarra del día)
+  const [wodResults, setWodResults] = useState<any[]>([])
 
   // Modal agregar RM — dos pasos: 'pick' (elegir movimiento) → 'weight' (ingresar peso)
   const [showAddRM, setShowAddRM] = useState(false)
@@ -89,15 +96,17 @@ export default function ProgressScreen() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [rmsRes, skillsRes, progressRes, gymRes] = await Promise.all([
+      const [rmsRes, skillsRes, progressRes, gymRes, wodResultsRes] = await Promise.all([
         api.get('/rms/me'),
         api.get('/skills'),
         api.get('/gymnastic-progress/me'),
         api.get('/gyms/me'),
+        api.get('/wod-results/me'),
       ])
 
       setRms(rmsRes.data || [])
       setSkills(skillsRes.data || [])
+      setWodResults(wodResultsRes.data || [])
 
       const achieved: Record<string, string[]> = {}
       for (const p of (progressRes.data || [])) {
@@ -245,14 +254,14 @@ export default function ProgressScreen() {
 
       {/* Tabs */}
       <View style={s.tabRow}>
-        {(['marcas', 'gimnasia'] as const).map(tab => (
+        {(['marcas', 'gimnasia', 'resultados'] as const).map(tab => (
           <TouchableOpacity
             key={tab}
             style={[s.tabPill, activeTab === tab && { backgroundColor: c.primary }]}
             onPress={() => setActiveTab(tab)}
           >
             <Text style={[s.tabPillText, { color: activeTab === tab ? '#fff' : c.text3 }]}>
-              {tab === 'marcas' ? 'Marcas personales' : 'Gimnasia'}
+              {tab === 'marcas' ? 'Marcas personales' : tab === 'gimnasia' ? 'Gimnasia' : 'Resultados'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -408,6 +417,76 @@ export default function ProgressScreen() {
               </View>
             )
           })}
+        </ScrollView>
+      )}
+
+      {/* ── TAB: RESULTADOS (pizarra de WODs) ── */}
+      {activeTab === 'resultados' && (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {wodResults.length === 0 ? (
+            <View style={s.emptyWrap}>
+              <Text style={s.emptyIcon}>🏆</Text>
+              <Text style={[s.emptyTitle, { color: c.text1 }]}>Sin resultados registrados</Text>
+              <Text style={[s.emptySub, { color: c.text3 }]}>
+                Tus resultados del WOD del día van a aparecer aquí, con tu puesto entre los demás alumnos
+              </Text>
+            </View>
+          ) : (
+            <View style={[s.catCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+              {wodResults.map((r, i) => {
+                const canOpen = user?.role === 'MEMBER'
+                const content = (
+                  <View
+                    style={[
+                      s.rmRow,
+                      { borderTopColor: c.border },
+                      i > 0 && { borderTopWidth: StyleSheet.hairlineWidth },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.rmName, { color: c.text1 }]}>{r.wodTitle || r.classTypeName}</Text>
+                      <Text style={[s.rmDate, { color: c.text3 }]}>
+                        {r.classTypeName} · {new Date(r.wodDate).toLocaleDateString('es-CL', {
+                          day: 'numeric', month: 'short', year: 'numeric',
+                        })}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                      <Text style={[s.rmWeight, { color: c.primary, fontSize: 18 }]}>{r.scoreFormatted}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {r.rank != null && (
+                          <View style={[s.improveBadge, { backgroundColor: r.rank === 1 ? c.success + '20' : c.primary + '15' }]}>
+                            <Text style={[s.improveText, { color: r.rank === 1 ? c.success : c.primary }]}>
+                              #{r.rank} de {r.totalInCategory} {r.rx ? 'RX' : 'Scaled'}
+                            </Text>
+                          </View>
+                        )}
+                        {canOpen && <Ionicons name="chevron-forward" size={14} color={c.text3} />}
+                      </View>
+                    </View>
+                  </View>
+                )
+                return canOpen ? (
+                  <TouchableOpacity
+                    key={r.id}
+                    activeOpacity={0.7}
+                    onPress={() => navigation.navigate('Home', {
+                      screen: 'MemberWod',
+                      params: { wodId: r.wodId, wodTitle: r.wodTitle, wodDate: r.wodDate },
+                    })}
+                  >
+                    {content}
+                  </TouchableOpacity>
+                ) : (
+                  <View key={r.id}>{content}</View>
+                )
+              })}
+            </View>
+          )}
         </ScrollView>
       )}
 

@@ -26,6 +26,18 @@ function formatScore(score: number, scoreText: string | null, scoreType: string)
   return String(score)
 }
 
+async function computeRank(wodId: string, scoreType: string, rx: boolean, score: number) {
+  if (scoreType === 'CUSTOM') return { rank: null, totalInCategory: null }
+  const isAscending = scoreType === 'TIME'
+  const [better, total] = await Promise.all([
+    prisma.wodResult.count({
+      where: { wodId, rx, score: isAscending ? { lt: score } : { gt: score } },
+    }),
+    prisma.wodResult.count({ where: { wodId, rx } }),
+  ])
+  return { rank: better + 1, totalInCategory: total }
+}
+
 function toFloat(v: any) { return v != null && v !== '' ? Number(v) : null }
 
 function sanitizeMovement(m: any, order: number) {
@@ -335,6 +347,40 @@ export async function wodRoutes(app: FastifyInstance) {
     })
   })
 
+  // ─── RESULTS: GET historial propio (todos los WODs) ──────────────────────────
+  app.get('/wod-results/me', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user as AuthUser
+
+    const results = await prisma.wodResult.findMany({
+      where: { userId: user.userId, gymId: user.gymId },
+      orderBy: { wod: { date: 'desc' } },
+      take: 50,
+      include: {
+        wod: { select: { id: true, title: true, date: true, scoreType: true, classType: { select: { name: true } } } },
+      },
+    })
+
+    const withRank = await Promise.all(results.map(async (r) => {
+      const { wod } = r
+      const { rank, totalInCategory } = await computeRank(wod.id, wod.scoreType, r.rx, r.score)
+      return {
+        id: r.id,
+        wodId: wod.id,
+        wodTitle: wod.title,
+        wodDate: wod.date,
+        classTypeName: wod.classType.name,
+        score: r.score,
+        scoreText: r.scoreText,
+        scoreFormatted: formatScore(r.score, r.scoreText, wod.scoreType),
+        rx: r.rx,
+        rank,
+        totalInCategory,
+      }
+    }))
+
+    return reply.send(withRank)
+  })
+
   // ─── RESULTS: GET /me (miembro ve su propio resultado) ──────────────────────
   app.get('/wods/:id/results/me', { preHandler: [authenticate] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user as AuthUser
@@ -350,7 +396,8 @@ export async function wodRoutes(app: FastifyInstance) {
     if (!result) return reply.status(200).send(null)
 
     const scoreFormatted = formatScore(result.score, result.scoreText, wod.scoreType)
-    return reply.send({ ...result, scoreFormatted })
+    const { rank, totalInCategory } = await computeRank(wodId, wod.scoreType, result.rx, result.score)
+    return reply.send({ ...result, scoreFormatted, rank, totalInCategory })
   })
 
   // ─── RESULTS: POST /me (miembro registra su propio resultado) ────────────────

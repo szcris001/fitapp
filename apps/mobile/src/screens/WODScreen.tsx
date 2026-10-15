@@ -55,7 +55,7 @@ interface Wod {
 
 interface LeaderboardEntry {
   rank: number
-  category: 'RX' | 'SCALED'
+  category: 'rx' | 'scaled'
   userId: string
   user: { id?: string; name: string; avatarUrl?: string }
   score: number
@@ -206,8 +206,8 @@ function LeaderboardSection({
   currentUserId?: string
   c: any
 }) {
-  const rxEntries = data.entries.filter(e => e.category === 'RX')
-  const scaledEntries = data.entries.filter(e => e.category === 'SCALED')
+  const rxEntries = data.entries.filter(e => e.rx)
+  const scaledEntries = data.entries.filter(e => !e.rx)
 
   const PREVIEW = 5
   const rxVisible = expanded ? rxEntries : rxEntries.slice(0, PREVIEW)

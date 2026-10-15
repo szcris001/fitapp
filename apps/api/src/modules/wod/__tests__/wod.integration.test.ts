@@ -1322,13 +1322,16 @@ describe('WOD: resultados usan el userId del JWT', () => {
     expect(body.recordedBy).toBe(memberAId)
   })
 
-  it('GET /wods/:id/results/me → devuelve el resultado propio', async () => {
+  it('GET /wods/:id/results/me → devuelve el resultado propio con su rank', async () => {
     const res = await app.inject({
       method: 'GET', url: `/api/wods/${wodId}/results/me`,
       headers: { authorization: `Bearer ${memberAToken}` },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json().userId).toBe(memberAId)
+    const body = res.json()
+    expect(body.userId).toBe(memberAId)
+    expect(body.rank).toBe(1)
+    expect(body.totalInCategory).toBe(1)
   })
 
   it('POST /wods/:id/results (coach) → recordedBy es el coach', async () => {
@@ -1339,6 +1342,78 @@ describe('WOD: resultados usan el userId del JWT', () => {
     })
     expect(res.statusCode).toBe(201)
     expect(res.json().recordedBy).toBe(coachAId)
+  })
+})
+
+// ─── Suite: historial propio de resultados (Progreso del alumno) ─────────────
+
+describe('WOD: GET /api/wod-results/me — historial propio', () => {
+  let app: FastifyInstance
+  let wodTimeId: string
+  let wodRepsId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const wodTime = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId: classTypeAId, title: 'Fran-like', date: new Date(), scoreType: 'TIME' },
+    })
+    wodTimeId = wodTime.id
+    createdWodIds.push(wodTimeId)
+
+    const wodReps = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId: classTypeAId, title: 'AMRAP reps', date: new Date(), scoreType: 'REPS' },
+    })
+    wodRepsId = wodReps.id
+    createdWodIds.push(wodRepsId)
+
+    // memberA: 180s (mejor que coachA en TIME, donde menor es mejor)
+    await prisma.wodResult.create({
+      data: { gymId: gymAId, wodId: wodTimeId, userId: memberAId, score: 180, rx: true, recordedBy: memberAId },
+    })
+    await prisma.wodResult.create({
+      data: { gymId: gymAId, wodId: wodTimeId, userId: coachAId, score: 240, rx: true, recordedBy: coachAId },
+    })
+    // memberA: 100 reps (peor que coachA en REPS, donde mayor es mejor)
+    await prisma.wodResult.create({
+      data: { gymId: gymAId, wodId: wodRepsId, userId: memberAId, score: 100, rx: false, recordedBy: memberAId },
+    })
+    await prisma.wodResult.create({
+      data: { gymId: gymAId, wodId: wodRepsId, userId: coachAId, score: 150, rx: false, recordedBy: coachAId },
+    })
+  })
+
+  afterAll(async () => {
+    await prisma.wodResult.deleteMany({ where: { wodId: { in: [wodTimeId, wodRepsId] } } })
+    await app.close()
+  })
+
+  it('devuelve solo los resultados del usuario autenticado, con rank calculado por tipo de score', async () => {
+    const res = await app.inject({
+      method: 'GET', url: '/api/wod-results/me',
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as any[]
+    expect(body.every(r => r.wodId !== undefined)).toBe(true)
+
+    const timeEntry = body.find(r => r.wodId === wodTimeId)
+    expect(timeEntry.rank).toBe(1) // 180s < 240s, TIME es ascendente
+    expect(timeEntry.totalInCategory).toBe(2)
+    expect(timeEntry.classTypeName).toBe('CrossFit QA')
+
+    const repsEntry = body.find(r => r.wodId === wodRepsId)
+    expect(repsEntry.rank).toBe(2) // 100 reps < 150 reps, REPS es descendente
+    expect(repsEntry.totalInCategory).toBe(2)
+  })
+
+  it('no devuelve resultados de otro usuario', async () => {
+    const res = await app.inject({
+      method: 'GET', url: '/api/wod-results/me',
+      headers: { authorization: `Bearer ${coachAToken}` },
+    })
+    const body = res.json() as any[]
+    expect(body.some(r => r.wodId === wodTimeId)).toBe(true)
+    expect(body.find(r => r.wodId === wodTimeId)?.rank).toBe(2) // coachA: 240s, peor que memberA
   })
 })
 
