@@ -4,6 +4,7 @@ import {
   View,
   Text,
   TouchableWithoutFeedback,
+  TouchableOpacity,
   Animated,
   Platform,
   Dimensions,
@@ -11,6 +12,7 @@ import {
   ScrollView,
   type DimensionValue,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../theme/ThemeContext'
 
 interface Props {
@@ -83,12 +85,23 @@ export function BottomSheet({ visible, onClose, title, children, scrollable, max
             <View style={[s.handle, { backgroundColor: c.primary + '60' }]} />
           </View>
 
-          {/* Title */}
-          {title ? (
-            <Text style={[s.title, { color: c.text1, borderBottomColor: c.border }]}>
-              {title}
-            </Text>
-          ) : null}
+          {/* Título + botón cerrar — siempre visible: la franja del fondo para
+              cerrar tocando afuera puede quedar mínima (o tapada por el
+              teclado) y en iOS no hay botón atrás que la reemplace. */}
+          <View style={[s.titleRow, title ? { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth } : null]}>
+            {title ? (
+              <Text style={[s.title, { color: c.text1 }]} numberOfLines={1}>
+                {title}
+              </Text>
+            ) : <View style={{ flex: 1 }} />}
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={[s.closeBtn, { backgroundColor: c.border }]}
+            >
+              <Ionicons name="close" size={16} color={c.text2} />
+            </TouchableOpacity>
+          </View>
 
           {/* Content */}
           {scrollable ? (
@@ -140,11 +153,24 @@ const s = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  title: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
   },
 })
