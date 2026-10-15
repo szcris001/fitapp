@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import api from '../../lib/api'
+import { localDateStr } from '../../lib/date'
 
 const STATUS_LABEL: Record<string, string> = {
   CONFIRMED: 'Confirmado',
@@ -159,6 +160,46 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
         </View>
       </View>
 
+      {/* Pizarra del día — WOD de este tipo de clase, enlazado directo desde acá */}
+      {(() => {
+        const wod = cls.wods?.[0] || null
+        return (
+        <View style={styles.wodCard}>
+          {wod ? (
+            <>
+              <TouchableOpacity
+                style={styles.wodInfo}
+                onPress={() => navigation.navigate('AdminWOD', { screen: 'CreateWod', params: { wodId: wod.id } })}
+              >
+                <Text style={styles.wodLabel}>PIZARRA DEL DÍA</Text>
+                <Text style={styles.wodTitle}>{wod.title || 'Sin título'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.wodResultsBtn}
+                onPress={() => navigation.navigate('AdminWOD', {
+                  screen: 'WodResults',
+                  params: { wodId: wod.id, wodTitle: wod.title, classTypeName: cls.classType?.name, wodDate: wod.date },
+                })}
+              >
+                <Text style={styles.wodResultsBtnText}>📊 Cargar resultados</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.wodEmptyRow}
+              onPress={() => navigation.navigate('AdminWOD', {
+                screen: 'CreateWod',
+                params: { classTypeId: cls.classTypeId, date: localDateStr(startsAt) },
+              })}
+            >
+              <Text style={styles.wodLabel}>Sin WOD programado para esta clase</Text>
+              <Text style={styles.wodCreateText}>+ Crear WOD</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        )
+      })()}
+
       {/* Indicador del modo de asistencia */}
       {attendanceMode !== 'manual' && (
         <View style={{ marginHorizontal: 20, marginBottom: 12, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#1e1b4b', borderRadius: 10, borderWidth: 1, borderColor: '#4338ca' }}>
@@ -292,6 +333,20 @@ const styles = StyleSheet.create({
   statNum: { fontSize: 22, fontWeight: '800', color: '#6366f1' },
   statLbl: { fontSize: 11, color: '#6b7280', fontWeight: '600', marginTop: 2 },
   statDivider: { width: 1, height: 32, backgroundColor: '#1f2937' },
+  wodCard: {
+    marginHorizontal: 24, marginBottom: 16, backgroundColor: '#111827', borderRadius: 14,
+    borderWidth: 1, borderColor: '#1f2937', padding: 14, gap: 10,
+  },
+  wodInfo: { gap: 2 },
+  wodLabel: { color: '#6b7280', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  wodTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  wodResultsBtn: {
+    borderRadius: 12, paddingVertical: 11, alignItems: 'center',
+    borderWidth: 1, borderColor: '#22c55e60', backgroundColor: '#22c55e15',
+  },
+  wodResultsBtnText: { color: '#4ade80', fontWeight: '700', fontSize: 13 },
+  wodEmptyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  wodCreateText: { color: '#6366f1', fontWeight: '700', fontSize: 13 },
   assignBtn: { marginHorizontal: 24, backgroundColor: '#6366f1', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 24 },
   assignBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   sectionTitle: { fontSize: 13, color: '#6b7280', fontWeight: '700', paddingHorizontal: 24, marginBottom: 8, letterSpacing: 0.5, textTransform: 'uppercase' },

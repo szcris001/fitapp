@@ -27,16 +27,26 @@ const emptyMovement = (): Movement => ({
 
 const emptyBlock = (): Block => ({ title: '', timecap: '', movements: [emptyMovement()] })
 
+const SCORE_TYPES: { value: string; label: string; hint: string }[] = [
+  { value: 'REPS',   label: 'Reps / Puntos', hint: 'Gana quien hace más' },
+  { value: 'TIME',   label: 'Tiempo',         hint: 'Gana quien termina más rápido' },
+  { value: 'WEIGHT', label: 'Peso',           hint: 'Gana quien levanta más' },
+  { value: 'ROUNDS', label: 'Rondas',         hint: 'Gana quien completa más rondas' },
+  { value: 'CUSTOM', label: 'Libre',          hint: 'Sin ranking automático' },
+]
+
 export default function CreateWodScreen({ route, navigation }: any) {
-  const { wodId } = route.params || {}
+  const { wodId, classTypeId: initialClassTypeId, date: initialDate } = route.params || {}
   const isEdit = !!wodId
   const [classTypes, setClassTypes] = useState<any[]>([])
-  const [selectedClassTypeId, setSelectedClassTypeId] = useState('')
-  const [form, setForm] = useState({ title: '', date: '' })
+  const [selectedClassTypeId, setSelectedClassTypeId] = useState(initialClassTypeId || '')
+  const [scoreType, setScoreType] = useState('REPS')
+  const [form, setForm] = useState({ title: '', date: initialDate || '' })
   const [blocks, setBlocks] = useState<Block[]>([emptyBlock()])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showTypePicker, setShowTypePicker] = useState(false)
+  const [showScorePicker, setShowScorePicker] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
@@ -50,6 +60,7 @@ export default function CreateWodScreen({ route, navigation }: any) {
         const wod = wodsRes.data.find((w: any) => w.id === wodId)
         if (wod) {
           setSelectedClassTypeId(wod.classTypeId)
+          setScoreType(wod.scoreType || 'REPS')
           setForm({ title: wod.title || '', date: wod.date?.split('T')[0] || '' })
           if (wod.blocks?.length) {
             setBlocks(wod.blocks.map((b: any) => ({
@@ -121,6 +132,7 @@ export default function CreateWodScreen({ route, navigation }: any) {
       classTypeId: selectedClassTypeId,
       title: form.title || null,
       date: form.date,
+      scoreType,
       blocks: blocksPayload,
     }
 
@@ -139,6 +151,7 @@ export default function CreateWodScreen({ route, navigation }: any) {
   }
 
   const selectedType = classTypes.find(ct => ct.id === selectedClassTypeId)
+  const selectedScoreType = SCORE_TYPES.find(s => s.value === scoreType)!
 
   if (loading) return <View style={s.center}><ActivityIndicator color="#6366f1" size={36} /></View>
 
@@ -176,6 +189,24 @@ export default function CreateWodScreen({ route, navigation }: any) {
           style={s.input} placeholder="2026-05-21" placeholderTextColor="#4b5563"
           value={form.date} onChangeText={v => setForm(f => ({ ...f, date: v }))}
         />
+
+        <Text style={s.label}>Cómo se mide el resultado *</Text>
+        <TouchableOpacity style={s.picker} onPress={() => setShowScorePicker(true)}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.pickerText}>{selectedScoreType.label}</Text>
+            <Text style={s.scoreHint}>{selectedScoreType.hint}</Text>
+          </View>
+          <Text style={s.pickerArrow}>▾</Text>
+        </TouchableOpacity>
+
+        {isEdit && (
+          <TouchableOpacity
+            style={s.resultsBtn}
+            onPress={() => navigation.navigate('WodResults', { wodId })}
+          >
+            <Text style={s.resultsBtnText}>📊 Ver / cargar resultados</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {blocks.map((block, bi) => (
@@ -293,6 +324,28 @@ export default function CreateWodScreen({ route, navigation }: any) {
           ))}
         </View>
       </BottomSheet>
+
+      <BottomSheet
+        visible={showScorePicker}
+        onClose={() => setShowScorePicker(false)}
+        title="Cómo se mide el resultado"
+      >
+        <View style={{ paddingHorizontal: 24 }}>
+          {SCORE_TYPES.map(st => (
+            <TouchableOpacity
+              key={st.value}
+              style={s.sheetItem}
+              onPress={() => { setScoreType(st.value); setShowScorePicker(false) }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.sheetItemText}>{st.label}</Text>
+                <Text style={s.scoreHint}>{st.hint}</Text>
+              </View>
+              {scoreType === st.value && <Text style={{ color: '#6366f1', fontWeight: '800' }}>✓</Text>}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </BottomSheet>
     </ScrollView>
   )
 }
@@ -321,6 +374,12 @@ const s = StyleSheet.create({
   pickerPlaceholder: { color: '#4b5563', fontSize: 15 },
   pickerArrow: { color: '#6b7280' },
   dot: { width: 10, height: 10, borderRadius: 5 },
+  scoreHint: { color: '#6b7280', fontSize: 12, marginTop: 2 },
+  resultsBtn: {
+    marginTop: 16, borderRadius: 12, paddingVertical: 13, alignItems: 'center',
+    borderWidth: 1, borderColor: '#22c55e60', backgroundColor: '#22c55e15',
+  },
+  resultsBtnText: { color: '#4ade80', fontWeight: '700', fontSize: 14 },
   blockCard: {
     marginHorizontal: 24, marginTop: 16, backgroundColor: '#0f172a', borderRadius: 16,
     padding: 16, borderWidth: 1, borderColor: '#1e3a5f'

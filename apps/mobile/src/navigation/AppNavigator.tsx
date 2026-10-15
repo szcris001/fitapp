@@ -32,6 +32,7 @@ import CreateMemberScreen from '../screens/admin/CreateMemberScreen'
 import AssignMembershipScreen from '../screens/admin/AssignMembershipScreen'
 import WodManagementScreen from '../screens/admin/WodManagementScreen'
 import CreateWodScreen from '../screens/admin/CreateWodScreen'
+import WodResultsScreen from '../screens/admin/WodResultsScreen'
 import StaffProfileScreen from '../screens/admin/StaffProfileScreen'
 import AIAlertsScreen from '../screens/admin/AIAlertsScreen'
 import QRScannerScreen from '../screens/admin/QRScannerScreen'
@@ -690,6 +691,7 @@ function WodStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="WodList" component={WodManagementScreen} />
       <Stack.Screen name="CreateWod" component={CreateWodScreen} />
+      <Stack.Screen name="WodResults" component={WodResultsScreen} />
     </Stack.Navigator>
   )
 }
