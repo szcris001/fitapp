@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import * as Notifications from 'expo-notifications'
+import { isRunningInExpoGo } from 'expo'
 import { Platform } from 'react-native'
 import api, { loadMediaToken, setMediaToken } from '../lib/api'
 
@@ -25,7 +25,11 @@ interface AuthState {
 }
 
 async function registerPushToken() {
+  // Expo Go no soporta push notifications desde el SDK 53 — solo *importar*
+  // expo-notifications revienta ahí (ver App.tsx), así que ni se intenta.
+  if (isRunningInExpoGo()) return
   try {
+    const Notifications = await import('expo-notifications')
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'default',
