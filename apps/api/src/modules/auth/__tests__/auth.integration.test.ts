@@ -762,6 +762,8 @@ describe('Auth Integration — lockout por intentos fallidos', () => {
       payload: { token: resetToken!.token, password: newPassword },
     })
     expect(resetRes.statusCode).toBe(200)
+    // La web usa esto para no mandar a un alumno a /login (ver reset-password/page.tsx)
+    expect(resetRes.json().role).toBe('MEMBER')
 
     // Seguiría bloqueado si el reset no limpiara el lockout
     const loginRes = await app.inject({

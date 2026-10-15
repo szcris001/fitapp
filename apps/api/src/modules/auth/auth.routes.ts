@@ -184,8 +184,8 @@ export async function authRoutes(app: FastifyInstance) {
     const parsed = resetSchema.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
-      await resetPassword(parsed.data.token, parsed.data.password)
-      return reply.send({ message: 'Contraseña actualizada correctamente' })
+      const { role } = await resetPassword(parsed.data.token, parsed.data.password)
+      return reply.send({ message: 'Contraseña actualizada correctamente', role })
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }

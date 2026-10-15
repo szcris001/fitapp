@@ -279,4 +279,9 @@ export async function resetPassword(token: string, newPassword: string) {
     const gym = await prisma.gym.findUnique({ where: { id: record.user.gymId }, select: { slug: true } })
     if (gym) await clearLoginAttempts(`${gym.slug}:${record.user.email.toLowerCase()}`)
   }
+
+  // El panel web es solo para staff — el frontend lo usa para no mandar a un
+  // alumno a /login después de resetear (ahí igual lo rechaza, pero recién
+  // después de intentar entrar; mejor decírselo de una)
+  return { role: record.user.role }
 }
