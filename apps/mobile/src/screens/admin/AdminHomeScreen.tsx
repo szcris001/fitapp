@@ -313,7 +313,7 @@ export default function AdminHomeScreen({ navigation }: any) {
 function makeStyles(c: any) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
-    bgOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,8,12,0.72)' },
+    bgOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(8,8,12,0.72)' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.background },
     gymHeader: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

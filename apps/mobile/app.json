@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#080808"
-    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -70,7 +65,17 @@
           "androidMode": "default",
           "androidCollapsedTitle": "FitApp"
         }
-      ]
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#080808"
+        }
+      ],
+      "expo-status-bar",
+      "expo-font"
     ]
   }
 }
