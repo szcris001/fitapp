@@ -8,7 +8,8 @@ import {
 import { SvgUri } from 'react-native-svg'
 import { WebView } from 'react-native-webview'
 import { useAuthStore } from '../store/auth.store'
-import { API_BASE } from '../lib/api'
+import api, { API_BASE } from '../lib/api'
+import { BottomSheet } from '../components/BottomSheet'
 
 const { width } = Dimensions.get('window')
 
@@ -74,6 +75,13 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const { login, isLoading } = useAuthStore()
+
+  // ── Recuperar contraseña ──────────────────────────────────────────────────
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotGymSlug, setForgotGymSlug] = useState('')
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotSent, setForgotSent] = useState(false)
 
   // Fondos
   const [heroImages, setHeroImages] = useState<string[]>(HERO_IMAGES_DEFAULT)
@@ -176,6 +184,32 @@ export default function LoginScreen() {
       await login(gymSlug, email, password)
     } catch (err: any) {
       Alert.alert('Acceso denegado', err.response?.data?.error || 'Credenciales incorrectas')
+    }
+  }
+
+  const openForgot = () => {
+    setForgotGymSlug(gymSlug)
+    setForgotEmail(email)
+    setForgotSent(false)
+    setShowForgot(true)
+  }
+
+  const handleForgotSubmit = async () => {
+    if (!forgotEmail) {
+      Alert.alert('Falta el email', 'Ingresa tu email para recuperar la contraseña')
+      return
+    }
+    setForgotLoading(true)
+    try {
+      await api.post('/auth/forgot-password', {
+        email: forgotEmail,
+        gymSlug: forgotGymSlug || undefined,
+      })
+      setForgotSent(true)
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.error || 'No se pudo enviar el correo')
+    } finally {
+      setForgotLoading(false)
     }
   }
 
@@ -287,7 +321,7 @@ export default function LoginScreen() {
               }
             </TouchableOpacity>
 
-            <TouchableOpacity style={s.forgotBtn}>
+            <TouchableOpacity style={s.forgotBtn} onPress={openForgot}>
               <Text style={s.forgotText}>¿Olvidaste tu contraseña?</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -295,6 +329,63 @@ export default function LoginScreen() {
           <View style={{ height: 24 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <BottomSheet
+        visible={showForgot}
+        onClose={() => setShowForgot(false)}
+        title="Recuperar contraseña"
+      >
+        <View style={{ paddingHorizontal: 24, paddingBottom: 12 }}>
+          {forgotSent ? (
+            <View style={{ alignItems: 'center', paddingVertical: 16, gap: 10 }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff', textAlign: 'center' }}>
+                Correo enviado ✅
+              </Text>
+              <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
+                Si el email existe en el sistema, te llegará un link para restablecer tu contraseña.
+                Revisá también spam.
+              </Text>
+              <TouchableOpacity
+                style={[s.btn, { alignSelf: 'stretch', marginTop: 8 }]}
+                onPress={() => setShowForgot(false)}
+              >
+                <Text style={s.btnText}>Volver al login</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginBottom: 14 }}>
+                Ingresá tu email y el gimnasio. Te vamos a enviar un link para restablecer tu contraseña.
+              </Text>
+              <Field
+                label="Gimnasio"
+                placeholder="mi-gimnasio (opcional)"
+                value={forgotGymSlug}
+                onChangeText={setForgotGymSlug}
+              />
+              <View style={{ height: 12 }} />
+              <Field
+                label="Email"
+                placeholder="tu@email.com"
+                value={forgotEmail}
+                onChangeText={setForgotEmail}
+                keyboardType="email-address"
+              />
+              <TouchableOpacity
+                style={[s.btn, forgotLoading && s.btnLoading, { marginTop: 18 }]}
+                onPress={handleForgotSubmit}
+                disabled={forgotLoading}
+                activeOpacity={0.85}
+              >
+                {forgotLoading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.btnText}>Enviar link de recuperación</Text>
+                }
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </BottomSheet>
     </View>
   )
 }

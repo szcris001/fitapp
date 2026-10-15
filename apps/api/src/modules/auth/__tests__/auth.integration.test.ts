@@ -31,6 +31,7 @@ vi.mock('../../../lib/email', () => ({
 import { authRoutes } from '../auth.routes'
 import { prisma } from '../../../lib/prisma'
 import { registerTenantContext } from '../../../lib/tenant-hook'
+import { redis } from '../../../lib/redis'
 
 // ─── Constantes de fixtures ───────────────────────────────────────────────────
 
@@ -698,5 +699,76 @@ describe('Auth Integration — /auth/login ignora un JWT ajeno en el header', ()
     expect(callArgs.to).toBe(TEST_ADMIN_EMAIL)
     expect(callArgs.subject).toContain(TEST_GYM_NAME)
     expect(callArgs.html).toContain(TEST_GYM_NAME)
+  })
+})
+
+// ─── Lockout por intentos fallidos + reset-password lo limpia ────────────────
+// QA 2026-10-15: un alumno reseteaba su contraseña después de quedar bloqueado
+// por intentos fallidos, pero el login le seguía diciendo "cuenta bloqueada" —
+// el lockout vive en Redis, independiente de la contraseña en Postgres.
+describe('Auth Integration — lockout por intentos fallidos', () => {
+  let app: FastifyInstance
+  const lockoutKey = `${TEST_GYM_SLUG}:${TEST_MEMBER_EMAIL.toLowerCase()}`
+
+  beforeAll(async () => {
+    app = await buildApp()
+    await redis.del(`attempts:${lockoutKey}`, `lockout:${lockoutKey}`)
+  })
+
+  afterAll(async () => {
+    await redis.del(`attempts:${lockoutKey}`, `lockout:${lockoutKey}`)
+    await app.close()
+  })
+
+  it('5 intentos fallidos bloquean la cuenta, incluso con la contraseña correcta', async () => {
+    for (let i = 0; i < 5; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { email: TEST_MEMBER_EMAIL, password: 'contraseña-incorrecta', gymSlug: TEST_GYM_SLUG },
+      })
+      expect(res.statusCode).toBe(401)
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: TEST_MEMBER_EMAIL, password: TEST_PASSWORD, gymSlug: TEST_GYM_SLUG },
+    })
+    expect(res.statusCode).toBe(401)
+    expect(res.json().error).toContain('bloqueada')
+  })
+
+  it('resetear la contraseña limpia el bloqueo → login con la contraseña nueva funciona', async () => {
+    sendEmail.mockClear()
+
+    const forgotRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/forgot-password',
+      payload: { email: TEST_MEMBER_EMAIL, gymSlug: TEST_GYM_SLUG },
+    })
+    expect(forgotRes.statusCode).toBe(200)
+
+    const resetToken = await prisma.passwordResetToken.findFirst({
+      where: { userId: memberUserId, usedAt: null },
+      orderBy: { expiresAt: 'desc' },
+    })
+    expect(resetToken).not.toBeNull()
+
+    const newPassword = 'nueva-password-456'
+    const resetRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/reset-password',
+      payload: { token: resetToken!.token, password: newPassword },
+    })
+    expect(resetRes.statusCode).toBe(200)
+
+    // Seguiría bloqueado si el reset no limpiara el lockout
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: TEST_MEMBER_EMAIL, password: newPassword, gymSlug: TEST_GYM_SLUG },
+    })
+    expect(loginRes.statusCode).toBe(200)
   })
 })

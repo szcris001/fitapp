@@ -23,7 +23,10 @@ async function checkLoginLockout(key: string): Promise<void> {
     const ttl = await redis.ttl(`lockout:${key}`)
     if (ttl !== -2) {
       const mins = Math.max(1, Math.ceil(ttl / 60))
-      throw new Error(`Cuenta bloqueada temporalmente. Intenta en ${mins} minuto${mins !== 1 ? 's' : ''}.`)
+      throw new Error(
+        `Cuenta bloqueada temporalmente por intentos fallidos. Intenta en ${mins} minuto${mins !== 1 ? 's' : ''}, ` +
+        `o restablecé tu contraseña para recuperar el acceso al instante.`,
+      )
     }
   } catch (err: any) {
     // Re-throw solo si es el error de lockout, no errores de Redis
@@ -267,4 +270,13 @@ export async function resetPassword(token: string, newPassword: string) {
     prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
     prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
   ])
+
+  // Un reset exitoso ya probó que el dueño de la cuenta tiene acceso al mail —
+  // no tiene sentido dejarlo bloqueado por los intentos fallidos con la
+  // contraseña vieja (QA 2026-10-15: alumno reseteaba y seguía sin poder
+  // entrar porque el lockout vive en Redis, independiente de la contraseña).
+  if (record.user.gymId) {
+    const gym = await prisma.gym.findUnique({ where: { id: record.user.gymId }, select: { slug: true } })
+    if (gym) await clearLoginAttempts(`${gym.slug}:${record.user.email.toLowerCase()}`)
+  }
 }
