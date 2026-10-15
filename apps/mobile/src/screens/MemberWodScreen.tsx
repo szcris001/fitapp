@@ -22,7 +22,7 @@ import api from '../lib/api'
 
 interface LeaderboardEntry {
   rank: number
-  category: 'RX' | 'SCALED'
+  category: 'rx' | 'scaled'
   userId: string
   user: { id?: string; name: string; avatarUrl?: string }
   score: number
@@ -660,8 +660,8 @@ export default function MemberWodScreen() {
     fetchLeaderboard()
   }, [fetchLeaderboard])
 
-  const rxEntries = leaderboard?.entries.filter(e => e.category === 'RX') ?? []
-  const scaledEntries = leaderboard?.entries.filter(e => e.category === 'SCALED') ?? []
+  const rxEntries = leaderboard?.entries.filter(e => e.rx) ?? []
+  const scaledEntries = leaderboard?.entries.filter(e => !e.rx) ?? []
 
   const scoreType = leaderboard?.scoreType ?? initialScoreType ?? 'REPS'
   const accentColor = c.primary
