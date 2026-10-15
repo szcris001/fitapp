@@ -30,6 +30,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [todayWods, setTodayWods] = useState<any[]>([])
   const [selectedWodIdx, setSelectedWodIdx] = useState(0)
+  const [myTodayResults, setMyTodayResults] = useState<any[]>([])
   const [classModal, setClassModal] = useState<any>(null)
   const [classDetails, setClassDetails] = useState<any>(null)
   const [loadingModal, setLoadingModal] = useState(false)
@@ -111,8 +112,31 @@ export default function HomeScreen() {
       setRms((rmsRes.data || []).filter((rm: any) => rm.currentRm > 0))
 
       // WODs de hoy por tipo de clase
-      setTodayWods(wodRes.data || [])
+      const wods: any[] = wodRes.data || []
+      setTodayWods(wods)
       setSelectedWodIdx(0)
+
+      // Mi resultado de hoy (si ya lo registré), con la hora de la clase a la que
+      // asistí ese día del mismo tipo — el booking puede ser pasado (ya se hizo la clase)
+      if (wods.length > 0) {
+        const todayBookings: any[] = (bookingsRes.data || []).filter((b: any) =>
+          b.status !== 'CANCELLED' && new Date(b.startsAt).toDateString() === now.toDateString()
+        )
+        const resultsRes = await Promise.all(
+          wods.map((w: any) => api.get(`/wods/${w.id}/results/me`).catch(() => ({ data: null })))
+        )
+        const mine = wods
+          .map((w: any, i: number) => {
+            const result = resultsRes[i]?.data
+            if (!result) return null
+            const classMatch = todayBookings.find((b: any) => b.classType?.id === w.classTypeId)
+            return { wod: w, result, classStartsAt: classMatch?.startsAt ?? null }
+          })
+          .filter(Boolean)
+        setMyTodayResults(mine)
+      } else {
+        setMyTodayResults([])
+      }
 
       api.get('/platform/assets').then(res => {
         const a = res.data?.assets
@@ -351,6 +375,50 @@ export default function HomeScreen() {
             </View>
           )}
         </View>
+
+        {/* ── MI RESULTADO DE HOY ── */}
+        {myTodayResults.length > 0 && (
+          <View style={s.section}>
+            <Text style={[s.sectionTitle, { color: dashboardBg ? '#fff' : c.text1 }]}>Mi resultado de hoy</Text>
+            {myTodayResults.map(({ wod, result, classStartsAt }: any) => {
+              const accent = wod.classType?.color || c.primary
+              const classTime = classStartsAt
+                ? new Date(classStartsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                : null
+              return (
+                <TouchableOpacity
+                  key={wod.id}
+                  activeOpacity={0.82}
+                  onPress={() => navigation.navigate('MemberWod', {
+                    wodId: wod.id,
+                    wodTitle: wod.title || 'Entrenamiento del día',
+                    wodDate: wod.date,
+                    scoreType: wod.scoreType,
+                  })}
+                  style={[s.myResultCard, s.glassBg, { borderColor: accent + '40' }]}
+                >
+                  <View style={[s.boardAccent, { backgroundColor: accent }]} />
+                  <View style={{ flex: 1, padding: 16 }}>
+                    <Text style={[s.myResultTitle, { color: dashboardBg ? '#fff' : c.text1 }]}>
+                      {wod.title || wod.classType?.name || 'Entrenamiento'}
+                      {classTime ? ` · clase ${classTime}` : ''}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                      <Text style={[s.myResultScore, { color: accent }]}>{result.scoreFormatted}</Text>
+                      {result.rank != null && (
+                        <View style={[s.myResultRankBadge, { backgroundColor: accent + '20' }]}>
+                          <Text style={[s.myResultRankText, { color: accent }]}>
+                            #{result.rank} de {result.totalInCategory} {result.rx ? 'RX' : 'Scaled'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        )}
 
         {/* ── PIZARRA DEL BOX ── */}
         <View style={s.section}>
@@ -661,6 +729,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['theme']['colors'], dashboard
     },
     boardCard: { flexDirection: 'row', borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
     boardAccent: { width: 6 },
+
+    // Mi resultado de hoy
+    myResultCard: { flexDirection: 'row', borderRadius: 16, borderWidth: 1, overflow: 'hidden', marginBottom: 10 },
+    myResultTitle: { fontSize: 14, fontWeight: '700' },
+    myResultScore: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+    myResultRankBadge: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+    myResultRankText: { fontSize: 12, fontWeight: '700' },
     boardTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4, letterSpacing: -0.3 },
     boardDesc: { fontSize: 13, lineHeight: 18, marginBottom: 8 },
     blockTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' },

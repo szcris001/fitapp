@@ -1322,13 +1322,16 @@ describe('WOD: resultados usan el userId del JWT', () => {
     expect(body.recordedBy).toBe(memberAId)
   })
 
-  it('GET /wods/:id/results/me → devuelve el resultado propio', async () => {
+  it('GET /wods/:id/results/me → devuelve el resultado propio con su rank', async () => {
     const res = await app.inject({
       method: 'GET', url: `/api/wods/${wodId}/results/me`,
       headers: { authorization: `Bearer ${memberAToken}` },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json().userId).toBe(memberAId)
+    const body = res.json()
+    expect(body.userId).toBe(memberAId)
+    expect(body.rank).toBe(1)
+    expect(body.totalInCategory).toBe(1)
   })
 
   it('POST /wods/:id/results (coach) → recordedBy es el coach', async () => {

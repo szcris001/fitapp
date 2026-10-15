@@ -26,6 +26,18 @@ function formatScore(score: number, scoreText: string | null, scoreType: string)
   return String(score)
 }
 
+async function computeRank(wodId: string, scoreType: string, rx: boolean, score: number) {
+  if (scoreType === 'CUSTOM') return { rank: null, totalInCategory: null }
+  const isAscending = scoreType === 'TIME'
+  const [better, total] = await Promise.all([
+    prisma.wodResult.count({
+      where: { wodId, rx, score: isAscending ? { lt: score } : { gt: score } },
+    }),
+    prisma.wodResult.count({ where: { wodId, rx } }),
+  ])
+  return { rank: better + 1, totalInCategory: total }
+}
+
 function toFloat(v: any) { return v != null && v !== '' ? Number(v) : null }
 
 function sanitizeMovement(m: any, order: number) {
@@ -350,19 +362,7 @@ export async function wodRoutes(app: FastifyInstance) {
 
     const withRank = await Promise.all(results.map(async (r) => {
       const { wod } = r
-      let rank: number | null = null
-      let totalInCategory: number | null = null
-      if (wod.scoreType !== 'CUSTOM') {
-        const isAscending = wod.scoreType === 'TIME'
-        const [better, total] = await Promise.all([
-          prisma.wodResult.count({
-            where: { wodId: wod.id, rx: r.rx, score: isAscending ? { lt: r.score } : { gt: r.score } },
-          }),
-          prisma.wodResult.count({ where: { wodId: wod.id, rx: r.rx } }),
-        ])
-        rank = better + 1
-        totalInCategory = total
-      }
+      const { rank, totalInCategory } = await computeRank(wod.id, wod.scoreType, r.rx, r.score)
       return {
         id: r.id,
         wodId: wod.id,
@@ -396,7 +396,8 @@ export async function wodRoutes(app: FastifyInstance) {
     if (!result) return reply.status(200).send(null)
 
     const scoreFormatted = formatScore(result.score, result.scoreText, wod.scoreType)
-    return reply.send({ ...result, scoreFormatted })
+    const { rank, totalInCategory } = await computeRank(wodId, wod.scoreType, result.rx, result.score)
+    return reply.send({ ...result, scoreFormatted, rank, totalInCategory })
   })
 
   // ─── RESULTS: POST /me (miembro registra su propio resultado) ────────────────
