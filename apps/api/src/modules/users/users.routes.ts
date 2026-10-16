@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify'
 import { MultipartFile } from '@fastify/multipart'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { createUserSchema, updateUserSchema } from './users.schema'
-import { listUsers, getUserById, createUser, updateUser, countOtherAdmins } from './users.service'
+import { listUsers, getUserById, createUser, updateUser } from './users.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import path from 'path'
@@ -168,25 +168,12 @@ export async function userRoutes(app: FastifyInstance) {
     return reply.send({ ok: true })
   })
 
-  // Cualquier usuario autenticado puede eliminar su propia cuenta y todos sus datos
-  app.delete('/users/me', { preHandler: authenticate }, async (request, reply) => {
-    const user = request.user as any
-    if (user.role === 'ADMIN' && user.gymId) {
-      if (await countOtherAdmins(user.gymId, user.userId) === 0) {
-        return reply.status(400).send({ error: 'No puedes eliminar tu cuenta: eres el único administrador del gimnasio' })
-      }
-    }
-    await prisma.$transaction([
-      prisma.booking.deleteMany({ where: { userId: user.userId } }),
-      prisma.rmRecord.deleteMany({ where: { userId: user.userId } }),
-      prisma.gymnasticProgress.deleteMany({ where: { userId: user.userId } }),
-      prisma.wodResult.deleteMany({ where: { userId: user.userId } }),
-      prisma.refreshToken.deleteMany({ where: { userId: user.userId } }),
-      prisma.membership.deleteMany({ where: { userId: user.userId } }),
-      prisma.user.delete({ where: { id: user.userId } }),
-    ])
-    return reply.status(200).send({ ok: true, message: 'Cuenta eliminada correctamente' })
-  })
+  // No hay DELETE /users/me: existió como auto-eliminación de cuenta sin
+  // restricción de rol (cualquier MEMBER/COACH/ADMIN podía borrarse a sí mismo y
+  // en cascada sus bookings/membresías/PRs, hard-delete sin vuelta atrás) y se
+  // sacó a pedido explícito — nadie debe poder eliminar su cuenta por su cuenta
+  // (Cristian, 2026-10-16). Hoy no existe ningún camino admin-driven para dar de
+  // baja la cuenta de un alumno individual; si hace falta, es una feature nueva.
 
   // Cualquier usuario autenticado puede subir su propio avatar
   app.post('/users/me/avatar', { preHandler: authenticate }, async (request: FastifyRequest, reply) => {

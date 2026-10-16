@@ -7,12 +7,11 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
-import * as Location from 'expo-location'
 import api from '../lib/api'
 import { BottomSheet } from '../components/BottomSheet'
 import { DisciplineIcon } from '../components/DisciplineIcon'
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+import { ClassCard, MyBooking, isClassSelectable } from '../components/ClassCard'
+import { WeekDayStrip, isSameDay } from '../components/WeekDayStrip'
 
 function buildWeekDays(numDays = 14): Date[] {
   return Array.from({ length: numDays }, (_, i) => {
@@ -23,37 +22,35 @@ function buildWeekDays(numDays = 14): Date[] {
   })
 }
 
-const DAY_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
-
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-}
-
 function fmt(iso: string, opts: Intl.DateTimeFormatOptions) {
   return new Date(iso).toLocaleTimeString('es-CL', opts)
 }
 
-// ── Screen ───────────────────────────────────────────────────────────────────
-
+// Una sola pantalla — mismo patrón que usan Wodify/ClassPass: franja de días
+// arriba, filtro y lista abajo, todo se actualiza en el mismo lugar al tocar un
+// día (sin navegar a otra pantalla). classTypes se arma con TODAS las clases de
+// la semana, no solo las del día seleccionado, así el filtro nunca cambia de alto
+// ni de contenido al cambiar de día (salto visual reportado 2026-10-15/16).
+//
+// "Repetir esta clase": se decidió en la hoja de detalle de la clase, no con un
+// modo de selección aparte en la lista — marcar algo "en automático" sin ver qué
+// días exactamente se estaban sumando generaba desconfianza (feedback Cristian,
+// 2026-10-16). Ahora, al abrir una clase sin reservar, si hay próximas
+// ocurrencias del mismo tipo+horario dentro de la ventana de reserva del gym, se
+// listan con fecha para elegir cuáles sumar antes de confirmar.
 export default function ClassesScreen() {
   const { theme } = useTheme()
   const c = theme.colors
   const insets = useSafeAreaInsets()
-  const calendarRef = useRef<ScrollView>(null)
 
   const [days] = useState(buildWeekDays(14))
   const [selectedDay, setSelectedDay] = useState(days[0])
   const [classes, setClasses] = useState<any[]>([])
-  // Map<classId, {bookingId, status, confirmDeadline?}>
-  const [myBookingMap, setMyBookingMap] = useState<Map<string, { bookingId: string; status: string; confirmDeadline?: string | null }>>(new Map())
+  const [myBookingMap, setMyBookingMap] = useState<Map<string, MyBooking>>(new Map())
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [bookingId, setBookingId] = useState<string | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
-  const [geoCheckinId, setGeoCheckinId] = useState<string | null>(null)
-  const [attendanceMode, setAttendanceMode] = useState<string>('manual')
   const [bookingWindowDays, setBookingWindowDays] = useState<number>(1)
   const [bookingCutoffMins, setBookingCutoffMins] = useState<number>(60)
   const [cancelCutoffMins, setCancelCutoffMins] = useState<number>(30)
@@ -62,12 +59,14 @@ export default function ClassesScreen() {
   const [sheetDetails, setSheetDetails] = useState<any>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null)
+  const [repeatSelected, setRepeatSelected] = useState<Set<string>>(new Set())
 
   const fadeAnim = useRef(new Animated.Value(1)).current
 
   const openSheet = async (cls: any) => {
     setSheetClass(cls)
     setSheetDetails(null)
+    setRepeatSelected(new Set())
     setLoadingDetails(true)
     try {
       const res = await api.get(`/classes/${cls.id}`)
@@ -76,12 +75,11 @@ export default function ClassesScreen() {
     finally { setLoadingDetails(false) }
   }
 
-  const closeSheet = () => { setSheetClass(null); setSheetDetails(null) }
+  const closeSheet = () => { setSheetClass(null); setSheetDetails(null); setRepeatSelected(new Set()) }
 
   useEffect(() => {
     fetchAll()
     api.get('/gyms/me').then(r => {
-      setAttendanceMode(r.data.attendanceMode || 'manual')
       setBookingWindowDays(r.data.bookingWindowDays ?? 1)
       setBookingCutoffMins(r.data.bookingCutoffMins ?? 60)
       setCancelCutoffMins(r.data.cancelCutoffMins ?? 30)
@@ -97,7 +95,7 @@ export default function ClassesScreen() {
         api.get('/bookings/me'),
       ])
       setClasses(classesRes.data || [])
-      const map = new Map<string, { bookingId: string; status: string; confirmDeadline?: string | null }>()
+      const map = new Map<string, MyBooking>()
       ;(bookingsRes.data || [])
         .filter((b: any) => ['CONFIRMED', 'WAITLIST', 'PENDING_CONFIRM', 'ATTENDED'].includes(b.status))
         .forEach((b: any) => map.set(b.classId, { bookingId: b.id, status: b.status, confirmDeadline: b.confirmDeadline }))
@@ -118,26 +116,50 @@ export default function ClassesScreen() {
     setSelectedDay(day)
   }
 
-  const handleBook = async (classId: string) => {
+  // Reserva la clase del detalle y, si se marcó alguna repetición, también esas —
+  // una por una (no es una operación atómica: si alguna falla, las demás igual se
+  // procesan). El resumen final es por día y con la razón real de cada falla (ej.
+  // "No tienes una membresía activa" en vez de un conteo genérico) — antes solo
+  // decía "N no se pudo reservar" sin decir cuáles ni por qué (feedback Cristian,
+  // 2026-10-16).
+  const handleBook = async (classId: string, extraIds: string[] = []) => {
     setBookingId(classId)
-    try {
-      const { data } = await api.post('/bookings', { classId })
-      if (data.status === 'WAITLIST') {
-        Alert.alert('⏳ En lista de espera', 'La clase está llena. Te avisamos si se libera un lugar.')
-      } else if (data.status === 'PENDING_CONFIRM') {
-        Alert.alert(
-          '⏱ Confirma tu lugar',
-          'Como falta bastante para la clase, tenés que confirmar tu asistencia más cerca del horario o el cupo se libera.'
-        )
-      } else {
-        Alert.alert('✅ Reservado', 'Tu lugar está confirmado')
+    const ids = [classId, ...extraIds]
+    type Outcome = { date: string; status: 'confirmed' | 'pending' | 'waitlisted' | 'failed'; reason?: string }
+    const results: Outcome[] = []
+    for (const id of ids) {
+      const cl = classes.find(c => c.id === id)
+      const date = cl
+        ? new Date(cl.startsAt).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+        : ''
+      try {
+        const { data } = await api.post('/bookings', { classId: id })
+        if (data.status === 'WAITLIST') results.push({ date, status: 'waitlisted' })
+        else if (data.status === 'PENDING_CONFIRM') results.push({ date, status: 'pending' })
+        else results.push({ date, status: 'confirmed' })
+      } catch (err: any) {
+        results.push({ date, status: 'failed', reason: err.response?.data?.error || 'Error desconocido' })
       }
-    } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.error || 'No se pudo reservar')
-    } finally {
-      setBookingId(null)
-      fetchAll()
     }
+    setBookingId(null)
+    closeSheet()
+    fetchAll()
+
+    if (results.length === 1) {
+      const r = results[0]
+      if (r.status === 'failed') Alert.alert('Error', r.reason || 'No se pudo reservar')
+      else if (r.status === 'waitlisted') Alert.alert('⏳ En lista de espera', 'La clase está llena. Te avisamos si se libera un lugar.')
+      else if (r.status === 'pending') Alert.alert('⏱ Confirma tu lugar', 'Como falta bastante para la clase, tenés que confirmar tu asistencia más cerca del horario o el cupo se libera.')
+      else Alert.alert('✅ Reservado', 'Tu lugar está confirmado')
+      return
+    }
+
+    const ICON: Record<Outcome['status'], string> = { confirmed: '✅', pending: '⏱', waitlisted: '⏳', failed: '❌' }
+    const LABEL: Record<Outcome['status'], string> = {
+      confirmed: 'Confirmada', pending: 'Pendiente de confirmar', waitlisted: 'En lista de espera', failed: 'No se pudo',
+    }
+    const lines = results.map(r => `${ICON[r.status]} ${r.date}: ${LABEL[r.status]}${r.reason ? ` — ${r.reason}` : ''}`)
+    Alert.alert('Reservas procesadas', lines.join('\n'))
   }
 
   const handleConfirm = async (bookingId: string, classId: string) => {
@@ -145,37 +167,12 @@ export default function ClassesScreen() {
     try {
       await api.post(`/bookings/${bookingId}/confirm`)
       Alert.alert('✅ Confirmado', '¡Tu lugar está asegurado!')
+      closeSheet()
       fetchAll()
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.error || 'No se pudo confirmar')
     } finally {
       setConfirmingId(null)
-    }
-  }
-
-  const handleGeoCheckin = async (classId: string) => {
-    setGeoCheckinId(classId)
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync()
-      if (status !== 'granted') {
-        Alert.alert('Permiso requerido', 'Necesitamos acceso a tu ubicación para el check-in')
-        return
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
-      const { data } = await api.post(`/classes/${classId}/attendance/geo`, {
-        lat: loc.coords.latitude,
-        lng: loc.coords.longitude,
-      })
-      if (data.alreadyAttended) {
-        Alert.alert('Ya registrado', 'Tu asistencia ya estaba marcada.')
-      } else {
-        Alert.alert('✅ Check-in exitoso', `Asistencia registrada (a ${data.distance}m del gym)`)
-        fetchAll()
-      }
-    } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.error || 'No se pudo registrar el check-in')
-    } finally {
-      setGeoCheckinId(null)
     }
   }
 
@@ -190,6 +187,7 @@ export default function ClassesScreen() {
           } catch (err: any) {
             Alert.alert('Error', err.response?.data?.error || 'No se pudo cancelar')
           } finally {
+            closeSheet()
             fetchAll()
           }
         },
@@ -201,6 +199,9 @@ export default function ClassesScreen() {
     .filter(cl => isSameDay(new Date(cl.startsAt), selectedDay))
     .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
 
+  // A propósito con TODAS las clases de la semana, no solo las del día
+  // seleccionado — así la franja de filtros nunca cambia de alto ni de contenido
+  // al cambiar de día (el salto visual que se quería arreglar).
   const classTypes: { id: string; name: string; color: string; discipline?: string }[] = []
   const seenTypes = new Set<string>()
   for (const cl of classes) {
@@ -214,6 +215,12 @@ export default function ClassesScreen() {
   const dayClasses = selectedTypeId
     ? allDayClasses.filter(cl => cl.classType?.id === selectedTypeId)
     : allDayClasses
+
+  const classCounts = new Map<string, number>()
+  for (const cl of classes) {
+    const key = new Date(cl.startsAt).toDateString()
+    classCounts.set(key, (classCounts.get(key) ?? 0) + 1)
+  }
 
   const s = makeStyles(c)
 
@@ -229,71 +236,32 @@ export default function ClassesScreen() {
     <View style={[s.root, { paddingTop: insets.top }]}>
       {/* ── Header ── */}
       <View style={s.header}>
-        <View>
-          <Text style={s.headerTitle}>Clases</Text>
-          <Text style={s.headerSub}>
-            {selectedDay.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }).replace(' de ', ' · ')}
-          </Text>
-        </View>
+        <Text style={s.headerTitle}>Clases</Text>
+        <Text style={s.headerSub}>
+          {selectedDay.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }).replace(' de ', ' · ')}
+        </Text>
       </View>
 
       {/* ── Calendar strip ── */}
-      <ScrollView
-        ref={calendarRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={s.calStrip}
-      >
-        {days.map((day, i) => {
-          const isSelected = isSameDay(day, selectedDay)
-          const isToday = isSameDay(day, new Date())
-          const dayClsCount = classes.filter(cl => isSameDay(new Date(cl.startsAt), day)).length
-          return (
-            <TouchableOpacity
-              key={i}
-              onPress={() => selectDay(day)}
-              activeOpacity={0.75}
-              style={[
-                s.dayPill,
-                isSelected
-                  ? { backgroundColor: c.primary, borderColor: 'transparent' }
-                  : isToday
-                  ? { borderColor: c.primary }
-                  : { borderColor: c.border },
-              ]}
-            >
-              <Text style={[s.dayName, {
-                color: isSelected ? 'rgba(255,255,255,0.75)' : isToday ? c.primary : c.text3,
-              }]}>
-                {isToday ? 'HOY' : DAY_SHORT[day.getDay()]}
-              </Text>
-              <Text style={[s.dayNum, { color: isSelected ? '#fff' : isToday ? c.primary : c.text1 }]}>
-                {day.getDate()}
-              </Text>
-              <View style={[s.clsCount, {
-                backgroundColor: dayClsCount > 0
-                  ? (isSelected ? 'rgba(255,255,255,0.25)' : c.primary + '22')
-                  : 'transparent',
-              }]}>
-                {dayClsCount > 0 && (
-                  <Text style={[s.clsCountText, { color: isSelected ? '#fff' : c.primary }]}>
-                    {dayClsCount}
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          )
-        })}
-      </ScrollView>
+      <WeekDayStrip
+        days={days}
+        selectedDay={selectedDay}
+        onSelect={selectDay}
+        countForDay={day => classCounts.get(day.toDateString()) ?? 0}
+        color={c.primary}
+        border={c.border}
+        text1={c.text1}
+        text3={c.text3}
+      />
 
-      {/* ── Filtros por tipo de clase ── */}
+      {/* ── Filtros por tipo de clase (de toda la semana, no solo hoy) ── */}
       {classTypes.length > 0 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={s.filterScroll}
           contentContainerStyle={s.filterStrip}
         >
-          {/* Chip "Todas" */}
           <TouchableOpacity
             onPress={() => setSelectedTypeId(null)}
             style={[s.filterChip, selectedTypeId === null && { backgroundColor: c.primary, borderColor: c.primary }]}
@@ -317,7 +285,7 @@ export default function ClassesScreen() {
                 ]}
                 activeOpacity={0.75}
               >
-                  <View style={[s.filterImgPlaceholder, {
+                <View style={[s.filterImgPlaceholder, {
                   backgroundColor: active ? 'rgba(255,255,255,0.22)' : ct.color + '22',
                   borderWidth: 1,
                   borderColor: active ? 'rgba(255,255,255,0.3)' : ct.color + '55',
@@ -336,7 +304,7 @@ export default function ClassesScreen() {
 
       {/* ── Classes list ── */}
       <Animated.ScrollView
-        style={{ opacity: fadeAnim }}
+        style={[s.mainList, { opacity: fadeAnim }]}
         contentContainerStyle={s.list}
         refreshControl={
           <RefreshControl
@@ -353,162 +321,18 @@ export default function ClassesScreen() {
             <Text style={[s.emptySub, { color: c.text3 }]}>Prueba otro día de la semana</Text>
           </View>
         ) : (
-          dayClasses.map(cls => {
-            const myBooking = myBookingMap.get(cls.id)
-            const booked = !!myBooking && ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'].includes(myBooking.status)
-            const isPendingConfirm = myBooking?.status === 'PENDING_CONFIRM'
-            const isWaitlisted = myBooking?.status === 'WAITLIST'
-            const now = new Date()
-            const clsStart = new Date(cls.startsAt)
-            const started = clsStart <= now
-            const count = cls._count?.bookings ?? cls.currentCapacity ?? 0
-            const cap = cls.capacity ?? 0
-            const isFull = count >= cap
-            const occupancy = cap > 0 ? Math.min(Math.round((count / cap) * 100), 100) : 0
-            const barColor = occupancy >= 90 ? '#ef4444' : occupancy >= 60 ? '#f59e0b' : c.success
-            const accentColor = cls.classType?.color || c.primary
-
-            // Políticas del gym
-            const maxBookingDate = new Date(now.getTime() + bookingWindowDays * 24 * 60 * 60 * 1000)
-            const outsideWindow = clsStart > maxBookingDate
-            const cutoffTime = new Date(clsStart.getTime() - bookingCutoffMins * 60 * 1000)
-            const withinCutoff = !started && now > cutoffTime
-            const cancelCutoffTime = new Date(clsStart.getTime() - cancelCutoffMins * 60 * 1000)
-            const withinCancelCutoff = !started && now > cancelCutoffTime
-            const confirmDeadline = myBooking?.confirmDeadline ? new Date(myBooking.confirmDeadline) : null
-            const confirmMinsLeft = confirmDeadline ? Math.max(0, Math.round((confirmDeadline.getTime() - now.getTime()) / 60000)) : null
-
-            return (
-              <View key={cls.id} style={[s.cardWrap, { shadowColor: accentColor, opacity: started ? 0.65 : 1 }]}>
-              <View style={[s.card, { borderColor: isPendingConfirm ? '#f59e0b60' : booked ? accentColor + '60' : c.border }]}>
-                {/* Accent stripe */}
-                <View style={[s.stripe, { backgroundColor: isPendingConfirm ? '#f59e0b' : accentColor }]} />
-
-                <View style={s.cardBody}>
-                  {/* Top row */}
-                  <View style={s.cardTop}>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 1 }}>
-                        <DisciplineIcon discipline={cls.classType?.discipline} size={14} color={accentColor} />
-                        <Text style={[s.cardName, { color: c.text1 }]}>{cls.classType?.name || 'Clase'}</Text>
-                      </View>
-                      <Text style={[s.cardTime, { color: c.text3 }]}>
-                        {fmt(cls.startsAt, { hour: '2-digit', minute: '2-digit' })} — {fmt(cls.endsAt, { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                      {cls.coach?.name && (
-                        <Text style={[s.cardCoach, { color: c.text3 }]}>👤 {cls.coach.name}</Text>
-                      )}
-                    </View>
-                    <View style={s.cardMeta}>
-                      <Text style={[s.slotsText, { color: isFull ? '#ef4444' : c.primary }]}>
-                        {count}/{cap}
-                      </Text>
-                      {isPendingConfirm ? (
-                        <View style={[s.bookedBadge, { backgroundColor: '#f59e0b20', borderColor: '#f59e0b50' }]}>
-                          <Text style={[s.bookedText, { color: '#f59e0b' }]}>⏱ Confirmar</Text>
-                        </View>
-                      ) : booked ? (
-                        <View style={[s.bookedBadge, { backgroundColor: c.success + '20', borderColor: c.success + '50' }]}>
-                          <Text style={[s.bookedText, { color: c.success }]}>Inscrito ✓</Text>
-                        </View>
-                      ) : isWaitlisted ? (
-                        <View style={[s.bookedBadge, { backgroundColor: c.text3 + '20', borderColor: c.text3 + '50' }]}>
-                          <Text style={[s.bookedText, { color: c.text3 }]}>⏳ En lista</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-
-                  {/* Progress bar */}
-                  <View style={[s.progBar, { backgroundColor: c.border }]}>
-                    <View style={[s.progFill, { width: `${occupancy}%` as any, backgroundColor: barColor }]} />
-                  </View>
-
-                  {/* Action button — key fuerza un remount limpio al cambiar de rama
-                      (ej. booked true→false tras cancelar): sin esto, el
-                      TouchableOpacity exterior se reutilizaba entre ramas con el
-                      mismo tipo de elemento y el LinearGradient de "Reservar lugar"
-                      quedaba montado con layout inicial 0x0, invisible pero tappable
-                      (QA H-MOBILE-01, docs/QA_MOBILE_MAESTRO.md). */}
-                  <React.Fragment key={`${isPendingConfirm}-${started}-${booked}-${isWaitlisted}-${outsideWindow}-${withinCutoff}-${isFull}`}>
-                  {isPendingConfirm ? (
-                    <TouchableOpacity
-                      style={[s.btn, { backgroundColor: '#f59e0b' }]}
-                      onPress={() => handleConfirm(myBooking!.bookingId, cls.id)}
-                      disabled={confirmingId === cls.id}
-                    >
-                      {confirmingId === cls.id
-                        ? <ActivityIndicator color="#fff" size={18} />
-                        : <Text style={[s.btnText, { color: '#fff' }]}>
-                            ⏱ Confirmar{confirmMinsLeft !== null ? ` · ${confirmMinsLeft}m` : ''}
-                          </Text>
-                      }
-                    </TouchableOpacity>
-                  ) : started ? (
-                    <View style={[s.btn, s.btnFull]}>
-                      <Text style={[s.btnText, { color: c.text3 }]}>
-                        {booked ? 'Clase iniciada · Inscrito ✓' : 'Clase ya iniciada'}
-                      </Text>
-                    </View>
-                  ) : booked ? (
-                    withinCancelCutoff ? (
-                      <View style={[s.btn, s.btnFull]}>
-                        <Text style={[s.btnText, { color: c.text3 }]}>No se puede cancelar · plazo vencido</Text>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        style={[s.btn, s.btnCancel, { borderColor: '#ef444460' }]}
-                        onPress={() => openSheet(cls)}
-                      >
-                        <Text style={[s.btnText, { color: '#ef4444' }]}>Inscrito ✓  · Ver clase</Text>
-                      </TouchableOpacity>
-                    )
-                  ) : isWaitlisted ? (
-                    <TouchableOpacity
-                      style={[s.btn, s.btnCancel, { borderColor: c.text3 + '60' }]}
-                      onPress={() => openSheet(cls)}
-                    >
-                      <Text style={[s.btnText, { color: c.text3 }]}>⏳ En lista de espera · Ver clase</Text>
-                    </TouchableOpacity>
-                  ) : outsideWindow ? (
-                    <View style={[s.btn, s.btnFull]}>
-                      <Text style={[s.btnText, { color: c.text3 }]}>
-                        Reservas abren {clsStart.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })}
-                      </Text>
-                    </View>
-                  ) : withinCutoff ? (
-                    <View style={[s.btn, s.btnFull]}>
-                      <Text style={[s.btnText, { color: c.text3 }]}>Plazo de reserva cerrado</Text>
-                    </View>
-                  ) : isFull ? (
-                    <TouchableOpacity
-                      style={[s.btn, s.btnFull]}
-                      onPress={() => openSheet(cls)}
-                    >
-                      <Text style={[s.btnText, { color: c.text1 }]}>Unirme a lista de espera</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      onPress={() => openSheet(cls)}
-                      activeOpacity={0.82}
-                      style={{ borderRadius: 14, overflow: 'hidden' }}
-                    >
-                      <LinearGradient
-                        colors={[accentColor, accentColor + 'AA']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={s.btn}
-                      >
-                        <Text style={[s.btnText, { color: '#fff' }]}>Reservar lugar</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  )}
-                  </React.Fragment>
-                </View>
-              </View>
-              </View>
-            )
-          })
+          dayClasses.map(cls => (
+            <ClassCard
+              key={cls.id}
+              cls={cls}
+              myBooking={myBookingMap.get(cls.id)}
+              c={c}
+              bookingWindowDays={bookingWindowDays}
+              bookingCutoffMins={bookingCutoffMins}
+              cancelCutoffMins={cancelCutoffMins}
+              onOpenSheet={openSheet}
+            />
+          ))
         )}
         <View style={{ height: 32 }} />
       </Animated.ScrollView>
@@ -518,7 +342,8 @@ export default function ClassesScreen() {
         if (!sheetClass) return null
         const cls = sheetClass
         const myBooking = myBookingMap.get(cls.id)
-        const booked = !!myBooking && ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'].includes(myBooking.status)
+        const booked = !!myBooking && ['CONFIRMED', 'ATTENDED'].includes(myBooking.status)
+        const isPendingConfirm = myBooking?.status === 'PENDING_CONFIRM'
         const isWaitlisted = myBooking?.status === 'WAITLIST'
         const now = new Date()
         const clsStart = new Date(cls.startsAt)
@@ -529,6 +354,49 @@ export default function ClassesScreen() {
         const attendees = (sheetDetails?.bookings || []).filter((b: any) =>
           ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'].includes(b.status)
         )
+
+        // Próximas ocurrencias del mismo tipo+horario, dentro de la ventana de
+        // reserva del gym — solo tiene sentido ofrecerlo si todavía no reservó ni
+        // está en lista de espera para esta clase puntual.
+        const hh = clsStart.getHours(), mm = clsStart.getMinutes()
+        const repeatCandidatesRaw = (!booked && !isPendingConfirm && !isWaitlisted)
+          ? classes
+              .filter(cl =>
+                cl.id !== cls.id &&
+                // No otro día: mismo tipo+horario pero MISMO día que la clase base
+                // (gym con dos instancias del mismo horario ese día, caso raro pero
+                // real) — ofrecerlo como "repetir" terminaba intentando reservar el
+                // mismo tipo dos veces el mismo día, algo que el backend bloquea
+                // (regla de variedad pareja) pero sin que acá quedara claro por qué
+                // fallaba (feedback Cristian, 2026-10-16).
+                !isSameDay(new Date(cl.startsAt), clsStart) &&
+                cl.classType?.id === cls.classType?.id &&
+                new Date(cl.startsAt).getHours() === hh &&
+                new Date(cl.startsAt).getMinutes() === mm &&
+                isClassSelectable(cl, myBookingMap.get(cl.id), bookingWindowDays, bookingCutoffMins)
+              )
+              .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+          : []
+        // Por si el gym tiene dos instancias del mismo tipo+horario el mismo día
+        // (entre sí, no con la base): un solo candidato por día — de nuevo, la
+        // misma regla de "no dos del mismo tipo el mismo día".
+        const seenCandidateDays = new Set<string>()
+        const repeatCandidates = repeatCandidatesRaw.filter(cl => {
+          const key = new Date(cl.startsAt).toDateString()
+          if (seenCandidateDays.has(key)) return false
+          seenCandidateDays.add(key)
+          return true
+        })
+
+        const toggleRepeat = (id: string) => setRepeatSelected(prev => {
+          const next = new Set(prev)
+          if (next.has(id)) next.delete(id)
+          else next.add(id)
+          return next
+        })
+
+        const totalToBook = 1 + repeatSelected.size
+
         return (
           <BottomSheet
             visible={!!sheetClass}
@@ -537,7 +405,6 @@ export default function ClassesScreen() {
             scrollable
           >
             <View style={{ paddingHorizontal: 24 }}>
-              {/* Fecha y hora */}
               <Text style={{ color: c.text3, fontSize: 13, marginBottom: 12 }}>
                 {clsStart.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
                 {' · '}
@@ -546,7 +413,6 @@ export default function ClassesScreen() {
                 {fmt(cls.endsAt, { hour: '2-digit', minute: '2-digit' })}
               </Text>
 
-              {/* Coach */}
               {cls.coach?.name && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border, marginBottom: 16 }}>
                   <Ionicons name="person-outline" size={16} color={accentColor} />
@@ -554,7 +420,6 @@ export default function ClassesScreen() {
                 </View>
               )}
 
-              {/* Capacidad */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
                 <Ionicons name="people-outline" size={16} color={accentColor} />
                 <Text style={{ color: c.text2, fontSize: 14 }}>
@@ -562,7 +427,6 @@ export default function ClassesScreen() {
                 </Text>
               </View>
 
-              {/* Lista de inscritos */}
               <Text style={{ color: c.text1, fontSize: 13, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>
                 Inscritos {attendees.length > 0 ? `(${attendees.length})` : ''}
               </Text>
@@ -589,16 +453,79 @@ export default function ClassesScreen() {
                 <Text style={{ color: c.text3, fontSize: 13, textAlign: 'center', marginBottom: 8 }}>Sin inscritos aún</Text>
               )}
 
-              {/* Acción principal */}
+              {/* Repetir esta clase los próximos días (solo antes de reservar) */}
+              {repeatCandidates.length > 0 && (
+                <View style={{ marginTop: 20 }}>
+                  <Text style={{ color: c.text1, fontSize: 13, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>
+                    Repetir esta clase
+                  </Text>
+                  <Text style={{ color: c.text3, fontSize: 12, marginBottom: 10 }}>
+                    Mismo tipo y horario, dentro de lo que tu gym permite reservar por adelantado.
+                  </Text>
+                  {repeatCandidates.map(cand => {
+                    const checked = repeatSelected.has(cand.id)
+                    return (
+                      <TouchableOpacity
+                        key={cand.id}
+                        onPress={() => toggleRepeat(cand.id)}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 10,
+                          paddingVertical: 10, paddingHorizontal: 12, marginBottom: 6,
+                          borderRadius: 12, borderWidth: 1,
+                          borderColor: checked ? accentColor : c.border,
+                          backgroundColor: checked ? accentColor + '18' : 'transparent',
+                        }}
+                      >
+                        <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={18} color={checked ? accentColor : c.text3} />
+                        <Text style={{ color: checked ? accentColor : c.text2, fontSize: 14, fontWeight: checked ? '700' : '500', textTransform: 'capitalize' }}>
+                          {new Date(cand.startsAt).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
+              )}
+
               <View style={{ marginTop: 24, gap: 10 }}>
-                {booked ? (
+                {isPendingConfirm ? (
+                  <>
+                    <TouchableOpacity
+                      onPress={() => handleConfirm(myBooking!.bookingId, cls.id)}
+                      disabled={confirmingId === cls.id}
+                      style={{ borderRadius: 14, overflow: 'hidden' }}
+                    >
+                      <LinearGradient
+                        colors={['#f59e0b', '#f59e0bAA']}
+                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                        style={{ paddingVertical: 16, alignItems: 'center' }}
+                      >
+                        {confirmingId === cls.id
+                          ? <ActivityIndicator color="#fff" size={18} />
+                          : <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>⏱ Confirmar mi lugar</Text>
+                        }
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    {withinCancelCutoff ? (
+                      <View style={{ paddingVertical: 14, borderRadius: 14, backgroundColor: c.border, alignItems: 'center' }}>
+                        <Text style={{ color: c.text3, fontSize: 14, fontWeight: '700' }}>No se puede cancelar · plazo vencido</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => handleCancel(cls.id)}
+                        style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: '#ef444455', alignItems: 'center' }}
+                      >
+                        <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>Cancelar reserva</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : booked ? (
                   withinCancelCutoff ? (
                     <View style={{ paddingVertical: 14, borderRadius: 14, backgroundColor: c.border, alignItems: 'center' }}>
                       <Text style={{ color: c.text3, fontSize: 14, fontWeight: '700' }}>Plazo de cancelación vencido</Text>
                     </View>
                   ) : (
                     <TouchableOpacity
-                      onPress={() => { closeSheet(); handleCancel(cls.id) }}
+                      onPress={() => handleCancel(cls.id)}
                       style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: '#ef444455', alignItems: 'center' }}
                     >
                       <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>Cancelar reserva</Text>
@@ -606,14 +533,14 @@ export default function ClassesScreen() {
                   )
                 ) : isWaitlisted ? (
                   <TouchableOpacity
-                    onPress={() => { closeSheet(); handleCancel(cls.id) }}
+                    onPress={() => handleCancel(cls.id)}
                     style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: c.text3 + '60', alignItems: 'center' }}
                   >
                     <Text style={{ color: c.text3, fontSize: 14, fontWeight: '600' }}>⏳ Salir de la lista de espera</Text>
                   </TouchableOpacity>
                 ) : isFull ? (
                   <TouchableOpacity
-                    onPress={() => { closeSheet(); handleBook(cls.id) }}
+                    onPress={() => handleBook(cls.id)}
                     disabled={bookingId === cls.id}
                     style={{ paddingVertical: 14, borderRadius: 14, backgroundColor: c.border, alignItems: 'center' }}
                   >
@@ -624,7 +551,7 @@ export default function ClassesScreen() {
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
-                    onPress={() => { closeSheet(); handleBook(cls.id) }}
+                    onPress={() => handleBook(cls.id, Array.from(repeatSelected))}
                     disabled={bookingId === cls.id}
                     style={{ borderRadius: 14, overflow: 'hidden' }}
                     activeOpacity={0.85}
@@ -636,7 +563,9 @@ export default function ClassesScreen() {
                     >
                       {bookingId === cls.id
                         ? <ActivityIndicator color="#fff" size={18} />
-                        : <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>Reservar lugar</Text>
+                        : <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>
+                            {totalToBook > 1 ? `Reservar ${totalToBook} clases` : 'Reservar lugar'}
+                          </Text>
                       }
                     </LinearGradient>
                   </TouchableOpacity>
@@ -650,30 +579,19 @@ export default function ClassesScreen() {
   )
 }
 
-// ── Styles ───────────────────────────────────────────────────────────────────
-
 function makeStyles(c: any) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: c.background },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.background },
 
-    header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+    header: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 12 },
     headerTitle: { fontSize: 28, fontWeight: '800', color: c.text1, letterSpacing: -0.5 },
     headerSub: { fontSize: 12, color: c.text3, marginTop: 1, textTransform: 'capitalize' },
 
-    // Calendar strip
-    calStrip: { paddingHorizontal: 20, paddingBottom: 14, gap: 7 },
-    dayPill: {
-      width: 56, borderRadius: 18, borderWidth: 1.5, borderColor: c.border,
-      paddingVertical: 10, alignItems: 'center', gap: 3,
-      backgroundColor: c.surface, flexShrink: 0,
-    },
-    dayName: { fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
-    dayNum: { fontSize: 20, fontWeight: '800', lineHeight: 24 },
-    clsCount: { width: 22, height: 15, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-    clsCountText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.2 },
-
-    // Filters
+    // flexGrow/flexShrink: 0 — mismo motivo que WeekDayStrip: sin esto, con
+    // pocos resultados filtrados el espacio libre se lo repartían este
+    // ScrollView y el de días en vez de dejarlo vacío bajo la lista.
+    filterScroll: { flexGrow: 0, flexShrink: 0 },
     filterStrip: { paddingHorizontal: 20, paddingBottom: 12, gap: 8 },
     filterChip: {
       flexDirection: 'row', alignItems: 'center', gap: 7,
@@ -688,44 +606,14 @@ function makeStyles(c: any) {
 
     separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 20, marginBottom: 8 },
 
-    // List
+    // flex: 1 explícito — así esta es la única que reclama el espacio vertical
+    // libre (y scrollea internamente si hace falta); sin esto el espacio se lo
+    // llevaban los ScrollViews de arriba cuando la lista era corta.
+    mainList: { flex: 1 },
     list: { paddingHorizontal: 20, paddingTop: 8 },
     emptyWrap: { alignItems: 'center', paddingTop: 60 },
     emptyEmoji: { fontSize: 44, marginBottom: 12 },
     emptyTitle: { fontSize: 17, fontWeight: '700', marginBottom: 6 },
     emptySub: { fontSize: 13 },
-
-    // Class card
-    cardWrap: {
-      marginBottom: 12, borderRadius: 18,
-      shadowOffset: { width: 0, height: 5 },
-      shadowOpacity: 0.22,
-      shadowRadius: 14,
-      elevation: 6,
-    },
-    card: {
-      flexDirection: 'row', borderRadius: 18, borderWidth: 1,
-      backgroundColor: c.surface, overflow: 'hidden',
-    },
-    stripe: { width: 6 },
-    cardBody: { flex: 1, padding: 16, gap: 10 },
-    cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-    cardName: { fontSize: 17, fontWeight: '700', marginBottom: 2 },
-    cardTime: { fontSize: 13, marginBottom: 2 },
-    cardCoach: { fontSize: 12 },
-    cardMeta: { alignItems: 'flex-end', gap: 6 },
-    slotsText: { fontSize: 14, fontWeight: '700' },
-    bookedBadge: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
-    bookedText: { fontSize: 10, fontWeight: '700' },
-
-    // Progress bar
-    progBar: { height: 5, borderRadius: 3 },
-    progFill: { height: 5, borderRadius: 3 },
-
-    // Buttons
-    btn: { borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-    btnFull: { backgroundColor: c.border },
-    btnCancel: { backgroundColor: 'transparent', borderWidth: 1 },
-    btnText: { fontSize: 14, fontWeight: '700' },
   })
 }
