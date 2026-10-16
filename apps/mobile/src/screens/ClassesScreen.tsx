@@ -124,6 +124,11 @@ export default function ClassesScreen() {
       const { data } = await api.post('/bookings', { classId })
       if (data.status === 'WAITLIST') {
         Alert.alert('⏳ En lista de espera', 'La clase está llena. Te avisamos si se libera un lugar.')
+      } else if (data.status === 'PENDING_CONFIRM') {
+        Alert.alert(
+          '⏱ Confirma tu lugar',
+          'Como falta bastante para la clase, tenés que confirmar tu asistencia más cerca del horario o el cupo se libera.'
+        )
       } else {
         Alert.alert('✅ Reservado', 'Tu lugar está confirmado')
       }

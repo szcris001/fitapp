@@ -68,6 +68,7 @@ export async function getGym(gymId: string, { forAdmin = false }: { forAdmin?: b
       timezone: true,
       waitlistConfirmEnabled: true,
       waitlistConfirmMins: true,
+      preClassConfirmHours: true,
       sportTheme: true,
       paymentGateways: true,
     },

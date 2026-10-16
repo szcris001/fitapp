@@ -12,6 +12,8 @@ import {
 const currencies = ['CLP', 'ARS', 'COP', 'MXN', 'PEN', 'BRL', 'USD']
 
 // ─── Types ───────────────────────────────────────────────────────
+type ClassType = { id: string; name: string }
+
 type Plan = {
   id: string
   name: string
@@ -24,6 +26,7 @@ type Plan = {
   isActive: boolean
   autoRenewEnabled: boolean
   autoRenewDaysBefore: number
+  classTypes?: ClassType[]
 }
 
 type FormShape = {
@@ -36,12 +39,16 @@ type FormShape = {
   isTrial: boolean
   autoRenewEnabled: boolean
   autoRenewDaysBefore: string
+  // Tipos de clase a los que da acceso el plan — vacío = sin restricción (accede a
+  // todos). La clase individual puede seguir restringiéndose aparte (allowedPlanIds
+  // en classes/new), eso manda por encima de esto.
+  classTypeIds: string[]
 }
 
 const emptyForm = (): FormShape => ({
   name: '', description: '', priceCents: '', currency: 'CLP',
   durationDays: '30', maxClasses: '', isTrial: false,
-  autoRenewEnabled: false, autoRenewDaysBefore: '3',
+  autoRenewEnabled: false, autoRenewDaysBefore: '3', classTypeIds: [],
 })
 
 // ─── Skeleton card ───────────────────────────────────────────────
@@ -188,6 +195,14 @@ function PlanCard({
           icon={<Layers style={{ width: 14, height: 14 }} />}
           text={plan.maxClasses != null ? `${plan.maxClasses} clases incluidas` : 'Clases ilimitadas'}
         />
+        <FeatureRow
+          icon={<Calendar style={{ width: 14, height: 14 }} />}
+          text={
+            plan.classTypes && plan.classTypes.length > 0
+              ? `Acceso a: ${plan.classTypes.map(ct => ct.name).join(', ')}`
+              : 'Acceso a todos los tipos de clase'
+          }
+        />
         {plan.isTrial && (
           <FeatureRow
             icon={<FlaskConical style={{ width: 14, height: 14 }} />}
@@ -254,11 +269,13 @@ function EditCard({
   onSave,
   onCancel,
   saving,
+  classTypes,
 }: {
   plan: Plan
   onSave: (id: string, form: FormShape) => void
   onCancel: () => void
   saving: boolean
+  classTypes: ClassType[]
 }) {
   const [form, setForm] = useState<FormShape>({
     name: plan.name,
@@ -271,6 +288,7 @@ function EditCard({
     isTrial: plan.isTrial ?? false,
     autoRenewEnabled: plan.autoRenewEnabled ?? false,
     autoRenewDaysBefore: String(plan.autoRenewDaysBefore ?? 3),
+    classTypeIds: plan.classTypes?.map(ct => ct.id) ?? [],
   })
 
   return (
@@ -286,7 +304,7 @@ function EditCard({
           <X style={{ width: 16, height: 16 }} />
         </button>
       </div>
-      <PlanFormFields form={form} setForm={setForm} currencies={currencies} />
+      <PlanFormFields form={form} setForm={setForm} currencies={currencies} classTypes={classTypes} />
       <button
         onClick={() => onSave(plan.id, form)}
         disabled={saving}
@@ -346,11 +364,20 @@ function PlanFormFields({
   form,
   setForm,
   currencies,
+  classTypes,
 }: {
   form: FormShape
   setForm: React.Dispatch<React.SetStateAction<FormShape>>
   currencies: string[]
+  classTypes: ClassType[]
 }) {
+  const toggleClassType = (id: string) => setForm(f => ({
+    ...f,
+    classTypeIds: f.classTypeIds.includes(id)
+      ? f.classTypeIds.filter(x => x !== id)
+      : [...f.classTypeIds, id],
+  }))
+
   return (
     <div className="grid grid-cols-2 gap-4">
       {/* Trial toggle */}
@@ -476,7 +503,7 @@ function PlanFormFields({
       {/* Max classes */}
       <div>
         <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-3)', marginBottom: 6 }}>
-          Max. clases por dia
+          Max. clases incluidas
         </label>
         <input
           type="number" min={1}
@@ -486,6 +513,54 @@ function PlanFormFields({
           className="input"
         />
       </div>
+
+      {/* Tipos de clase incluidos — vacío = sin restricción, accede a todos */}
+      {classTypes.length > 0 && (
+        <div className="col-span-2" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-3)' }}>
+            Tipos de clase incluidos
+          </label>
+          <p style={{ fontSize: 12, color: 'var(--text-4)', margin: 0 }}>
+            {form.classTypeIds.length === 0
+              ? 'Sin selección: el plan da acceso a todos los tipos de clase'
+              : 'El plan solo da acceso a los tipos seleccionados'}
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {classTypes.map(ct => {
+              const active = form.classTypeIds.includes(ct.id)
+              return (
+                <button
+                  key={ct.id}
+                  type="button"
+                  onClick={() => toggleClassType(ct.id)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+                    cursor: 'pointer', transition: 'all 0.15s',
+                    border: active ? '1px solid var(--primary)' : '1px solid var(--border-1)',
+                    backgroundColor: active ? 'var(--primary-dim)' : 'transparent',
+                    color: active ? 'var(--primary)' : 'var(--text-3)',
+                  }}
+                >
+                  {ct.name}
+                </button>
+              )
+            })}
+            {form.classTypeIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, classTypeIds: [] }))}
+                style={{
+                  padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', border: '1px solid var(--border-1)',
+                  backgroundColor: 'transparent', color: 'var(--text-4)',
+                }}
+              >
+                Limpiar → permitir todos
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -494,6 +569,7 @@ function PlanFormFields({
 export default function PlansPage() {
   const { user, loadFromStorage } = useAuthStore()
   const [plans, setPlans] = useState<Plan[]>([])
+  const [classTypes, setClassTypes] = useState<ClassType[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -510,6 +586,7 @@ export default function PlansPage() {
   useEffect(() => {
     if (!user) return  // el layout redirige a /login
     fetchPlans()
+    api.get('/class-types').then(({ data }) => setClassTypes(data)).catch(() => {})
   }, [user])
 
   // Auto-dismiss success toast
@@ -548,6 +625,7 @@ export default function PlansPage() {
         isTrial: createForm.isTrial,
         autoRenewEnabled: createForm.isTrial ? false : createForm.autoRenewEnabled,
         autoRenewDaysBefore: Number(createForm.autoRenewDaysBefore) || undefined,
+        classTypeIds: createForm.classTypeIds,
       })
       setSuccess('Plan creado correctamente')
       setShowCreate(false)
@@ -574,6 +652,7 @@ export default function PlansPage() {
         isTrial: form.isTrial,
         autoRenewEnabled: form.isTrial ? false : form.autoRenewEnabled,
         autoRenewDaysBefore: Number(form.autoRenewDaysBefore) || undefined,
+        classTypeIds: form.classTypeIds,
       })
       setSuccess('Plan actualizado correctamente')
       setEditingId(null)
@@ -710,7 +789,7 @@ export default function PlansPage() {
               <X style={{ width: 16, height: 16 }} />
             </button>
           </div>
-          <PlanFormFields form={createForm} setForm={setCreateForm} currencies={currencies} />
+          <PlanFormFields form={createForm} setForm={setCreateForm} currencies={currencies} classTypes={classTypes} />
           <button
             type="submit"
             disabled={saving}
@@ -744,6 +823,7 @@ export default function PlansPage() {
                 onSave={handleSaveEdit}
                 onCancel={() => setEditingId(null)}
                 saving={savingEdit}
+                classTypes={classTypes}
               />
             ) : (
               <PlanCard

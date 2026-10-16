@@ -321,6 +321,24 @@ async function runAutoRenewJob() {
   if (memberships.length > 0) logger.info(`[Cron] ${memberships.length} auto-renovacion(es) procesada(s)`)
 }
 
+/**
+ * Pasa a EXPIRED las membresías ACTIVE/TRIAL cuyo endsAt ya pasó.
+ *
+ * bookClass/assignUserToClass/confirmBooking nunca dependieron de este status para
+ * bloquear reservas — siempre revalidan `endsAt >= now` directo, así que esto no es
+ * una pieza de seguridad. Es higiene de datos: sin este job, una membresía vencida
+ * se queda con status ACTIVE para siempre (nada lo cambiaba — auditoría de reglas
+ * de negocio, 2026-10-15), y cualquier reporte o listado que filtre por
+ * `status: 'ACTIVE'` sin mirar `endsAt` la muestra como vigente cuando no lo está.
+ */
+export async function runMembershipExpiryStatusJob() {
+  const { count } = await prisma.membership.updateMany({
+    where: { status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { lt: new Date() } },
+    data: { status: 'EXPIRED' },
+  })
+  if (count > 0) logger.info(`[Cron] ${count} membresía(s) pasada(s) a EXPIRED`)
+}
+
 export function startCronJobs() {
   // Expirar PENDING_CONFIRM — cada minuto
   cron.schedule('* * * * *', async () => {
@@ -338,6 +356,12 @@ export function startCronJobs() {
   cron.schedule('0 * * * *', async () => {
     try { await runGymAutoSuspendJob() }
     catch (err) { logger.error({ err }, '[Cron] Error en job de auto-suspensión') }
+  })
+
+  // Pasar membresías vencidas a EXPIRED — cada hora
+  cron.schedule('0 * * * *', async () => {
+    try { await runMembershipExpiryStatusJob() }
+    catch (err) { logger.error({ err }, '[Cron] Error en job de expiración de membresías') }
   })
 
   // Aviso de membresías de miembros — 9:00 AM diario
@@ -358,5 +382,5 @@ export function startCronJobs() {
     catch (err) { logger.error({ err }, '[Cron] Error en auto-renovaciones') }
   })
 
-  logger.info('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · auto-suspend horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM')
+  logger.info('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · auto-suspend horario · expiración membresías horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM')
 }

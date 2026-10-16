@@ -89,7 +89,9 @@ export async function listClasses(gymId: string, from?: string, to?: string) {
     where: { gymId, ...(Object.keys(startsAt).length && { startsAt }) },
     include: {
       classType: { select: { id: true, name: true, color: true, discipline: true } },
-      _count: { select: { bookings: { where: { status: { in: ['CONFIRMED', 'ATTENDED'] } } } } },
+      // PENDING_CONFIRM ocupa cupo igual que CONFIRMED — todavía no confirmó, pero
+      // el lugar sigue reservado para esa persona hasta que confirme o expire.
+      _count: { select: { bookings: { where: { status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] } } } } },
       bookings: { where: { status: 'ATTENDED' }, select: { id: true } },
       allowedPlans: { select: { id: true, name: true } },
     },
@@ -232,10 +234,42 @@ export async function createClass(gymId: string, data: CreateClassInput & { allo
   return { created: uniqueClasses.length, skipped, message: msg }
 }
 
+// Decide si un plan puede reservar una clase. La restricción puntual de la clase
+// (Class.allowedPlans) manda cuando está seteada — pensada para casos especiales (ej.
+// un taller solo para Premium). Si no está seteada, se cae a los tipos de clase que
+// incluye el plan (Plan.classTypes) — y si el plan tampoco tiene ninguno seteado, sin
+// restricción, para no romper gyms existentes que nunca configuraron nada de esto.
+function canAccessClass(
+  cls: { classTypeId: string; allowedPlans: { id: string }[] },
+  planId: string,
+  planClassTypes: { id: string }[],
+): boolean {
+  if (cls.allowedPlans.length > 0) return cls.allowedPlans.some(p => p.id === planId)
+  if (planClassTypes.length > 0) return planClassTypes.some(ct => ct.id === cls.classTypeId)
+  return true
+}
+
+// Una reserva del propio alumno (no la del coach, assignUserToClass) no queda
+// CONFIRMED de una si todavía faltan más de `preClassConfirmHours` para la clase —
+// el alumno debe confirmar manualmente antes de ese momento (mismo mecanismo que la
+// confirmación de lista de espera: PENDING_CONFIRM + confirmDeadline,
+// confirmBooking, runPendingConfirmExpiryJob). Si ya falta menos tiempo que
+// eso al reservar, no tiene sentido pedir confirmación — queda CONFIRMED directo,
+// como siempre.
+function nextBookingStatus(
+  cls: { startsAt: Date; gym: { preClassConfirmHours: number } | null },
+  now: Date,
+): { status: 'CONFIRMED' | 'PENDING_CONFIRM'; confirmDeadline: Date | null } {
+  const hours = cls.gym?.preClassConfirmHours ?? 2
+  const confirmDeadline = new Date(cls.startsAt.getTime() - hours * 60 * 60 * 1000)
+  if (confirmDeadline <= now) return { status: 'CONFIRMED', confirmDeadline: null }
+  return { status: 'PENDING_CONFIRM', confirmDeadline }
+}
+
 export async function bookClass(gymId: string, userId: string, data: BookingInput) {
   const cls = await prisma.class.findFirst({
     where: { id: data.classId, gymId },
-    include: { gym: true, classType: { select: { name: true } } },
+    include: { gym: true, classType: { select: { name: true } }, allowedPlans: { select: { id: true } } },
   })
   if (!cls) throw new Error('Clase no encontrada')
 
@@ -263,18 +297,12 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
 
   const activeMembership = await prisma.membership.findFirst({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
-    include: { plan: { select: { maxClasses: true, isTrial: true } } },
+    include: { plan: { select: { maxClasses: true, isTrial: true, classTypes: { select: { id: true } } } } },
   })
   if (!activeMembership) throw new Error('No tienes una membresía activa')
 
-  // Check plan restrictions: if class has allowedPlans, user's plan must be in the list
-  const classWithPlans = await prisma.class.findUnique({
-    where: { id: data.classId },
-    include: { allowedPlans: { select: { id: true } } },
-  })
-  if (classWithPlans?.allowedPlans && classWithPlans.allowedPlans.length > 0) {
-    const allowed = classWithPlans.allowedPlans.some(p => p.id === activeMembership.planId)
-    if (!allowed) throw new Error('Tu plan no tiene acceso a esta clase')
+  if (!canAccessClass(cls, activeMembership.planId, activeMembership.plan.classTypes)) {
+    throw new Error('Tu plan no tiene acceso a esta clase')
   }
 
   // Reservar de nuevo la MISMA clase → mensaje específico, no la regla de "mismo tipo por día"
@@ -282,10 +310,16 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     where: { userId_classId: { userId, classId: data.classId } },
   })
   if (existing) {
-    if (existing.status === 'CONFIRMED' || existing.status === 'WAITLIST') {
-      throw new Error(existing.status === 'WAITLIST' ? 'Ya estás en lista de espera' : 'Ya tienes reserva en esta clase')
+    if (existing.status === 'CONFIRMED' || existing.status === 'WAITLIST' || existing.status === 'PENDING_CONFIRM') {
+      throw new Error(
+        existing.status === 'WAITLIST'
+          ? 'Ya estás en lista de espera'
+          : existing.status === 'PENDING_CONFIRM'
+          ? 'Ya tienes una reserva pendiente de confirmar en esta clase'
+          : 'Ya tienes reserva en esta clase'
+      )
     }
-    return prisma.booking.update({ where: { id: existing.id }, data: { status: 'CONFIRMED' } })
+    return prisma.booking.update({ where: { id: existing.id }, data: nextBookingStatus(cls, now) })
   }
 
   // Rango del día de la clase en la timezone del gym
@@ -345,8 +379,11 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     }
   }
 
+  // PENDING_CONFIRM cuenta para el cupo igual que CONFIRMED — el lugar sigue
+  // tomado hasta que la persona confirme o expire (runPendingConfirmExpiryJob),
+  // no está libre para que otro lo reserve mientras tanto.
   const confirmedCount = await prisma.booking.count({
-    where: { classId: data.classId, status: { in: ['CONFIRMED', 'ATTENDED'] } },
+    where: { classId: data.classId, status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] } },
   })
 
   if (confirmedCount >= cls.capacity) {
@@ -356,7 +393,7 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
   }
 
   return prisma.booking.create({
-    data: { userId, classId: data.classId, status: 'CONFIRMED' },
+    data: { userId, classId: data.classId, ...nextBookingStatus(cls, now) },
   })
 }
 
@@ -444,7 +481,14 @@ async function promoteFromWaitlist(
   }
 }
 
-export async function confirmWaitlistBooking(gymId: string, userId: string, bookingId: string) {
+// Confirma una reserva PENDING_CONFIRM — tanto las promovidas de lista de espera
+// como las reservas normales que quedaron pendientes por el umbral de
+// preClassConfirmHours (nextBookingStatus). Revalida membresía activa en este
+// momento, no solo en el de la reserva original: es justamente el punto de este
+// mecanismo — una membresía vencida DESPUÉS de reservar no debe poder confirmar y
+// quedarse con el cupo (antes de esto, bookClass solo validaba una vez, al reservar,
+// y la reserva quedaba CONFIRMED para siempre sin volver a revisarse).
+export async function confirmBooking(gymId: string, userId: string, bookingId: string) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, userId, class: { gymId } },
   })
@@ -456,6 +500,11 @@ export async function confirmWaitlistBooking(gymId: string, userId: string, book
     throw new Error('El tiempo para confirmar ha expirado')
   }
 
+  const activeMembership = await prisma.membership.findFirst({
+    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
+  })
+  if (!activeMembership) throw new Error('No tienes una membresía activa')
+
   return prisma.booking.update({
     where: { id: booking.id },
     data: { status: 'CONFIRMED', confirmDeadline: null },
@@ -465,7 +514,7 @@ export async function confirmWaitlistBooking(gymId: string, userId: string, book
 export async function assignUserToClass(gymId: string, targetUserId: string, classId: string) {
   const cls = await prisma.class.findFirst({
     where: { id: classId, gymId },
-    include: { gym: true, classType: { select: { name: true } } },
+    include: { gym: true, classType: { select: { name: true } }, allowedPlans: { select: { id: true } } },
   })
   if (!cls) throw new Error('Clase no encontrada')
 
@@ -480,22 +529,17 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   // (QA H-PROD-MOBILE-02, Cristian 2026-10-14).
   const activeMembership = await prisma.membership.findFirst({
     where: { userId: targetUserId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
-    include: { plan: { select: { maxClasses: true, isTrial: true } } },
+    include: { plan: { select: { maxClasses: true, isTrial: true, classTypes: { select: { id: true } } } } },
   })
   if (!activeMembership) throw new Error('El alumno no tiene una membresía activa')
 
-  // Misma regla que bookClass: si la clase restringe por plan, el plan del alumno
-  // debe estar en la lista — el coach no puede saltarse esto a mano (mismo hueco
-  // que la regla de membresía activa de arriba: si no aplicara parejo, bastaría con
-  // pedirle al coach que inscriba en vez de reservar uno mismo para esquivar la
-  // restricción de plan).
-  const classWithPlans = await prisma.class.findUnique({
-    where: { id: classId },
-    include: { allowedPlans: { select: { id: true } } },
-  })
-  if (classWithPlans?.allowedPlans && classWithPlans.allowedPlans.length > 0) {
-    const allowed = classWithPlans.allowedPlans.some(p => p.id === activeMembership.planId)
-    if (!allowed) throw new Error('El plan del alumno no tiene acceso a esta clase')
+  // Misma regla que bookClass: si la clase restringe por plan (puntual o por tipo de
+  // clase incluido en el plan), el plan del alumno debe tener acceso — el coach no
+  // puede saltarse esto a mano (mismo hueco que la regla de membresía activa de
+  // arriba: si no aplicara parejo, bastaría con pedirle al coach que inscriba en vez
+  // de reservar uno mismo para esquivar la restricción de plan).
+  if (!canAccessClass(cls, activeMembership.planId, activeMembership.plan.classTypes)) {
+    throw new Error('El plan del alumno no tiene acceso a esta clase')
   }
 
   // El coach puede incorporar a un alumno a una clase en curso (lo agrega "fuera
@@ -580,8 +624,9 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
     }
   }
 
+  // Mismo criterio que bookClass: PENDING_CONFIRM también ocupa cupo.
   const confirmedCount = await prisma.booking.count({
-    where: { classId, status: { in: ['CONFIRMED', 'ATTENDED'] } },
+    where: { classId, status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] } },
   })
 
   const status = confirmedCount >= cls.capacity ? 'WAITLIST' : markAttendedNow ? 'ATTENDED' : 'CONFIRMED'

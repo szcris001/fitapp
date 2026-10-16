@@ -220,6 +220,7 @@ export default function SettingsPage() {
   const [waitlistForm, setWaitlistForm] = useState({
     waitlistConfirmEnabled: false,
     waitlistConfirmMins: 30,
+    preClassConfirmHours: 2,
   })
   const [savingGateways, setSavingGateways] = useState(false)
   const [gatewaysForm, setGatewaysForm] = useState({
@@ -299,6 +300,7 @@ export default function SettingsPage() {
       setWaitlistForm({
         waitlistConfirmEnabled: data.waitlistConfirmEnabled ?? false,
         waitlistConfirmMins: data.waitlistConfirmMins ?? 30,
+        preClassConfirmHours: data.preClassConfirmHours ?? 2,
       })
       if (data.sportTheme) setSportTheme(data.sportTheme as SportTheme)
       if (data.bankAccount) {
@@ -416,6 +418,7 @@ export default function SettingsPage() {
       await api.put('/gyms/me', {
         waitlistConfirmEnabled: waitlistForm.waitlistConfirmEnabled,
         waitlistConfirmMins: Number(waitlistForm.waitlistConfirmMins),
+        preClassConfirmHours: Number(waitlistForm.preClassConfirmHours),
       })
       showToast('Política de lista de espera guardada')
     } catch (err: any) {
@@ -789,6 +792,24 @@ export default function SettingsPage() {
             </div>
           )}
 
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <SaveButton saving={savingWaitlist} label={savingWaitlist ? 'Guardando...' : 'Guardar'} onClick={handleSaveWaitlist} />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Confirmación previa a la clase" description="Evita que un alumno se quede con un cupo si su plan vence antes de la clase">
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>
+            Si un alumno reserva con mucha anticipación, la reserva queda pendiente de confirmar hasta poco antes de la clase — ahí debe confirmar su lugar desde la app (revalidando que su membresía siga vigente) o el cupo se libera automáticamente.
+          </p>
+          <div style={{ padding: 16, borderRadius: 12, backgroundColor: 'var(--surface-base)', border: '1px solid var(--border-1)', marginBottom: 16 }}>
+            <FieldLabel>Horas de anticipación para exigir confirmación</FieldLabel>
+            <input type="number" min={1} max={72} className="input"
+              value={waitlistForm.preClassConfirmHours}
+              onChange={e => setWaitlistForm(f => ({ ...f, preClassConfirmHours: Number(e.target.value) }))} />
+            <p style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 8 }}>
+              Si la clase está a más de esta cantidad de horas al momento de reservar, el alumno debe confirmar su asistencia antes de que falte ese tiempo. Si reserva más cerca, queda confirmado directo.
+            </p>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <SaveButton saving={savingWaitlist} label={savingWaitlist ? 'Guardando...' : 'Guardar'} onClick={handleSaveWaitlist} />
           </div>

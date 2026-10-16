@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { createClassTypeSchema, createClassSchema, bookingSchema, updateClassAllowedPlansSchema } from './classes.schema'
-import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmWaitlistBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin, assertPlansBelongToGym } from './classes.service'
+import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin, assertPlansBelongToGym } from './classes.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { HttpError } from '../../lib/http-error'
@@ -178,7 +178,7 @@ export async function classRoutes(app: FastifyInstance) {
     const user = request.user as any
     const { bookingId } = request.params as any
     try {
-      return reply.send(await confirmWaitlistBooking(user.gymId, user.userId, bookingId))
+      return reply.send(await confirmBooking(user.gymId, user.userId, bookingId))
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }

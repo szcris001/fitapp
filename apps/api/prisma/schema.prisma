@@ -61,6 +61,13 @@ model Gym {
   gymRadiusMeters        Int                      @default(200)
   waitlistConfirmEnabled Boolean                  @default(false)
   waitlistConfirmMins    Int                      @default(30)
+  // Horas de anticipación desde las que una reserva normal (no de lista de espera)
+  // queda PENDING_CONFIRM en vez de CONFIRMED directo: el alumno debe confirmar
+  // manualmente desde la app antes de que falten estas horas para la clase, o el
+  // cupo se libera (runPendingConfirmExpiryJob). Evita que una membresía vencida
+  // DESPUÉS de reservar deje el cupo tomado indefinidamente sin revalidarse — ver
+  // confirmWaitlistBooking en classes.service.ts, que revalida membresía al confirmar.
+  preClassConfirmHours   Int                      @default(2)
   weightRounding         Float                    @default(2.5)
   timezone               String                   @default("America/Santiago")
   bankMovements          BankMovement[]

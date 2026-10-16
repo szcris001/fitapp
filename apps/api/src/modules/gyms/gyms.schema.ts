@@ -68,6 +68,8 @@ export const updateGymSchema = z.object({
   // Lista de espera
   waitlistConfirmEnabled: z.boolean().optional(),
   waitlistConfirmMins: z.number().int().min(5).max(1440).optional(),
+  // Confirmación previa a clase (reservas normales, no solo lista de espera)
+  preClassConfirmHours: z.number().int().min(1).max(72).optional(),
   bankAccount: z.object({
     ownerName: z.string().optional(),
     rut: z.string().optional(),
