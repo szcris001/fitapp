@@ -227,17 +227,21 @@ model Class {
 }
 
 model Booking {
-  id              String        @id @default(uuid())
-  userId          String
-  classId         String
-  status          BookingStatus @default(CONFIRMED)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  confirmDeadline DateTime?
-  attended        Boolean       @default(false)
-  attendedAt      DateTime?
-  class           Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String        @id @default(uuid())
+  userId                String
+  classId               String
+  status                BookingStatus @default(CONFIRMED)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  confirmDeadline       DateTime?
+  // Cuándo se mandó el push de recordatorio de confirmación (null = todavía no) —
+  // evita mandarlo de nuevo en cada corrida del cron mientras el booking sigue
+  // PENDING_CONFIRM dentro de la ventana de aviso (runPendingConfirmReminderJob).
+  confirmReminderSentAt DateTime?
+  attended              Boolean       @default(false)
+  attendedAt            DateTime?
+  class                 Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, classId])
   @@index([classId, status])
