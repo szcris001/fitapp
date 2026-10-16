@@ -1215,6 +1215,103 @@ describe('assignUserToClass: coach incorpora alumnos', () => {
   })
 })
 
+// ─── Suite 12c: assignUserToClass — restricción por plan (allowedPlans) ──────
+//
+// Mismo hueco que bookClass (classes.service.ts:270-278): si la clase restringe
+// por plan, el coach no debería poder esquivarlo inscribiendo al alumno a mano.
+
+describe('assignUserToClass: restricción por plan (allowedPlans)', () => {
+  it('clase restringida a un plan distinto del alumno → bloqueado también cuando asigna el coach', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(9) })
+    createdClassIds.push(classId)
+    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: trialPlanAId }] } } })
+
+    await expect(
+      assignUserToClass(gymAId, member2AId, classId)
+    ).rejects.toThrow('El plan del alumno no tiene acceso a esta clase')
+  })
+
+  it('clase restringida al plan del alumno → permitido', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(10) })
+    createdClassIds.push(classId)
+    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: planAId }] } } })
+
+    const booking = await assignUserToClass(gymAId, member2AId, classId)
+    expect(booking.status).toBe('CONFIRMED')
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+})
+
+// ─── Suite 12d: assignUserToClass — límite de maxClasses ──────────────────────
+//
+// Mismo hueco que bookClass (classes.service.ts:326-346): sin este chequeo el
+// coach podía inscribir a un alumno por encima del cupo de su plan.
+
+describe('assignUserToClass: membresía TRIAL con maxClasses', () => {
+  let trialMembershipId: string
+  let trialUserId: string
+  const trialClassIds: string[] = []
+  // Tipos de clase distintos entre sí por la misma razón que en bookClass: la
+  // regla de "mismo tipo el mismo día" bloquearía antes de llegar a maxClasses.
+  const trialClassTypeIds: string[] = []
+
+  beforeAll(async () => {
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const user = await prisma.user.create({
+      data: { gymId: gymAId, name: 'Trial Member Assign', email: 'qa-bookings-trial-assign@test.local', passwordHash, role: 'MEMBER' },
+    })
+    trialUserId = user.id
+
+    const now = new Date()
+    const endsAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+    const membership = await prisma.membership.create({
+      data: { userId: trialUserId, planId: trialPlanAId, status: 'TRIAL', startsAt: now, endsAt, pricePaid: 0, currency: 'CLP' },
+    })
+    trialMembershipId = membership.id
+
+    for (let i = 0; i < 3; i++) {
+      const ct = await prisma.classType.create({
+        data: { gymId: gymAId, name: `QA Trial Assign Tipo ${i}`, color: '#6366f1' },
+      })
+      trialClassTypeIds.push(ct.id)
+    }
+  })
+
+  afterAll(async () => {
+    await prisma.booking.deleteMany({ where: { userId: trialUserId } })
+    if (trialClassIds.length) await prisma.class.deleteMany({ where: { id: { in: trialClassIds } } })
+    if (trialClassTypeIds.length) await prisma.classType.deleteMany({ where: { id: { in: trialClassTypeIds } } })
+    if (trialMembershipId) await prisma.membership.delete({ where: { id: trialMembershipId } }).catch(() => {})
+    if (trialUserId) await prisma.user.delete({ where: { id: trialUserId } }).catch(() => {})
+  })
+
+  it('coach asigna dentro del cupo (1 de 2) → CONFIRMED', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(16), classTypeId: trialClassTypeIds[0] })
+    trialClassIds.push(classId)
+
+    const booking = await assignUserToClass(gymAId, trialUserId, classId)
+    expect(booking.status).toBe('CONFIRMED')
+  })
+
+  it('coach asigna el segundo cupo (2 de 2) → CONFIRMED', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(17), classTypeId: trialClassTypeIds[1] })
+    trialClassIds.push(classId)
+
+    const booking = await assignUserToClass(gymAId, trialUserId, classId)
+    expect(booking.status).toBe('CONFIRMED')
+  })
+
+  it('coach intenta asignar un tercer cupo (límite agotado) → bloqueado igual que si reservara el alumno', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(18), classTypeId: trialClassTypeIds[2] })
+    trialClassIds.push(classId)
+
+    await expect(
+      assignUserToClass(gymAId, trialUserId, classId)
+    ).rejects.toThrow('El alumno alcanzó el límite de clases de su plan de prueba')
+  })
+})
+
 // ─── Suite 13: confirmWaitlistBooking ─────────────────────────────────────────
 
 describe('confirmWaitlistBooking', () => {

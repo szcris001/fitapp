@@ -480,8 +480,23 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   // (QA H-PROD-MOBILE-02, Cristian 2026-10-14).
   const activeMembership = await prisma.membership.findFirst({
     where: { userId: targetUserId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
+    include: { plan: { select: { maxClasses: true, isTrial: true } } },
   })
   if (!activeMembership) throw new Error('El alumno no tiene una membresía activa')
+
+  // Misma regla que bookClass: si la clase restringe por plan, el plan del alumno
+  // debe estar en la lista — el coach no puede saltarse esto a mano (mismo hueco
+  // que la regla de membresía activa de arriba: si no aplicara parejo, bastaría con
+  // pedirle al coach que inscriba en vez de reservar uno mismo para esquivar la
+  // restricción de plan).
+  const classWithPlans = await prisma.class.findUnique({
+    where: { id: classId },
+    include: { allowedPlans: { select: { id: true } } },
+  })
+  if (classWithPlans?.allowedPlans && classWithPlans.allowedPlans.length > 0) {
+    const allowed = classWithPlans.allowedPlans.some(p => p.id === activeMembership.planId)
+    if (!allowed) throw new Error('El plan del alumno no tiene acceso a esta clase')
+  }
 
   // El coach puede incorporar a un alumno a una clase en curso (lo agrega "fuera
   // de horario", viéndolo presente ahí mismo) — en ese caso queda ATTENDED de
@@ -543,6 +558,26 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   })
   if (overlapping > 0) {
     throw new Error('El alumno ya tiene una clase reservada en ese horario')
+  }
+
+  // Mismo tope de maxClasses que bookClass, por el período real de la membresía
+  // activa — sin este chequeo el coach podía inscribir a un alumno por encima del
+  // cupo de su plan, algo que el alumno reservando por sí mismo no puede hacer.
+  if (activeMembership.plan.maxClasses) {
+    const classesInPeriod = await prisma.booking.count({
+      where: {
+        userId: targetUserId,
+        status: { in: activeStatuses },
+        class: { startsAt: { gte: activeMembership.startsAt, lt: activeMembership.endsAt } },
+      },
+    })
+    if (classesInPeriod >= activeMembership.plan.maxClasses) {
+      throw new Error(
+        activeMembership.plan.isTrial
+          ? 'El alumno alcanzó el límite de clases de su plan de prueba'
+          : `El plan del alumno permite máximo ${activeMembership.plan.maxClasses} clase${activeMembership.plan.maxClasses > 1 ? 's' : ''} en este período`
+      )
+    }
   }
 
   const confirmedCount = await prisma.booking.count({
