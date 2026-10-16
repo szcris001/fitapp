@@ -42,6 +42,7 @@ function navigateOnTap(data: Record<string, any> | undefined) {
     case 'WAITLIST_CONFIRM':
     case 'WAITLIST_PROMOTED':
     case 'PENDING_CONFIRM_EXPIRED':
+    case 'PRECLASS_CONFIRM_REMINDER':
       navigationRef.current?.navigate('Classes')
       break
     default:

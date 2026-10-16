@@ -250,6 +250,51 @@ async function runPendingConfirmExpiryJob() {
   if (expired.length > 0) logger.info(`[Cron] ${expired.length} reserva(s) PENDING_CONFIRM expirada(s)`)
 }
 
+// Minutos antes del confirmDeadline en que se manda el recordatorio. Deliberadamente
+// corto (más corto que waitlistConfirmMins, default 30, y que preClassConfirmHours,
+// default 2h): tanto la promoción de waitlist como una reserva nueva PENDING_CONFIRM
+// ya mandan su propio push al crearse — un lead time largo mandaría este recordatorio
+// casi en simultáneo con ese primer push. No es configurable por gym por ahora.
+const CONFIRM_REMINDER_LEAD_MINUTES = 10
+
+/**
+ * Recuerda confirmar a las reservas PENDING_CONFIRM (tanto promociones de waitlist
+ * como reservas nuevas que esperan preClassConfirmHours) cuyo confirmDeadline está
+ * por vencer — sin esto, el alumno solo se entera de que debe confirmar si abre la
+ * app por su cuenta. confirmReminderSentAt evita mandarlo más de una vez por booking.
+ */
+export async function runPendingConfirmReminderJob() {
+  const now = new Date()
+  const windowEnd = new Date(now.getTime() + CONFIRM_REMINDER_LEAD_MINUTES * 60 * 1000)
+
+  const due = await prisma.booking.findMany({
+    where: {
+      status: 'PENDING_CONFIRM',
+      confirmReminderSentAt: null,
+      confirmDeadline: { gt: now, lte: windowEnd },
+    },
+    include: {
+      user: { select: { pushToken: true } },
+      class: { select: { classType: { select: { name: true } } } },
+    },
+  })
+
+  for (const booking of due) {
+    if (booking.user.pushToken) {
+      const minsLeft = Math.max(1, Math.round((booking.confirmDeadline!.getTime() - now.getTime()) / 60000))
+      await sendPushNotification(
+        booking.user.pushToken,
+        '⏱ Confirmá tu lugar',
+        `Te quedan ${minsLeft} min para confirmar tu reserva de ${booking.class.classType.name} o se libera el cupo.`,
+        { type: 'PRECLASS_CONFIRM_REMINDER', classId: booking.classId }
+      )
+    }
+    await prisma.booking.update({ where: { id: booking.id }, data: { confirmReminderSentAt: now } })
+  }
+
+  if (due.length > 0) logger.info(`[Cron] ${due.length} recordatorio(s) de confirmación enviado(s)`)
+}
+
 /**
  * Intenta cobrar auto-renovaciones de membresías pendientes.
  * Corre a las 7:00 AM diario.
@@ -352,6 +397,12 @@ export function startCronJobs() {
     catch (err) { logger.error({ err }, '[Cron] Error en auto-asistencia') }
   })
 
+  // Recordatorio de confirmación próxima a vencer — cada 5 minutos
+  cron.schedule('*/5 * * * *', async () => {
+    try { await runPendingConfirmReminderJob() }
+    catch (err) { logger.error({ err }, '[Cron] Error en recordatorio de confirmación') }
+  })
+
   // Auto-suspender gyms vencidos — cada hora
   cron.schedule('0 * * * *', async () => {
     try { await runGymAutoSuspendJob() }
@@ -382,5 +433,5 @@ export function startCronJobs() {
     catch (err) { logger.error({ err }, '[Cron] Error en auto-renovaciones') }
   })
 
-  logger.info('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · auto-suspend horario · expiración membresías horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM')
+  logger.info('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · recordatorio confirmación 5min · auto-suspend horario · expiración membresías horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM')
 }
