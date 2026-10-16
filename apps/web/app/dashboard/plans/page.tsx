@@ -514,7 +514,10 @@ function PlanFormFields({
         />
       </div>
 
-      {/* Tipos de clase incluidos — vacío = sin restricción, accede a todos */}
+      {/* Tipos de clase incluidos — vacío = sin restricción, accede a todos.
+          Lista con checkbox en vez de pills: con 8-10+ tipos, las pills envueltas
+          en varias líneas quedaban difíciles de escanear (feedback Cristian,
+          2026-10-15) — una lista vertical con scroll escala mejor. */}
       {classTypes.length > 0 && (
         <div className="col-span-2" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-3)' }}>
@@ -523,42 +526,50 @@ function PlanFormFields({
           <p style={{ fontSize: 12, color: 'var(--text-4)', margin: 0 }}>
             {form.classTypeIds.length === 0
               ? 'Sin selección: el plan da acceso a todos los tipos de clase'
-              : 'El plan solo da acceso a los tipos seleccionados'}
+              : `${form.classTypeIds.length} de ${classTypes.length} tipos seleccionados`}
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {classTypes.map(ct => {
+          <div style={{
+            border: '1px solid var(--border-1)', borderRadius: 10,
+            maxHeight: 220, overflowY: 'auto', backgroundColor: 'var(--surface-base)',
+          }}>
+            {classTypes.map((ct, i) => {
               const active = form.classTypeIds.includes(ct.id)
               return (
-                <button
+                <label
                   key={ct.id}
-                  type="button"
-                  onClick={() => toggleClassType(ct.id)}
                   style={{
-                    padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    border: active ? '1px solid var(--primary)' : '1px solid var(--border-1)',
-                    backgroundColor: active ? 'var(--primary-dim)' : 'transparent',
-                    color: active ? 'var(--primary)' : 'var(--text-3)',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '9px 12px', cursor: 'pointer',
+                    borderTop: i > 0 ? '1px solid var(--border-1)' : 'none',
                   }}
                 >
-                  {ct.name}
-                </button>
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={() => toggleClassType(ct.id)}
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--primary)', flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--text-2)', fontWeight: active ? 600 : 400 }}>
+                    {ct.name}
+                  </span>
+                </label>
               )
             })}
-            {form.classTypeIds.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setForm(f => ({ ...f, classTypeIds: [] }))}
-                style={{
-                  padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                  cursor: 'pointer', border: '1px solid var(--border-1)',
-                  backgroundColor: 'transparent', color: 'var(--text-4)',
-                }}
-              >
-                Limpiar → permitir todos
-              </button>
-            )}
           </div>
+          {form.classTypeIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, classTypeIds: [] }))}
+              style={{
+                alignSelf: 'flex-start', padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', border: '1px solid var(--border-1)',
+                backgroundColor: 'transparent', color: 'var(--text-4)',
+              }}
+            >
+              Limpiar selección → permitir todos
+            </button>
+          )}
         </div>
       )}
     </div>
