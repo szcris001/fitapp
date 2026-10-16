@@ -1086,7 +1086,7 @@ export default function ReportsPage() {
                       )}
                       {plan.maxClasses != null && (
                         <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
-                          Máx. {plan.maxClasses} clases
+                          Máx. {plan.maxClasses} clase{plan.maxClasses > 1 ? 's' : ''}{plan.isTrial ? ' en total' : '/día'}
                         </p>
                       )}
                       {plan.description && (

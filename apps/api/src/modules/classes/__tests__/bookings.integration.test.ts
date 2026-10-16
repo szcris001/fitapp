@@ -597,6 +597,103 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
   })
 })
 
+// ─── Suite 4b: bookClass/assignUserToClass — maxClasses es por DÍA en planes
+// normales (no Trial) ───────────────────────────────────────────────────────
+//
+// Bug encontrado en vivo (Cristian, 2026-10-16): un plan mensual "1 clase
+// incluida" solo dejaba reservar 1 clase en los 30 días de vigencia en vez de 1
+// por día — exactamente al revés de lo esperado. Antes de este fix, maxClasses
+// contaba siempre por período completo (ver git blame); ahora eso solo aplica a
+// planes Trial (decisión 2026-10-05, ver nextBookingStatus/planAllowsMaxClasses
+// en classes.service.ts) — los planes normales cuentan por día calendario, sin
+// tope acumulado para todo el período. No existía ningún test para un plan NO
+// Trial con maxClasses seteado — el gap que dejó pasar este bug.
+
+describe('bookClass: maxClasses es por día en planes normales (no Trial)', () => {
+  let limitedPlanId: string
+  let limitedUserId: string
+  let typeAId: string
+  let typeBId: string
+
+  beforeAll(async () => {
+    const plan = await prisma.plan.create({
+      data: { gymId: gymAId, name: 'QA Plan 1 por día', priceCents: 10000, currency: 'CLP', durationDays: 30, isActive: true, maxClasses: 1 },
+    })
+    limitedPlanId = plan.id
+
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const user = await prisma.user.create({
+      data: { gymId: gymAId, name: 'QA MaxClasses PorDia', email: 'qa-bookings-maxclasses-day@test.local', passwordHash, role: 'MEMBER' },
+    })
+    limitedUserId = user.id
+    await createActiveMembership(limitedUserId, limitedPlanId)
+
+    const ta = await prisma.classType.create({ data: { gymId: gymAId, name: 'QA MaxDay Tipo A', color: '#6366f1' } })
+    const tb = await prisma.classType.create({ data: { gymId: gymAId, name: 'QA MaxDay Tipo B', color: '#f59e0b' } })
+    typeAId = ta.id
+    typeBId = tb.id
+  })
+
+  afterAll(async () => {
+    await prisma.booking.deleteMany({ where: { userId: limitedUserId } })
+    await prisma.membership.deleteMany({ where: { userId: limitedUserId } })
+    await prisma.user.delete({ where: { id: limitedUserId } })
+    await prisma.plan.delete({ where: { id: limitedPlanId } })
+    // Borrar antes las clases de estos tipos (y sacarlas de createdClassIds, que
+    // las intentaría borrar de nuevo en el afterAll global) — classType.deleteMany
+    // falla por FK si todavía hay clases apuntándoles.
+    const typeClasses = await prisma.class.findMany({ where: { classTypeId: { in: [typeAId, typeBId] } }, select: { id: true } })
+    const typeClassIds = typeClasses.map(c => c.id)
+    await prisma.class.deleteMany({ where: { id: { in: typeClassIds } } })
+    for (const id of typeClassIds) {
+      const idx = createdClassIds.indexOf(id)
+      if (idx !== -1) createdClassIds.splice(idx, 1)
+    }
+    await prisma.classType.deleteMany({ where: { id: { in: [typeAId, typeBId] } } })
+  })
+
+  it('reserva dentro del cupo diario (1 de 1 ese día) → permitido', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(6), classTypeId: typeAId })
+    createdClassIds.push(classId)
+
+    const booking = await bookClass(gymAId, limitedUserId, { classId })
+    expect(BOOKED_STATUSES).toContain(booking.status)
+  })
+
+  it('segunda clase (tipo distinto) el MISMO día → bloqueada por el tope diario, no por período', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(8), classTypeId: typeBId })
+    createdClassIds.push(classId)
+
+    await expect(
+      bookClass(gymAId, limitedUserId, { classId })
+    ).rejects.toThrow('Tu plan permite máximo 1 clase por día')
+  })
+
+  it('misma clase al día SIGUIENTE → permitido (el tope no se acumula para todo el período)', async () => {
+    const startsAt = new Date(tomorrowAtGymHour(6).getTime() + 24 * 60 * 60 * 1000)
+    const classId = await createClass({ startsAt, classTypeId: typeAId })
+    createdClassIds.push(classId)
+
+    const booking = await bookClass(gymAId, limitedUserId, { classId })
+    expect(BOOKED_STATUSES).toContain(booking.status)
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
+  it('assignUserToClass: mismo tope diario también cuando asigna el coach', async () => {
+    const startsAt = new Date(tomorrowAtGymHour(6).getTime() + 2 * 24 * 60 * 60 * 1000)
+    const firstClassId = await createClass({ startsAt, classTypeId: typeAId })
+    const secondClassId = await createClass({ startsAt: new Date(startsAt.getTime() + 2 * 60 * 60 * 1000), classTypeId: typeBId })
+    createdClassIds.push(firstClassId, secondClassId)
+
+    await assignUserToClass(gymAId, limitedUserId, firstClassId)
+
+    await expect(
+      assignUserToClass(gymAId, limitedUserId, secondClassId)
+    ).rejects.toThrow('El plan del alumno permite máximo 1 clase por día')
+  })
+})
+
 // ─── Suite 5: bookClass — capacidad y waitlist ────────────────────────────────
 
 describe('bookClass: capacidad y waitlist', () => {

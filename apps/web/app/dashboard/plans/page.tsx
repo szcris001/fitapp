@@ -193,7 +193,13 @@ function PlanCard({
         />
         <FeatureRow
           icon={<Layers style={{ width: 14, height: 14 }} />}
-          text={plan.maxClasses != null ? `${plan.maxClasses} clases incluidas` : 'Clases ilimitadas'}
+          text={
+            plan.maxClasses == null
+              ? 'Clases ilimitadas'
+              : plan.isTrial
+              ? `${plan.maxClasses} clases en total durante la prueba`
+              : `${plan.maxClasses} clase${plan.maxClasses > 1 ? 's' : ''} por día`
+          }
         />
         <FeatureRow
           icon={<Calendar style={{ width: 14, height: 14 }} />}
@@ -503,7 +509,7 @@ function PlanFormFields({
       {/* Max classes */}
       <div>
         <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-3)', marginBottom: 6 }}>
-          Max. clases incluidas
+          {form.isTrial ? 'Max. clases incluidas (total durante la prueba)' : 'Max. clases por día'}
         </label>
         <input
           type="number" min={1}
@@ -512,6 +518,11 @@ function PlanFormFields({
           placeholder="Sin limite"
           className="input"
         />
+        {!form.isTrial && (
+          <p style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 6 }}>
+            Se repite todos los días mientras dure el plan — no es un total acumulado para todo el período.
+          </p>
+        )}
       </div>
 
       {/* Tipos de clase incluidos — vacío = sin restricción, accede a todos */}

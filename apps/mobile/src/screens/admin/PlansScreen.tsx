@@ -120,7 +120,7 @@ export default function PlansScreen({ navigation }: any) {
               <Text style={[s.input, { color: '#9ca3af' }]}>30 días</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.label}>Máx. clases</Text>
+              <Text style={s.label}>Máx. clases por día</Text>
               <TextInput style={s.input} placeholder="Sin límite" placeholderTextColor="#4b5563" value={form.maxClasses} onChangeText={v => set('maxClasses', v)} keyboardType="numeric" />
             </View>
           </View>
@@ -149,7 +149,7 @@ export default function PlansScreen({ navigation }: any) {
               </View>
               {plan.description && <Text style={s.planDesc}>{plan.description}</Text>}
               <Text style={s.planMeta}>
-                {plan.durationDays} días{plan.maxClasses ? ` · ${plan.maxClasses} clases máx.` : ''}
+                {plan.durationDays} días{plan.maxClasses ? ` · ${plan.maxClasses} clase${plan.maxClasses > 1 ? 's' : ''}/día` : ''}
               </Text>
               <View style={s.planActions}>
                 <TouchableOpacity style={s.editBtn} onPress={() => openEdit(plan)}>
