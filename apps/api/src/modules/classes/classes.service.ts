@@ -89,7 +89,9 @@ export async function listClasses(gymId: string, from?: string, to?: string) {
     where: { gymId, ...(Object.keys(startsAt).length && { startsAt }) },
     include: {
       classType: { select: { id: true, name: true, color: true, discipline: true } },
-      _count: { select: { bookings: { where: { status: { in: ['CONFIRMED', 'ATTENDED'] } } } } },
+      // PENDING_CONFIRM ocupa cupo igual que CONFIRMED — todavía no confirmó, pero
+      // el lugar sigue reservado para esa persona hasta que confirme o expire.
+      _count: { select: { bookings: { where: { status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] } } } } },
       bookings: { where: { status: 'ATTENDED' }, select: { id: true } },
       allowedPlans: { select: { id: true, name: true } },
     },
@@ -247,6 +249,23 @@ function canAccessClass(
   return true
 }
 
+// Una reserva del propio alumno (no la del coach, assignUserToClass) no queda
+// CONFIRMED de una si todavía faltan más de `preClassConfirmHours` para la clase —
+// el alumno debe confirmar manualmente antes de ese momento (mismo mecanismo que la
+// confirmación de lista de espera: PENDING_CONFIRM + confirmDeadline,
+// confirmBooking, runPendingConfirmExpiryJob). Si ya falta menos tiempo que
+// eso al reservar, no tiene sentido pedir confirmación — queda CONFIRMED directo,
+// como siempre.
+function nextBookingStatus(
+  cls: { startsAt: Date; gym: { preClassConfirmHours: number } | null },
+  now: Date,
+): { status: 'CONFIRMED' | 'PENDING_CONFIRM'; confirmDeadline: Date | null } {
+  const hours = cls.gym?.preClassConfirmHours ?? 2
+  const confirmDeadline = new Date(cls.startsAt.getTime() - hours * 60 * 60 * 1000)
+  if (confirmDeadline <= now) return { status: 'CONFIRMED', confirmDeadline: null }
+  return { status: 'PENDING_CONFIRM', confirmDeadline }
+}
+
 export async function bookClass(gymId: string, userId: string, data: BookingInput) {
   const cls = await prisma.class.findFirst({
     where: { id: data.classId, gymId },
@@ -291,10 +310,16 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     where: { userId_classId: { userId, classId: data.classId } },
   })
   if (existing) {
-    if (existing.status === 'CONFIRMED' || existing.status === 'WAITLIST') {
-      throw new Error(existing.status === 'WAITLIST' ? 'Ya estás en lista de espera' : 'Ya tienes reserva en esta clase')
+    if (existing.status === 'CONFIRMED' || existing.status === 'WAITLIST' || existing.status === 'PENDING_CONFIRM') {
+      throw new Error(
+        existing.status === 'WAITLIST'
+          ? 'Ya estás en lista de espera'
+          : existing.status === 'PENDING_CONFIRM'
+          ? 'Ya tienes una reserva pendiente de confirmar en esta clase'
+          : 'Ya tienes reserva en esta clase'
+      )
     }
-    return prisma.booking.update({ where: { id: existing.id }, data: { status: 'CONFIRMED' } })
+    return prisma.booking.update({ where: { id: existing.id }, data: nextBookingStatus(cls, now) })
   }
 
   // Rango del día de la clase en la timezone del gym
@@ -354,8 +379,11 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     }
   }
 
+  // PENDING_CONFIRM cuenta para el cupo igual que CONFIRMED — el lugar sigue
+  // tomado hasta que la persona confirme o expire (runPendingConfirmExpiryJob),
+  // no está libre para que otro lo reserve mientras tanto.
   const confirmedCount = await prisma.booking.count({
-    where: { classId: data.classId, status: { in: ['CONFIRMED', 'ATTENDED'] } },
+    where: { classId: data.classId, status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] } },
   })
 
   if (confirmedCount >= cls.capacity) {
@@ -365,7 +393,7 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
   }
 
   return prisma.booking.create({
-    data: { userId, classId: data.classId, status: 'CONFIRMED' },
+    data: { userId, classId: data.classId, ...nextBookingStatus(cls, now) },
   })
 }
 
@@ -453,7 +481,14 @@ async function promoteFromWaitlist(
   }
 }
 
-export async function confirmWaitlistBooking(gymId: string, userId: string, bookingId: string) {
+// Confirma una reserva PENDING_CONFIRM — tanto las promovidas de lista de espera
+// como las reservas normales que quedaron pendientes por el umbral de
+// preClassConfirmHours (nextBookingStatus). Revalida membresía activa en este
+// momento, no solo en el de la reserva original: es justamente el punto de este
+// mecanismo — una membresía vencida DESPUÉS de reservar no debe poder confirmar y
+// quedarse con el cupo (antes de esto, bookClass solo validaba una vez, al reservar,
+// y la reserva quedaba CONFIRMED para siempre sin volver a revisarse).
+export async function confirmBooking(gymId: string, userId: string, bookingId: string) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, userId, class: { gymId } },
   })
@@ -464,6 +499,11 @@ export async function confirmWaitlistBooking(gymId: string, userId: string, book
   if (booking.confirmDeadline && now > booking.confirmDeadline) {
     throw new Error('El tiempo para confirmar ha expirado')
   }
+
+  const activeMembership = await prisma.membership.findFirst({
+    where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
+  })
+  if (!activeMembership) throw new Error('No tienes una membresía activa')
 
   return prisma.booking.update({
     where: { id: booking.id },
@@ -584,8 +624,9 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
     }
   }
 
+  // Mismo criterio que bookClass: PENDING_CONFIRM también ocupa cupo.
   const confirmedCount = await prisma.booking.count({
-    where: { classId, status: { in: ['CONFIRMED', 'ATTENDED'] } },
+    where: { classId, status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] } },
   })
 
   const status = confirmedCount >= cls.capacity ? 'WAITLIST' : markAttendedNow ? 'ATTENDED' : 'CONFIRMED'

@@ -5,7 +5,7 @@
  *
  * Estrategia:
  *   - Se llaman las funciones de servicio directamente (bookClass, cancelBooking,
- *     removeStudentByAdmin, confirmWaitlistBooking). No se usa HTTP para estos tests
+ *     removeStudentByAdmin, confirmBooking). No se usa HTTP para estos tests
  *     porque la lógica de negocio vive en el service, no en la capa de rutas.
  *   - La DB es real (Prisma contra Postgres de test).
  *   - vi.useFakeTimers() controla `new Date()` en tests de ventanas temporales.
@@ -43,7 +43,7 @@
  *  22.  Admin cancela WAITLIST → no promueve (wasActive = false)
  *  23.  Admin intenta cancelar booking de otro gym → error "Reserva no encontrada"
  *
- * confirmWaitlistBooking:
+ * confirmBooking:
  *  24.  Confirmar PENDING_CONFIRM dentro del deadline → pasa a CONFIRMED
  *  25.  Confirmar PENDING_CONFIRM con deadline expirado → error "tiempo para confirmar ha expirado"
  *  26.  Confirmar booking que NO es PENDING_CONFIRM → error
@@ -57,7 +57,7 @@ import {
   bookClass,
   cancelBooking,
   removeStudentByAdmin,
-  confirmWaitlistBooking,
+  confirmBooking,
   assignUserToClass,
 } from '../classes.service'
 
@@ -129,6 +129,12 @@ function tomorrowAtGymHour(hour: number, timezone = 'America/Santiago'): Date {
   const diffHours = ((hour - localHour + 36) % 24) - 12
   return new Date(guess.getTime() + diffHours * 3_600_000)
 }
+
+// Desde Feature B (preClassConfirmHours), una reserva que "tomó" el cupo puede
+// quedar CONFIRMED o PENDING_CONFIRM según cuánto falte para la clase — para tests
+// que no están probando específicamente ese umbral (sino otra regla: waitlist,
+// solapamiento, maxClasses…), lo que importa es que NO haya ido a WAITLIST.
+const BOOKED_STATUSES = ['CONFIRMED', 'PENDING_CONFIRM']
 
 /**
  * Crea una membresía ACTIVE para el usuario dado, con vigencia actual.
@@ -378,7 +384,7 @@ describe('bookClass: ventanas de tiempo', () => {
     createdClassIds.push(classId)
 
     const booking = await bookClass(gymAId, memberAId, { classId })
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
 
     await prisma.booking.deleteMany({ where: { classId } })
   })
@@ -483,7 +489,7 @@ describe('bookClass: restricción por plan (allowedPlans)', () => {
     await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: planAId }] } } })
 
     const booking = await bookClass(gymAId, memberAId, { classId })
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
 
     await prisma.booking.deleteMany({ where: { classId } })
   })
@@ -536,22 +542,22 @@ describe('bookClass: membresía TRIAL con maxClasses', () => {
     if (trialUserId) await prisma.user.delete({ where: { id: trialUserId } }).catch(() => {})
   })
 
-  it('membresía TRIAL con cupo disponible → reserva CONFIRMED', async () => {
+  it('membresía TRIAL con cupo disponible → reserva CONFIRMED (o PENDING_CONFIRM, no WAITLIST)', async () => {
     const startsAt = tomorrowAtGymHour(10)
     const classId = await createClass({ startsAt, classTypeId: trialClassTypeIds[0] })
     trialClassIds.push(classId)
 
     const booking = await bookClass(gymAId, trialUserId, { classId })
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
   })
 
-  it('segunda reserva TRIAL — todavía tiene cupo (1 usado de 2) → CONFIRMED', async () => {
+  it('segunda reserva TRIAL — todavía tiene cupo (1 usado de 2) → CONFIRMED (o PENDING_CONFIRM, no WAITLIST)', async () => {
     const startsAt = tomorrowAtGymHour(11)
     const classId = await createClass({ startsAt, classTypeId: trialClassTypeIds[1] })
     trialClassIds.push(classId)
 
     const booking = await bookClass(gymAId, trialUserId, { classId })
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
   })
 
   it('tercera reserva TRIAL — límite agotado (2 de 2) → error de límite trial', async () => {
@@ -628,7 +634,7 @@ describe('bookClass: doble reserva', () => {
     const startsAt = new Date(Date.now() + 26 * 60 * 60 * 1000)
     classId = await createClass({ startsAt })
     createdClassIds.push(classId)
-    // memberA ya tiene una reserva CONFIRMED
+    // 26h de anticipación > preClassConfirmHours (2h) → queda PENDING_CONFIRM
     await bookClass(gymAId, memberAId, { classId })
   })
 
@@ -636,10 +642,32 @@ describe('bookClass: doble reserva', () => {
     await prisma.booking.deleteMany({ where: { classId } })
   })
 
-  it('reservar dos veces la misma clase → error "Ya tienes reserva en esta clase"', async () => {
+  it('reservar dos veces la misma clase (PENDING_CONFIRM) → error "pendiente de confirmar"', async () => {
     await expect(
       bookClass(gymAId, memberAId, { classId })
+    ).rejects.toThrow('Ya tienes una reserva pendiente de confirmar en esta clase')
+  })
+
+  it('reservar dos veces una clase ya CONFIRMED (dentro de preClassConfirmHours) → error "Ya tienes reserva en esta clase"', async () => {
+    // A menos de 2h (preClassConfirmHours) pero más del cutoff de 60min — confirma
+    // directo, sin pasar por PENDING_CONFIRM. Tipo de clase propio para no chocar
+    // con la regla de "mismo tipo por día" contra el booking de 26h del beforeAll.
+    const closeType = await prisma.classType.create({ data: { gymId: gymAId, name: 'QA Doble Reserva Cercana', color: '#10b981' } })
+    const startsAt = new Date(Date.now() + 90 * 60 * 1000)
+    const closeClassId = await createClass({ startsAt, classTypeId: closeType.id })
+    createdClassIds.push(closeClassId)
+
+    const booking = await bookClass(gymAId, memberAId, { classId: closeClassId })
+    expect(booking.status).toBe('CONFIRMED')
+
+    await expect(
+      bookClass(gymAId, memberAId, { classId: closeClassId })
     ).rejects.toThrow('Ya tienes reserva en esta clase')
+
+    await prisma.booking.deleteMany({ where: { classId: closeClassId } })
+    await prisma.class.delete({ where: { id: closeClassId } })
+    createdClassIds.splice(createdClassIds.indexOf(closeClassId), 1)
+    await prisma.classType.delete({ where: { id: closeType.id } })
   })
 
   it('alumno en WAITLIST intenta reservar de nuevo → error "Ya estás en lista de espera"', async () => {
@@ -717,13 +745,13 @@ describe('bookClass: solapamiento de horario', () => {
     createdClassIds.push(backToBackId)
 
     const booking = await bookClass(gymAId, memberAId, { classId: backToBackId })
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
   })
 })
 
 // ─── Suite 7: bookClass — booking CANCELLED previo se reactiva ───────────────
 
-describe('bookClass: booking CANCELLED previo → se reactiva a CONFIRMED', () => {
+describe('bookClass: booking CANCELLED previo → se reactiva', () => {
   let classId: string
 
   beforeAll(async () => {
@@ -741,12 +769,13 @@ describe('bookClass: booking CANCELLED previo → se reactiva a CONFIRMED', () =
     await prisma.booking.deleteMany({ where: { classId } })
   })
 
-  it('booking CANCELLED existente → bookClass lo reactiva a CONFIRMED', async () => {
-    // Este es el comportamiento REAL del código: si existe un booking con otro status,
-    // lo actualiza a CONFIRMED en lugar de crear uno nuevo.
+  it('booking CANCELLED existente → bookClass lo reactiva (CONFIRMED o PENDING_CONFIRM según preClassConfirmHours)', async () => {
+    // Comportamiento REAL del código: si existe un booking con otro status, lo
+    // actualiza en vez de crear uno nuevo — pasando por la misma lógica de
+    // nextBookingStatus que una reserva nueva (28h de anticipación → PENDING_CONFIRM).
     const booking = await bookClass(gymAId, memberAId, { classId })
 
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
     expect(booking.userId).toBe(memberAId)
   })
 })
@@ -1406,7 +1435,7 @@ describe('canAccessClass: Plan.classTypes', () => {
     createdClassIds.push(classId)
 
     const booking = await bookClass(gymAId, limitedUserId, { classId })
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
 
     await prisma.booking.deleteMany({ where: { classId } })
   })
@@ -1428,15 +1457,89 @@ describe('canAccessClass: Plan.classTypes', () => {
     await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: limitedPlanId }] } } })
 
     const booking = await bookClass(gymAId, limitedUserId, { classId })
-    expect(booking.status).toBe('CONFIRMED')
+    expect(BOOKED_STATUSES).toContain(booking.status)
 
     await prisma.booking.deleteMany({ where: { classId } })
   })
 })
 
-// ─── Suite 13: confirmWaitlistBooking ─────────────────────────────────────────
+// ─── Suite 12f: bookClass — confirmación previa a la clase (preClassConfirmHours) ──
+//
+// Feature B (2026-10-15): una reserva normal no queda CONFIRMED de una si todavía
+// faltan más de `preClassConfirmHours` (default 2, configurable por gym) para la
+// clase — el alumno debe confirmar manualmente (confirmBooking) antes de ese
+// momento, o el cupo se libera (runPendingConfirmExpiryJob, cron.ts). Evita que una
+// membresía vencida DESPUÉS de reservar deje el cupo tomado indefinidamente.
 
-describe('confirmWaitlistBooking', () => {
+describe('bookClass: confirmación previa a la clase (preClassConfirmHours)', () => {
+  it('clase a más de preClassConfirmHours → PENDING_CONFIRM con confirmDeadline correcto', async () => {
+    const startsAt = tomorrowAtGymHour(12)
+    const classId = await createClass({ startsAt })
+    createdClassIds.push(classId)
+
+    const booking = await bookClass(gymAId, memberAId, { classId })
+
+    expect(booking.status).toBe('PENDING_CONFIRM')
+    // Gym A no configura preClassConfirmHours explícito → default 2h
+    expect(booking.confirmDeadline?.getTime()).toBe(startsAt.getTime() - 2 * 60 * 60 * 1000)
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
+  it('clase a menos de preClassConfirmHours → CONFIRMED directo, sin confirmDeadline', async () => {
+    // 90 min: fuera del cutoff (60 min) pero dentro de preClassConfirmHours (2h)
+    const startsAt = new Date(Date.now() + 90 * 60 * 1000)
+    const classId = await createClass({ startsAt })
+    createdClassIds.push(classId)
+
+    const booking = await bookClass(gymAId, memberAId, { classId })
+
+    expect(booking.status).toBe('CONFIRMED')
+    expect(booking.confirmDeadline).toBeNull()
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
+  it('preClassConfirmHours configurable por gym — 1h exige confirmación donde el default (2h) no lo haría', async () => {
+    // preClassConfirmHours es el lead time MÍNIMO que dispara la exigencia de
+    // confirmar: bajarlo (gym más estricto) amplía qué reservas quedan PENDING_CONFIRM;
+    // subirlo las reduce (nunca al revés — el set que exige confirmación con N horas
+    // es subconjunto del de cualquier valor menor que N).
+    await prisma.gym.update({ where: { id: gymAId }, data: { preClassConfirmHours: 1 } })
+    try {
+      // 90 min de anticipación: con el default (2h) sería CONFIRMED directo (90min < 2h);
+      // con 1h configurado, 90min > 1h → PENDING_CONFIRM.
+      const startsAt = new Date(Date.now() + 90 * 60 * 1000)
+      const classId = await createClass({ startsAt })
+      createdClassIds.push(classId)
+
+      const booking = await bookClass(gymAId, memberAId, { classId })
+      expect(booking.status).toBe('PENDING_CONFIRM')
+
+      await prisma.booking.deleteMany({ where: { classId } })
+    } finally {
+      await prisma.gym.update({ where: { id: gymAId }, data: { preClassConfirmHours: 2 } })
+    }
+  })
+
+  it('PENDING_CONFIRM cuenta para el cupo igual que CONFIRMED — no deja reservar de más mientras espera confirmación', async () => {
+    const startsAt = tomorrowAtGymHour(13)
+    const classId = await createClass({ startsAt, capacity: 1 })
+    createdClassIds.push(classId)
+
+    const first = await bookClass(gymAId, memberAId, { classId })
+    expect(first.status).toBe('PENDING_CONFIRM')
+
+    const second = await bookClass(gymAId, member2AId, { classId })
+    expect(second.status).toBe('WAITLIST')
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+})
+
+// ─── Suite 13: confirmBooking ─────────────────────────────────────────
+
+describe('confirmBooking', () => {
   let classId: string
 
   beforeAll(async () => {
@@ -1456,7 +1559,7 @@ describe('confirmWaitlistBooking', () => {
       data: { userId: memberAId, classId, status: 'PENDING_CONFIRM', confirmDeadline: deadline },
     })
 
-    const result = await confirmWaitlistBooking(gymAId, memberAId, booking.id)
+    const result = await confirmBooking(gymAId, memberAId, booking.id)
 
     expect(result.status).toBe('CONFIRMED')
     expect(result.confirmDeadline).toBeNull()
@@ -1470,7 +1573,7 @@ describe('confirmWaitlistBooking', () => {
     })
 
     await expect(
-      confirmWaitlistBooking(gymAId, member2AId, booking.id)
+      confirmBooking(gymAId, member2AId, booking.id)
     ).rejects.toThrow('El tiempo para confirmar ha expirado')
   })
 
@@ -1480,8 +1583,36 @@ describe('confirmWaitlistBooking', () => {
     })
 
     await expect(
-      confirmWaitlistBooking(gymAId, member3AId, booking.id)
+      confirmBooking(gymAId, member3AId, booking.id)
     ).rejects.toThrow('Esta reserva no requiere confirmación')
+  })
+
+  it('confirmar PENDING_CONFIRM con membresía vencida DESPUÉS de reservar → bloqueado, no se queda con el cupo', async () => {
+    // Este es el gap que motivó Feature B: antes, bookClass solo validaba membresía
+    // UNA vez al reservar — si vencía después, la reserva CONFIRMED quedaba para
+    // siempre sin revalidarse. confirmBooking ahora revalida al confirmar.
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const user = await prisma.user.create({
+      data: { gymId: gymAId, name: 'QA Confirm Membresía Vencida', email: 'qa-bookings-confirm-expired@test.local', passwordHash, role: 'MEMBER' },
+    })
+    const expiredEndsAt = new Date(Date.now() - 60 * 60 * 1000) // venció hace 1h
+    const membership = await prisma.membership.create({
+      data: { userId: user.id, planId: planAId, status: 'ACTIVE', startsAt: new Date(expiredEndsAt.getTime() - 30 * 24 * 60 * 60 * 1000), endsAt: expiredEndsAt, pricePaid: 30000, currency: 'CLP' },
+    })
+    const deadline = new Date(Date.now() + 30 * 60 * 1000)
+    const booking = await prisma.booking.create({
+      data: { userId: user.id, classId, status: 'PENDING_CONFIRM', confirmDeadline: deadline },
+    })
+
+    try {
+      await expect(
+        confirmBooking(gymAId, user.id, booking.id)
+      ).rejects.toThrow('No tienes una membresía activa')
+    } finally {
+      await prisma.booking.delete({ where: { id: booking.id } })
+      await prisma.membership.delete({ where: { id: membership.id } })
+      await prisma.user.delete({ where: { id: user.id } })
+    }
   })
 
   it('confirmar booking de otro usuario → error "Reserva no encontrada"', async () => {
@@ -1497,7 +1628,7 @@ describe('confirmWaitlistBooking', () => {
 
     // member2A intenta confirmar el booking de memberA
     await expect(
-      confirmWaitlistBooking(gymAId, member2AId, booking.id)
+      confirmBooking(gymAId, member2AId, booking.id)
     ).rejects.toThrow('Reserva no encontrada')
 
     // Cleanup
