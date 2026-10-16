@@ -35,9 +35,7 @@ export default function HomeScreen() {
   const [classDetails, setClassDetails] = useState<any>(null)
   const [loadingModal, setLoadingModal] = useState(false)
 
-  // Reserva rápida
-  const [bookingIds, setBookingIds] = useState<Set<string>>(new Set())
-  const [bookingLoading, setBookingLoading] = useState<Set<string>>(new Set())
+  const [confirmingIds, setConfirmingIds] = useState<Set<string>>(new Set())
 
   // Fade-in animation
   const fadeAnim = useState(new Animated.Value(0))[0]
@@ -102,11 +100,8 @@ export default function HomeScreen() {
         const firstDay = new Date(upcoming[0].startsAt).toDateString()
         const dayClasses = upcoming.filter(b => new Date(b.startsAt).toDateString() === firstDay)
         setTodayClasses(dayClasses)
-        // Poblar bookingIds con los classId ya reservados
-        setBookingIds(new Set(dayClasses.map((b: any) => b.classId).filter(Boolean)))
       } else {
         setTodayClasses([])
-        setBookingIds(new Set())
       }
 
       setRms((rmsRes.data || []).filter((rm: any) => rm.currentRm > 0))
@@ -161,26 +156,36 @@ export default function HomeScreen() {
 
   const closeClassModal = () => { setClassModal(null); setClassDetails(null) }
 
-  const handleBook = async (classId: string, isBooked: boolean) => {
-    if (bookingLoading.has(classId)) return
-    setBookingLoading(prev => new Set([...prev, classId]))
+  const handleCancel = (classId: string) => {
+    Alert.alert('Cancelar reserva', '¿Estás seguro de cancelar?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Sí, cancelar', style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.delete(`/bookings/${classId}`)
+          } catch (err: any) {
+            Alert.alert('Error', err?.response?.data?.error || 'No se pudo cancelar')
+          } finally {
+            closeClassModal()
+            fetchData()
+          }
+        },
+      },
+    ])
+  }
+
+  const handleConfirm = async (bookingId: string, classId: string) => {
+    setConfirmingIds(prev => new Set([...prev, classId]))
     try {
-      if (isBooked) {
-        await api.delete(`/classes/${classId}/book`)
-        setBookingIds(prev => { const s = new Set(prev); s.delete(classId); return s })
-        // Quitar la tarjeta de la lista ya que ya no tiene reserva activa
-        setTodayClasses(prev => prev.filter(b => b.classId !== classId))
-      } else {
-        await api.post(`/classes/${classId}/book`, {})
-        setBookingIds(prev => new Set([...prev, classId]))
-      }
+      await api.post(`/bookings/${bookingId}/confirm`)
+      Alert.alert('✅ Confirmado', '¡Tu lugar está asegurado!')
+      closeClassModal()
+      fetchData()
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? err?.response?.data?.error
-      if (msg) Alert.alert('Aviso', msg)
-      else if (err?.response?.status === 409) Alert.alert('Clase llena', 'No hay cupos disponibles.')
-      else Alert.alert('Error', 'No se pudo procesar la reserva.')
+      Alert.alert('Error', err?.response?.data?.error || 'No se pudo confirmar')
     } finally {
-      setBookingLoading(prev => { const s = new Set(prev); s.delete(classId); return s })
+      setConfirmingIds(prev => { const s = new Set(prev); s.delete(classId); return s })
     }
   }
 
@@ -298,56 +303,48 @@ export default function HomeScreen() {
                     {clDate.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                     <DisciplineIcon
                       discipline={cl.classType?.discipline}
                       size={13}
                       color={cl.classType?.color || (dashboardBg ? 'rgba(255,255,255,0.7)' : c.primary)}
                     />
-                    <Text style={[s.className, { color: dashboardBg ? '#fff' : c.text1 }]}>{cl.classType?.name || 'Clase'}</Text>
+                    <Text style={[s.className, { color: dashboardBg ? '#fff' : c.text1 }]} numberOfLines={1}>
+                      {cl.classType?.name || 'Clase'}
+                    </Text>
                   </View>
-                  <Text style={[s.classCoach, { color: dashboardBg ? 'rgba(255,255,255,0.6)' : c.text3 }]}>
+                  <Text style={[s.classCoach, { color: dashboardBg ? 'rgba(255,255,255,0.6)' : c.text3 }]} numberOfLines={1}>
                     {cl.coach?.name || 'Coach'}
                   </Text>
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                   {(() => {
-                    const isBooked = bookingIds.has(cl.classId)
-                    const isLoading = bookingLoading.has(cl.classId)
                     const isPast = new Date(cl.startsAt) < new Date()
-                    const isFull = (cl._count?.bookings ?? 0) >= (cl.capacity ?? 999)
                     if (user?.role === 'MEMBER' && !isPast) {
+                      // Cada fila acá SIEMPRE es una reserva propia (todayClasses sale
+                      // de /bookings/me) — el estado real decide el badge; tocar la
+                      // fila (TouchableOpacity exterior) abre el modal siempre, donde
+                      // viven las acciones (confirmar o cancelar). Antes esto solo
+                      // decía "Reservado ✓" sin importar si estaba pendiente de
+                      // confirmar o en lista de espera (feedback Cristian, 2026-10-16).
+                      const badge = cl.status === 'PENDING_CONFIRM'
+                        ? { label: '⏱ Confirmar', bg: '#f59e0b20', fg: '#f59e0b' }
+                        : cl.status === 'WAITLIST'
+                        ? { label: '⏳ En lista', bg: c.text3 + '20', fg: c.text3 }
+                        : { label: 'Confirmado', bg: c.success + '20', fg: c.success }
                       return (
-                        <TouchableOpacity
-                          onPress={() => isBooked ? openClassModal(cl) : handleBook(cl.classId, false)}
-                          disabled={isLoading || (isFull && !isBooked)}
-                          style={{
-                            paddingHorizontal: 14,
-                            paddingVertical: 7,
-                            borderRadius: 20,
-                            backgroundColor: isBooked
-                              ? 'transparent'
-                              : isFull ? 'rgba(100,116,139,0.1)' : c.primary,
-                            borderWidth: isBooked ? 1 : 0,
-                            borderColor: isBooked ? c.primary : 'transparent',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            minWidth: 90,
-                          }}
-                        >
-                          {isLoading ? (
-                            <ActivityIndicator size="small" color={isBooked ? c.primary : '#fff'} />
-                          ) : (
-                            <Text style={{
-                              fontSize: 12,
-                              fontWeight: '700',
-                              color: isBooked ? c.primary : isFull ? c.text3 : '#fff',
-                            }}>
-                              {isBooked ? 'Reservado ✓' : isFull ? 'Sin cupos' : 'Reservar'}
+                        <>
+                          <View style={{
+                            paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20,
+                            backgroundColor: badge.bg, maxWidth: 108,
+                          }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: badge.fg }} numberOfLines={1}>
+                              {badge.label}
                             </Text>
-                          )}
-                        </TouchableOpacity>
+                          </View>
+                          <Ionicons name="chevron-forward" size={14} color={c.text3} />
+                        </>
                       )
                     }
                     return (
@@ -607,18 +604,31 @@ export default function HomeScreen() {
           )}
         </View>
 
-        {/* Cancelar reserva */}
-        {classModal && bookingIds.has(classModal.classId) && (
-          <TouchableOpacity
-            onPress={() => {
-              const id = classModal.classId
-              closeClassModal()
-              handleBook(id, true)
-            }}
-            style={{ marginHorizontal: 24, marginTop: 20, paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: '#ef444455', alignItems: 'center' }}
-          >
-            <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>Cancelar reserva</Text>
-          </TouchableOpacity>
+        {/* Confirmar / cancelar — classModal es directamente la reserva (viene de
+            todayClasses, que sale de /bookings/me), así que su .status manda. */}
+        {classModal && (
+          <View style={{ marginHorizontal: 24, marginTop: 20, gap: 10 }}>
+            {classModal.status === 'PENDING_CONFIRM' && (
+              <TouchableOpacity
+                onPress={() => handleConfirm(classModal.id, classModal.classId)}
+                disabled={confirmingIds.has(classModal.classId)}
+                style={{ paddingVertical: 13, borderRadius: 12, backgroundColor: '#f59e0b', alignItems: 'center' }}
+              >
+                {confirmingIds.has(classModal.classId)
+                  ? <ActivityIndicator color="#fff" size={18} />
+                  : <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>⏱ Confirmar mi lugar</Text>
+                }
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => handleCancel(classModal.classId)}
+              style={{ paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: '#ef444455', alignItems: 'center' }}
+            >
+              <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>
+                {classModal.status === 'WAITLIST' ? '⏳ Salir de la lista de espera' : 'Cancelar reserva'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
       </BottomSheet>
     </Animated.View>

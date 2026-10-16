@@ -46,8 +46,6 @@ export default function ProfileScreen({ navigation }: any) {
   const [pwNew, setPwNew] = useState('')
   const [pwConfirm, setPwConfirm] = useState('')
   const [pwSaving, setPwSaving] = useState(false)
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [deletingAccount, setDeletingAccount] = useState(false)
   const [attendanceMode, setAttendanceMode] = useState<string>('manual')
   const [pendingBookings, setPendingBookings] = useState<any[]>([])
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
@@ -153,17 +151,6 @@ export default function ProfileScreen({ navigation }: any) {
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.error || 'No se pudo actualizar la contraseña')
     } finally { setPwSaving(false) }
-  }
-
-  const handleDeleteAccount = async () => {
-    setDeletingAccount(true)
-    try {
-      await api.delete('/users/me')
-      setShowDeleteModal(false)
-      await logout()
-    } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.error || 'No se pudo eliminar la cuenta. Inténtalo de nuevo.')
-    } finally { setDeletingAccount(false) }
   }
 
   const pickPhoto = async () => {
@@ -544,47 +531,6 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={styles.logoutText}>Cerrar sesión</Text>
         </TouchableOpacity>
       </View>
-
-      {/* ─── ELIMINAR CUENTA ─── */}
-      <View style={[styles.section, { marginBottom: 32 }]}>
-        <TouchableOpacity
-          style={[styles.logoutBtn, { borderColor: '#ef444440' }]}
-          onPress={() => setShowDeleteModal(true)}
-        >
-          <Text style={[styles.logoutText, { color: '#ef4444', opacity: 0.7, fontSize: 13 }]}>
-            Eliminar mi cuenta
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ─── MODAL ELIMINAR CUENTA ─── */}
-      <BottomSheet visible={showDeleteModal} onClose={() => !deletingAccount && setShowDeleteModal(false)} title="⚠️ Eliminar cuenta">
-        <View style={{ gap: 16, padding: 24 }}>
-          <Text style={{ color: '#f87171', fontSize: 14, lineHeight: 22 }}>
-            Esta acción eliminará permanentemente tu cuenta, membresías, reservas, récords personales y todos tus datos. No se puede deshacer.
-          </Text>
-          <Text style={{ color: '#9ca3af', fontSize: 13 }}>
-            ¿Estás seguro de que quieres continuar?
-          </Text>
-          <TouchableOpacity
-            style={[styles.saveBtn, { backgroundColor: deletingAccount ? '#374151' : '#ef4444' }]}
-            onPress={handleDeleteAccount}
-            disabled={deletingAccount}
-          >
-            {deletingAccount
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.saveBtnText}>Sí, eliminar mi cuenta</Text>
-            }
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.logoutBtn, { borderColor: '#374151' }]}
-            onPress={() => setShowDeleteModal(false)}
-            disabled={deletingAccount}
-          >
-            <Text style={{ color: '#9ca3af', fontWeight: '600', fontSize: 14 }}>Cancelar</Text>
-          </TouchableOpacity>
-        </View>
-      </BottomSheet>
 
       {/* ─── MODAL CAMBIO DE CONTRASEÑA ─── */}
       <BottomSheet visible={showPasswordModal} onClose={() => setShowPasswordModal(false)} title="🔑 Cambiar contraseña">
