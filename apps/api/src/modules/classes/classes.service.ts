@@ -266,6 +266,51 @@ function nextBookingStatus(
   return { status: 'PENDING_CONFIRM', confirmDeadline }
 }
 
+// maxClasses: para planes normales, tope de clases por DÍA (cualquier tipo, no solo
+// el mismo que la clase que se está reservando), que se repite día a día mientras
+// dure la membresía — no un total acumulado para todo el período (Cristian,
+// 2026-10-16: revierte la decisión de 2026-10-05 de contarlo por período completo —
+// esa vez el problema era un plan "2 incluidas" reservable 2 veces CADA día; ahora
+// el problema era el inverso, un plan mensual "1 incluida" solo dejaba reservar 1
+// clase en los 30 días en vez de 1 por día). Para planes Trial se mantiene el tope
+// TOTAL del período: no conviene regalar más clases por día en un plan gratuito
+// solo porque dura varios días.
+async function planAllowsMaxClasses(
+  userId: string,
+  activeMembership: { startsAt: Date; endsAt: Date; plan: { maxClasses: number | null; isTrial: boolean } },
+  dayStart: Date,
+  dayEnd: Date,
+  activeStatuses: BookingStatus[],
+): Promise<boolean> {
+  const { maxClasses, isTrial } = activeMembership.plan
+  if (!maxClasses) return true
+  const count = await prisma.booking.count({
+    where: {
+      userId,
+      status: { in: activeStatuses },
+      class: isTrial
+        ? { startsAt: { gte: activeMembership.startsAt, lt: activeMembership.endsAt } }
+        : { startsAt: { gte: dayStart, lt: dayEnd } },
+    },
+  })
+  return count < maxClasses
+}
+
+function maxClassesErrorMessage(
+  plan: { maxClasses: number | null; isTrial: boolean },
+  subject: 'self' | 'student',
+): string {
+  if (plan.isTrial) {
+    return subject === 'self'
+      ? 'Has alcanzado el límite de clases de tu plan de prueba'
+      : 'El alumno alcanzó el límite de clases de su plan de prueba'
+  }
+  const n = plan.maxClasses
+  return subject === 'self'
+    ? `Tu plan permite máximo ${n} clase${n! > 1 ? 's' : ''} por día`
+    : `El plan del alumno permite máximo ${n} clase${n! > 1 ? 's' : ''} por día`
+}
+
 export async function bookClass(gymId: string, userId: string, data: BookingInput) {
   const cls = await prisma.class.findFirst({
     where: { id: data.classId, gymId },
@@ -357,26 +402,8 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
     throw new Error('Ya tienes una clase reservada en ese horario')
   }
 
-  // maxClasses: además, tope de clases *distintas* para todo el período de la
-  // membresía activa (su startsAt→endsAt real, no un límite por día calendario —
-  // el plan web lo etiqueta como "X clases incluidas", no "X por día". QA, Cristian
-  // 2026-10-05: antes contaba por día, dejando un plan "2 clases incluidas" reservar
-  // 2 clases TODOS los días en vez de 2 en todo el período).
-  if (activeMembership.plan.maxClasses) {
-    const classesInPeriod = await prisma.booking.count({
-      where: {
-        userId,
-        status: { in: activeStatuses },
-        class: { startsAt: { gte: activeMembership.startsAt, lt: activeMembership.endsAt } },
-      },
-    })
-    if (classesInPeriod >= activeMembership.plan.maxClasses) {
-      throw new Error(
-        activeMembership.plan.isTrial
-          ? 'Has alcanzado el límite de clases de tu plan de prueba'
-          : `Tu plan permite máximo ${activeMembership.plan.maxClasses} clase${activeMembership.plan.maxClasses > 1 ? 's' : ''} en este período`
-      )
-    }
+  if (!(await planAllowsMaxClasses(userId, activeMembership, dayStart, dayEnd, activeStatuses))) {
+    throw new Error(maxClassesErrorMessage(activeMembership.plan, 'self'))
   }
 
   // PENDING_CONFIRM cuenta para el cupo igual que CONFIRMED — el lugar sigue
@@ -604,24 +631,12 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
     throw new Error('El alumno ya tiene una clase reservada en ese horario')
   }
 
-  // Mismo tope de maxClasses que bookClass, por el período real de la membresía
-  // activa — sin este chequeo el coach podía inscribir a un alumno por encima del
-  // cupo de su plan, algo que el alumno reservando por sí mismo no puede hacer.
-  if (activeMembership.plan.maxClasses) {
-    const classesInPeriod = await prisma.booking.count({
-      where: {
-        userId: targetUserId,
-        status: { in: activeStatuses },
-        class: { startsAt: { gte: activeMembership.startsAt, lt: activeMembership.endsAt } },
-      },
-    })
-    if (classesInPeriod >= activeMembership.plan.maxClasses) {
-      throw new Error(
-        activeMembership.plan.isTrial
-          ? 'El alumno alcanzó el límite de clases de su plan de prueba'
-          : `El plan del alumno permite máximo ${activeMembership.plan.maxClasses} clase${activeMembership.plan.maxClasses > 1 ? 's' : ''} en este período`
-      )
-    }
+  // Mismo tope de maxClasses que bookClass (por día, no por período — ver
+  // planAllowsMaxClasses) — sin este chequeo el coach podía inscribir a un alumno
+  // por encima del cupo de su plan, algo que el alumno reservando por sí mismo no
+  // puede hacer.
+  if (!(await planAllowsMaxClasses(targetUserId, activeMembership, dayStart, dayEnd, activeStatuses))) {
+    throw new Error(maxClassesErrorMessage(activeMembership.plan, 'student'))
   }
 
   // Mismo criterio que bookClass: PENDING_CONFIRM también ocupa cupo.

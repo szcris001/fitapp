@@ -554,7 +554,9 @@ export default function PlanesScreen({ navigation }: { navigation?: any }) {
                     <View style={styles.planMeta}>
                       <Text style={styles.planMetaText}>📅 {plan.durationDays} días</Text>
                       {plan.maxClasses && (
-                        <Text style={styles.planMetaText}>🏃 Máx {plan.maxClasses} clases</Text>
+                        <Text style={styles.planMetaText}>
+                          🏃 Máx {plan.maxClasses} clase{plan.maxClasses > 1 ? 's' : ''}{plan.isTrial ? ' en total' : '/día'}
+                        </Text>
                       )}
                     </View>
                   </View>
