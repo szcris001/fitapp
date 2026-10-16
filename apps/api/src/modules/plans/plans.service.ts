@@ -9,13 +9,32 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 export async function listPlans(gymId: string, includeInactive = false) {
   return prisma.plan.findMany({
     where: { gymId, ...(includeInactive ? {} : { isActive: true }) },
+    include: { classTypes: { select: { id: true, name: true } } },
     orderBy: { priceCents: 'asc' },
   })
 }
 
+// Los tipos de clase llegan como IDs en el body: verificar que TODOS sean del gym del
+// token, mismo criterio que assertPlansBelongToGym en classes.service.ts.
+async function assertClassTypesBelongToGym(gymId: string, classTypeIds: string[]) {
+  const uniqueIds = [...new Set(classTypeIds)]
+  if (!uniqueIds.length) return
+  const count = await prisma.classType.count({ where: { gymId, id: { in: uniqueIds } } })
+  if (count !== uniqueIds.length) throw new Error('Uno o más tipos de clase no pertenecen a este gimnasio')
+}
+
 export async function createPlan(gymId: string, data: CreatePlanInput) {
+  const { classTypeIds, ...rest } = data
+  await assertClassTypesBelongToGym(gymId, classTypeIds ?? [])
   try {
-    return await prisma.plan.create({ data: { ...data, gymId } })
+    return await prisma.plan.create({
+      data: {
+        ...rest,
+        gymId,
+        ...(classTypeIds?.length && { classTypes: { connect: classTypeIds.map(id => ({ id })) } }),
+      },
+      include: { classTypes: { select: { id: true, name: true } } },
+    })
   } catch (err) {
     handlePrismaError(err)
   }
@@ -24,6 +43,7 @@ export async function createPlan(gymId: string, data: CreatePlanInput) {
 export async function updatePlan(gymId: string, planId: string, data: UpdatePlanInput) {
   const plan = await prisma.plan.findFirst({ where: { id: planId, gymId } })
   if (!plan) throw new Error('Plan no encontrado')
+  if (data.classTypeIds !== undefined) await assertClassTypesBelongToGym(gymId, data.classTypeIds)
   try {
     return await prisma.plan.update({
       where: { id: planId },
@@ -38,7 +58,9 @@ export async function updatePlan(gymId: string, planId: string, data: UpdatePlan
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.autoRenewEnabled !== undefined && { autoRenewEnabled: data.autoRenewEnabled }),
         ...(data.autoRenewDaysBefore !== undefined && { autoRenewDaysBefore: data.autoRenewDaysBefore }),
+        ...(data.classTypeIds !== undefined && { classTypes: { set: data.classTypeIds.map(id => ({ id })) } }),
       },
+      include: { classTypes: { select: { id: true, name: true } } },
     })
   } catch (err) {
     handlePrismaError(err)

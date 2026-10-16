@@ -27,7 +27,9 @@ export async function planRoutes(app: FastifyInstance) {
       const plan = await createPlan(user.gymId, parsed.data)
       return reply.status(201).send(plan)
     } catch (err: any) {
-      throw err // lo responde el error handler global (oculta detalles 5xx en producción)
+      // classTypeIds de otro gym es un 400 de validación, no un 5xx — mismo criterio
+      // que POST /classes con allowedPlanIds (classes.routes.ts).
+      return reply.status(400).send({ error: err.message })
     }
   })
 

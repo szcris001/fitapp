@@ -27,6 +27,11 @@ export const createPlanSchema = z.object({
   // default (no se expone acá: ajustarlo no es parte de este hallazgo).
   autoRenewEnabled: z.boolean().default(false),
   autoRenewDaysBefore: z.number().int().min(1).max(30).default(3),
+  // Tipos de clase que incluye el plan — vacío/omitido = sin restricción (accede a
+  // todos los tipos), para no romper gyms existentes que no configuren nada. La
+  // restricción puntual de una clase individual (Class.allowedPlans) sigue mandando
+  // por encima de esto cuando está seteada (ver classes.service.ts, canAccessClass).
+  classTypeIds: z.array(z.string().uuid()).optional(),
 }).transform(data => (data.isTrial ? { ...data, priceCents: 0 } : data))
 
 export const updatePlanSchema = z.object({
@@ -41,6 +46,7 @@ export const updatePlanSchema = z.object({
   isActive: z.boolean().optional(),
   autoRenewEnabled: z.boolean().optional(),
   autoRenewDaysBefore: z.number().int().min(1).max(30).optional(),
+  classTypeIds: z.array(z.string().uuid()).optional(),
 }).transform(data => (data.isTrial ? { ...data, priceCents: 0 } : data))
 
 export type UpdatePlanInput = z.infer<typeof updatePlanSchema>

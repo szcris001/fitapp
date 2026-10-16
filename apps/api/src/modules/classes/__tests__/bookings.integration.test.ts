@@ -460,6 +460,35 @@ describe('bookClass: membresía inválida', () => {
   })
 })
 
+// ─── Suite 3b: bookClass — restricción por plan (allowedPlans) ────────────────
+//
+// Gap encontrado en la auditoría de reglas de negocio (2026-10-15): la validación
+// de allowedPlans existía en bookClass (líneas ~270-278 de classes.service.ts)
+// desde antes, pero nunca tuvo test — assignUserToClass sí lo tiene (Suite 12c).
+
+describe('bookClass: restricción por plan (allowedPlans)', () => {
+  it('clase restringida a un plan distinto del alumno → bloqueado', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(6) })
+    createdClassIds.push(classId)
+    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: trialPlanAId }] } } })
+
+    await expect(
+      bookClass(gymAId, memberAId, { classId })
+    ).rejects.toThrow('Tu plan no tiene acceso a esta clase')
+  })
+
+  it('clase restringida al plan del alumno → permitido', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(7) })
+    createdClassIds.push(classId)
+    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: planAId }] } } })
+
+    const booking = await bookClass(gymAId, memberAId, { classId })
+    expect(booking.status).toBe('CONFIRMED')
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+})
+
 // ─── Suite 4: bookClass — membresía TRIAL con límite de clases ────────────────
 
 describe('bookClass: membresía TRIAL con maxClasses', () => {
@@ -1309,6 +1338,99 @@ describe('assignUserToClass: membresía TRIAL con maxClasses', () => {
     await expect(
       assignUserToClass(gymAId, trialUserId, classId)
     ).rejects.toThrow('El alumno alcanzó el límite de clases de su plan de prueba')
+  })
+})
+
+// ─── Suite 12e: Plan.classTypes ("plan incluye tipos de clase") ───────────────
+//
+// Nueva relación activada 2026-10-15: Plan.classTypes decide qué tipos de clase
+// puede reservar el alumno cuando la clase NO tiene allowedPlans puntual seteado
+// (canAccessClass, classes.service.ts). Cubre bookClass y assignUserToClass, y el
+// caso donde la restricción puntual de la clase manda por encima de esto.
+
+describe('canAccessClass: Plan.classTypes', () => {
+  let limitedPlanId: string
+  let limitedUserId: string
+  let otherTypeId: string
+
+  beforeAll(async () => {
+    const otherType = await prisma.classType.create({
+      data: { gymId: gymAId, name: 'QA ClassTypes Otro Tipo', color: '#10b981' },
+    })
+    otherTypeId = otherType.id
+
+    const plan = await prisma.plan.create({
+      data: { gymId: gymAId, name: 'QA Plan Solo CrossFit', priceCents: 10000, currency: 'CLP', durationDays: 30, isActive: true },
+    })
+    limitedPlanId = plan.id
+    // classTypeAId es "CrossFit" (fixture global) — el plan solo incluye ese tipo
+    await prisma.plan.update({ where: { id: limitedPlanId }, data: { classTypes: { connect: [{ id: classTypeAId }] } } })
+
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const user = await prisma.user.create({
+      data: { gymId: gymAId, name: 'QA ClassTypes Member', email: 'qa-bookings-classtypes@test.local', passwordHash, role: 'MEMBER' },
+    })
+    limitedUserId = user.id
+    await createActiveMembership(limitedUserId, limitedPlanId)
+  })
+
+  afterAll(async () => {
+    await prisma.booking.deleteMany({ where: { userId: limitedUserId } })
+    await prisma.membership.deleteMany({ where: { userId: limitedUserId } })
+    await prisma.user.delete({ where: { id: limitedUserId } })
+    await prisma.plan.delete({ where: { id: limitedPlanId } })
+    // Borrar antes las clases de otherTypeId (y sacarlas de createdClassIds, que las
+    // intentaría borrar de nuevo en el afterAll global) — classType.delete falla por
+    // FK si todavía hay clases apuntándole.
+    const otherTypeClasses = await prisma.class.findMany({ where: { classTypeId: otherTypeId }, select: { id: true } })
+    const otherTypeClassIds = otherTypeClasses.map(c => c.id)
+    await prisma.class.deleteMany({ where: { id: { in: otherTypeClassIds } } })
+    for (const id of otherTypeClassIds) {
+      const idx = createdClassIds.indexOf(id)
+      if (idx !== -1) createdClassIds.splice(idx, 1)
+    }
+    await prisma.classType.delete({ where: { id: otherTypeId } })
+  })
+
+  it('bookClass: clase de un tipo que el plan NO incluye → bloqueado', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(6), classTypeId: otherTypeId })
+    createdClassIds.push(classId)
+
+    await expect(
+      bookClass(gymAId, limitedUserId, { classId })
+    ).rejects.toThrow('Tu plan no tiene acceso a esta clase')
+  })
+
+  it('bookClass: clase del tipo que el plan SÍ incluye → permitido', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(7) }) // default: classTypeAId (CrossFit)
+    createdClassIds.push(classId)
+
+    const booking = await bookClass(gymAId, limitedUserId, { classId })
+    expect(booking.status).toBe('CONFIRMED')
+
+    await prisma.booking.deleteMany({ where: { classId } })
+  })
+
+  it('assignUserToClass: mismo bloqueo también cuando asigna el coach', async () => {
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(8), classTypeId: otherTypeId })
+    createdClassIds.push(classId)
+
+    await expect(
+      assignUserToClass(gymAId, limitedUserId, classId)
+    ).rejects.toThrow('El plan del alumno no tiene acceso a esta clase')
+  })
+
+  it('la restricción puntual de la clase (allowedPlans) manda por encima de classTypes', async () => {
+    // La clase es de un tipo que el plan NO incluye, pero tiene allowedPlans
+    // puntual seteado incluyendo justo a este plan — la restricción puntual gana.
+    const classId = await createClass({ startsAt: tomorrowAtGymHour(9), classTypeId: otherTypeId })
+    createdClassIds.push(classId)
+    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: limitedPlanId }] } } })
+
+    const booking = await bookClass(gymAId, limitedUserId, { classId })
+    expect(booking.status).toBe('CONFIRMED')
+
+    await prisma.booking.deleteMany({ where: { classId } })
   })
 })
 

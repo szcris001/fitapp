@@ -232,10 +232,25 @@ export async function createClass(gymId: string, data: CreateClassInput & { allo
   return { created: uniqueClasses.length, skipped, message: msg }
 }
 
+// Decide si un plan puede reservar una clase. La restricción puntual de la clase
+// (Class.allowedPlans) manda cuando está seteada — pensada para casos especiales (ej.
+// un taller solo para Premium). Si no está seteada, se cae a los tipos de clase que
+// incluye el plan (Plan.classTypes) — y si el plan tampoco tiene ninguno seteado, sin
+// restricción, para no romper gyms existentes que nunca configuraron nada de esto.
+function canAccessClass(
+  cls: { classTypeId: string; allowedPlans: { id: string }[] },
+  planId: string,
+  planClassTypes: { id: string }[],
+): boolean {
+  if (cls.allowedPlans.length > 0) return cls.allowedPlans.some(p => p.id === planId)
+  if (planClassTypes.length > 0) return planClassTypes.some(ct => ct.id === cls.classTypeId)
+  return true
+}
+
 export async function bookClass(gymId: string, userId: string, data: BookingInput) {
   const cls = await prisma.class.findFirst({
     where: { id: data.classId, gymId },
-    include: { gym: true, classType: { select: { name: true } } },
+    include: { gym: true, classType: { select: { name: true } }, allowedPlans: { select: { id: true } } },
   })
   if (!cls) throw new Error('Clase no encontrada')
 
@@ -263,18 +278,12 @@ export async function bookClass(gymId: string, userId: string, data: BookingInpu
 
   const activeMembership = await prisma.membership.findFirst({
     where: { userId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
-    include: { plan: { select: { maxClasses: true, isTrial: true } } },
+    include: { plan: { select: { maxClasses: true, isTrial: true, classTypes: { select: { id: true } } } } },
   })
   if (!activeMembership) throw new Error('No tienes una membresía activa')
 
-  // Check plan restrictions: if class has allowedPlans, user's plan must be in the list
-  const classWithPlans = await prisma.class.findUnique({
-    where: { id: data.classId },
-    include: { allowedPlans: { select: { id: true } } },
-  })
-  if (classWithPlans?.allowedPlans && classWithPlans.allowedPlans.length > 0) {
-    const allowed = classWithPlans.allowedPlans.some(p => p.id === activeMembership.planId)
-    if (!allowed) throw new Error('Tu plan no tiene acceso a esta clase')
+  if (!canAccessClass(cls, activeMembership.planId, activeMembership.plan.classTypes)) {
+    throw new Error('Tu plan no tiene acceso a esta clase')
   }
 
   // Reservar de nuevo la MISMA clase → mensaje específico, no la regla de "mismo tipo por día"
@@ -465,7 +474,7 @@ export async function confirmWaitlistBooking(gymId: string, userId: string, book
 export async function assignUserToClass(gymId: string, targetUserId: string, classId: string) {
   const cls = await prisma.class.findFirst({
     where: { id: classId, gymId },
-    include: { gym: true, classType: { select: { name: true } } },
+    include: { gym: true, classType: { select: { name: true } }, allowedPlans: { select: { id: true } } },
   })
   if (!cls) throw new Error('Clase no encontrada')
 
@@ -480,22 +489,17 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
   // (QA H-PROD-MOBILE-02, Cristian 2026-10-14).
   const activeMembership = await prisma.membership.findFirst({
     where: { userId: targetUserId, status: { in: ['ACTIVE', 'TRIAL'] }, endsAt: { gte: now } },
-    include: { plan: { select: { maxClasses: true, isTrial: true } } },
+    include: { plan: { select: { maxClasses: true, isTrial: true, classTypes: { select: { id: true } } } } },
   })
   if (!activeMembership) throw new Error('El alumno no tiene una membresía activa')
 
-  // Misma regla que bookClass: si la clase restringe por plan, el plan del alumno
-  // debe estar en la lista — el coach no puede saltarse esto a mano (mismo hueco
-  // que la regla de membresía activa de arriba: si no aplicara parejo, bastaría con
-  // pedirle al coach que inscriba en vez de reservar uno mismo para esquivar la
-  // restricción de plan).
-  const classWithPlans = await prisma.class.findUnique({
-    where: { id: classId },
-    include: { allowedPlans: { select: { id: true } } },
-  })
-  if (classWithPlans?.allowedPlans && classWithPlans.allowedPlans.length > 0) {
-    const allowed = classWithPlans.allowedPlans.some(p => p.id === activeMembership.planId)
-    if (!allowed) throw new Error('El plan del alumno no tiene acceso a esta clase')
+  // Misma regla que bookClass: si la clase restringe por plan (puntual o por tipo de
+  // clase incluido en el plan), el plan del alumno debe tener acceso — el coach no
+  // puede saltarse esto a mano (mismo hueco que la regla de membresía activa de
+  // arriba: si no aplicara parejo, bastaría con pedirle al coach que inscriba en vez
+  // de reservar uno mismo para esquivar la restricción de plan).
+  if (!canAccessClass(cls, activeMembership.planId, activeMembership.plan.classTypes)) {
+    throw new Error('El plan del alumno no tiene acceso a esta clase')
   }
 
   // El coach puede incorporar a un alumno a una clase en curso (lo agrega "fuera
