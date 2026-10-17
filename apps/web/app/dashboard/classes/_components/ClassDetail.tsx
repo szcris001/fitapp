@@ -129,10 +129,10 @@ function WodEditorModal({
   onDeleted: (updated: ClassDetail) => void
 }) {
   type RoundWeight = { reps: number; rookieM: string; rookieF: string; scaleM: string; scaleF: string; rxM: string; rxF: string }
-  type MovRow = { movementName: string; repScheme: string; percentage: string; weightRookieM: string; weightRookieF: string; weightScaleM: string; weightScaleF: string; weightRxM: string; weightRxF: string; scaledMovement: string; notes: string; roundWeights: RoundWeight[]; showWeights: boolean }
+  type MovRow = { movementName: string; repScheme: string; percentage: string; weightRookieM: string; weightRookieF: string; weightScaleM: string; weightScaleF: string; weightRxM: string; weightRxF: string; scaledMovement: string; notes: string; roundWeights: RoundWeight[]; showWeights: boolean; sets: number | null; reps: number | null }
   type BlockRow = { title: string; scheme: string; timecap: string; notes: string; movements: MovRow[] }
 
-  const emptyMov = (): MovRow => ({ movementName: '', repScheme: '', percentage: '', weightRookieM: '', weightRookieF: '', weightScaleM: '', weightScaleF: '', weightRxM: '', weightRxF: '', scaledMovement: '', notes: '', roundWeights: [], showWeights: false })
+  const emptyMov = (): MovRow => ({ movementName: '', repScheme: '', percentage: '', weightRookieM: '', weightRookieF: '', weightScaleM: '', weightScaleF: '', weightRxM: '', weightRxF: '', scaledMovement: '', notes: '', roundWeights: [], showWeights: false, sets: null, reps: null })
   const emptyBlock = (): BlockRow => ({ title: '', scheme: '', timecap: '', notes: '', movements: [emptyMov()] })
 
   const mapMov = (m: any): MovRow => ({
@@ -150,6 +150,8 @@ function WodEditorModal({
     weightRxF:      m.weightRxF     != null ? String(m.weightRxF)     : '',
     scaledMovement: m.scaledMovement ?? '',
     notes:          m.notes ?? '',
+    sets:           m.sets ?? null,
+    reps:           m.reps ?? null,
     showWeights:    !!(m.weightRookieM || m.weightRookieF || m.weightScaleM || m.weightScaleF || m.weightRxM || m.weightRxF || (m.roundWeights && m.roundWeights.length > 0)),
     roundWeights:   (m.roundWeights ?? []).map((r: any) => ({
       reps: r.reps, rookieM: r.rookieM ?? '', rookieF: r.rookieF ?? '',
@@ -381,6 +383,8 @@ function WodEditorModal({
           weightRxF:      toN(m.weightRxF),
           scaledMovement: m.scaledMovement || null,
           notes:          m.notes          || null,
+          sets:           m.sets,
+          reps:           m.reps,
           roundWeights:   m.roundWeights.length > 0
             ? m.roundWeights.map(r => ({
                 reps: r.reps,

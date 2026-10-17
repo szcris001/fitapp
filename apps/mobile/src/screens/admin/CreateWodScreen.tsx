@@ -13,12 +13,26 @@ interface Movement {
   weightRxM: string
   weightRxF: string
   notes: string
+  // Pasajeros: sin input en esta pantalla, se preservan tal cual vienen del API
+  // para no pisar a null lo que la web haya configurado (repScheme, % RM, pesos
+  // por categoría, movimiento escalado, pesos por ronda).
+  repScheme?: any
+  percentage?: any
+  scaledMovement?: any
+  weightRookieM?: any
+  weightRookieF?: any
+  weightScaleM?: any
+  weightScaleF?: any
+  roundWeights?: any
 }
 
 interface Block {
   title: string
   timecap: string
   movements: Movement[]
+  // Pasajeros (sin input en esta pantalla)
+  scheme?: any
+  notes?: any
 }
 
 const emptyMovement = (): Movement => ({
@@ -59,10 +73,7 @@ export default function CreateWodScreen({ route, navigation }: any) {
       setMovements(movRes.data)
 
       if (isEdit) {
-        const from = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
-        const to = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
-        const wodsRes = await api.get(`/wods?from=${from}&to=${to}`)
-        const wod = wodsRes.data.find((w: any) => w.id === wodId)
+        const { data: wod } = await api.get(`/wods/${wodId}`)
         if (wod) {
           setSelectedClassTypeId(wod.classTypeId)
           setScoreType(wod.scoreType || 'REPS')
@@ -71,6 +82,8 @@ export default function CreateWodScreen({ route, navigation }: any) {
             setBlocks(wod.blocks.map((b: any) => ({
               title: b.title || '',
               timecap: b.timecap?.toString() || '',
+              scheme: b.scheme,
+              notes: b.notes,
               movements: b.movements?.map((m: any) => ({
                 movementName: m.movementName || '',
                 sets: m.sets?.toString() || '',
@@ -78,6 +91,14 @@ export default function CreateWodScreen({ route, navigation }: any) {
                 weightRxM: m.weightRxM?.toString() || '',
                 weightRxF: m.weightRxF?.toString() || '',
                 notes: m.notes || '',
+                repScheme: m.repScheme,
+                percentage: m.percentage,
+                scaledMovement: m.scaledMovement,
+                weightRookieM: m.weightRookieM,
+                weightRookieF: m.weightRookieF,
+                weightScaleM: m.weightScaleM,
+                weightScaleF: m.weightScaleF,
+                roundWeights: m.roundWeights,
               })) || [emptyMovement()],
             })))
           }
@@ -117,6 +138,8 @@ export default function CreateWodScreen({ route, navigation }: any) {
     const blocksPayload = blocks.map(b => ({
       title: b.title || null,
       timecap: b.timecap ? parseInt(b.timecap) : null,
+      scheme: b.scheme ?? null,
+      notes: b.notes ?? null,
       movements: b.movements
         .filter(m => m.movementName.trim())
         .map(m => ({
@@ -126,6 +149,14 @@ export default function CreateWodScreen({ route, navigation }: any) {
           weightRxM: m.weightRxM ? parseFloat(m.weightRxM) : null,
           weightRxF: m.weightRxF ? parseFloat(m.weightRxF) : null,
           notes: m.notes || null,
+          repScheme: m.repScheme ?? null,
+          percentage: m.percentage ?? null,
+          scaledMovement: m.scaledMovement ?? null,
+          weightRookieM: m.weightRookieM ?? null,
+          weightRookieF: m.weightRookieF ?? null,
+          weightScaleM: m.weightScaleM ?? null,
+          weightScaleF: m.weightScaleF ?? null,
+          roundWeights: m.roundWeights ?? null,
         })),
     }))
 
@@ -147,8 +178,10 @@ export default function CreateWodScreen({ route, navigation }: any) {
         await api.put(`/wods/${wodId}`, body)
         Alert.alert('WOD actualizado', '', [{ text: 'OK', onPress: () => navigation.goBack() }])
       } else {
-        await api.post('/wods', body)
-        Alert.alert('WOD creado', '', [{ text: 'OK', onPress: () => navigation.goBack() }])
+        const { data } = await api.post('/wods', body)
+        navigation.replace('WodResults', {
+          wodId: data.id, wodTitle: form.title, classTypeName: selectedType?.name, wodDate: form.date,
+        })
       }
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.error || 'No se pudo guardar el WOD')

@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
+import { Ionicons } from '@expo/vector-icons'
 import api from '../../lib/api'
 
 export default function WodManagementScreen({ navigation }: any) {
@@ -60,6 +61,14 @@ export default function WodManagementScreen({ navigation }: any) {
                 {wod.blocks?.reduce((acc: number, b: any) => acc + (b.movements?.length || 0), 0) || 0} movimientos
               </Text>
             </View>
+            <TouchableOpacity
+              style={s.resultsIconBtn}
+              onPress={() => navigation.navigate('WodResults', {
+                wodId: wod.id, wodTitle: wod.title, classTypeName: wod.classType?.name, wodDate: wod.date,
+              })}
+            >
+              <Ionicons name="trophy-outline" size={18} color="#9ca3af" />
+            </TouchableOpacity>
           </TouchableOpacity>
         ))
       )}
@@ -84,4 +93,5 @@ const s = StyleSheet.create({
   cardDate: { color: '#6b7280', fontSize: 12 },
   cardTitle: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 },
   cardMovements: { color: '#6b7280', fontSize: 13 },
+  resultsIconBtn: { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14 },
 })

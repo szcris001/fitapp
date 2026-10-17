@@ -370,6 +370,37 @@ test.describe('CLS — detalle de clase (admin)', () => {
     p.expectNoErrors()
   })
 
+  test('CLS-13 editar WOD sin tocar un movimiento conserva sets/reps estructurados (no solo el texto "5×5")', async ({ page }) => {
+    const type = await createClassType(`${PREFIX} WOD StructSetsReps ${RUN}`)
+    const day = localDay(farOffset(6))
+    const cls = await createClass(type.id, day, '18:00', '19:00')
+    const title = `E2E StructSetsReps ${RUN}`
+
+    const { status, data: created } = await api('admin', 'POST', '/wods', {
+      classTypeId: type.id,
+      title,
+      date: day,
+      scoreType: 'REPS',
+      blocks: [{ title: 'Fuerza', movements: [{ movementName: 'Back Squat', sets: 5, reps: 5, percentage: 75 }] }],
+    })
+    expect(status).toBe(201)
+    const wodId = (created as { id: string }).id
+
+    const p = await open(page, `/dashboard/classes/${cls.id}`)
+    await page.getByTitle('Editar WOD').click()
+    await expect(page.getByRole('heading', { name: 'Editar planificación' })).toBeVisible()
+    await page.getByPlaceholder('Ej. Fran, AMRAP 20, For Time, Día de fuerza...').fill(`${title} v2`)
+    await page.getByRole('button', { name: 'Guardar cambios' }).click()
+    await expect(page.getByRole('heading', { name: `WOD — ${title} v2` })).toBeVisible()
+
+    const { data: wod } = await api('admin', 'GET', `/wods/${wodId}`)
+    const movement = (wod as { blocks: { movements: { sets: number | null; reps: number | null }[] }[] })
+      .blocks[0].movements[0]
+    expect(movement.sets).toBe(5)
+    expect(movement.reps).toBe(5)
+    p.expectNoErrors()
+  })
+
   test('CLS-12 clase inexistente (o de otro gym) muestra "Clase no encontrada" en vez de pantalla en blanco', async ({ page }) => {
     const p = await open(page, `/dashboard/classes/${crypto.randomUUID()}`)
     await expect(page.getByText('Clase no encontrada')).toBeVisible()
