@@ -9,7 +9,8 @@
  *   1. GET /users — filtrado por gymId del JWT (aislamiento multi-tenant)
  *   2. GET /users — filtros por role y status
  *   3. GET /users/:id — usuario propio del gym / usuario de otro gym
- *   4. POST /users — validación de campos, email duplicado mismo gym, email duplicado otro gym
+ *   4. POST /users — validación de campos, email duplicado mismo gym, email duplicado otro gym,
+ *      correo de bienvenida con link de reset (mustChangePassword + PasswordResetToken)
  *   5. POST /users — RUT duplicado en mismo gym
  *   6. PUT /users/:id — campos editables, email en uso, usuario de otro gym
  *   7. POST /users/:id/reset-password — setea mustChangePassword=true, validaciones
@@ -23,10 +24,27 @@
  *   - Borra usuarios y gyms creados por ID al finalizar
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import Fastify, { FastifyInstance } from 'fastify'
 import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
+
+// createUser() manda un correo de bienvenida con link de reset (ver
+// users.service.ts) — se mockea para no depender de red real (Ethereal) en CI,
+// mismo patrón que auth.integration.test.ts.
+const { sendEmail } = vi.hoisted(() => ({
+  sendEmail: vi.fn(async (_params: { from: string; to: string; subject: string; html: string }) => ({ ethereal: false })),
+}))
+vi.mock('../../../lib/email', () => ({
+  sendEmail,
+  buildFrom: (name: string) => `${name} <noreply@test.local>`,
+  escapeHtml: (v: string) => v,
+  wrapInLayout: (...args: unknown[]) => String(args[4] ?? ''),
+  getPlatformLogoUrl: vi.fn().mockResolvedValue(null),
+  sendUserWelcomeEmail: (data: { userEmail: string }) =>
+    sendEmail({ from: 'test <noreply@test.local>', to: data.userEmail, subject: 'bienvenida', html: '' }),
+}))
+
 import { userRoutes } from '../users.routes'
 import { prisma } from '../../../lib/prisma'
 
@@ -361,7 +379,7 @@ describe('Users: POST /api/users — crear usuario', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/users',
-      payload: { name: 'Test', email: 'test@test.local', password: 'pass123' },
+      payload: { name: 'Test', email: 'test@test.local' },
     })
     expect(res.statusCode).toBe(401)
   })
@@ -371,7 +389,7 @@ describe('Users: POST /api/users — crear usuario', () => {
       method: 'POST',
       url: '/api/users',
       headers: { authorization: `Bearer ${memberAToken}` },
-      payload: { name: 'Test', email: 'new-member@test.local', password: 'pass123' },
+      payload: { name: 'Test', email: 'new-member@test.local' },
     })
     expect(res.statusCode).toBe(403)
     expect(res.json().error).toMatch(/administrador/i)
@@ -382,7 +400,7 @@ describe('Users: POST /api/users — crear usuario', () => {
       method: 'POST',
       url: '/api/users',
       headers: { authorization: `Bearer ${coachAToken}` },
-      payload: { name: 'Test', email: 'new-coach-user@test.local', password: 'pass123' },
+      payload: { name: 'Test', email: 'new-coach-user@test.local' },
     })
     expect(res.statusCode).toBe(403)
   })
@@ -392,7 +410,7 @@ describe('Users: POST /api/users — crear usuario', () => {
       method: 'POST',
       url: '/api/users',
       headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { name: 'Test' }, // falta email y password
+      payload: {}, // falta name y email
     })
     expect(res.statusCode).toBe(400)
   })
@@ -402,7 +420,7 @@ describe('Users: POST /api/users — crear usuario', () => {
       method: 'POST',
       url: '/api/users',
       headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { name: 'A', email: 'short@test.local', password: 'pass123' },
+      payload: { name: 'A', email: 'short@test.local' },
     })
     expect(res.statusCode).toBe(400)
   })
@@ -412,22 +430,13 @@ describe('Users: POST /api/users — crear usuario', () => {
       method: 'POST',
       url: '/api/users',
       headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { name: 'Test User', email: 'no-es-un-email', password: 'pass123' },
+      payload: { name: 'Test User', email: 'no-es-un-email' },
     })
     expect(res.statusCode).toBe(400)
   })
 
-  it('password muy corta (menos de 6 caracteres) → 400', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/users',
-      headers: { authorization: `Bearer ${adminAToken}` },
-      payload: { name: 'Test User', email: 'short-pass@test.local', password: '123' },
-    })
-    expect(res.statusCode).toBe(400)
-  })
-
-  it('admin crea usuario MEMBER correctamente → 201', async () => {
+  it('admin crea usuario MEMBER correctamente → 201, manda correo de bienvenida con link de reset', async () => {
+    sendEmail.mockClear()
     const res = await app.inject({
       method: 'POST',
       url: '/api/users',
@@ -435,7 +444,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Nuevo Alumno',
         email: 'qa-users-nuevo-alumno@test.local',
-        password: 'password123',
         role: 'MEMBER',
         phone: '+56912345678',
         gender: 'M',
@@ -451,6 +459,49 @@ describe('Users: POST /api/users — crear usuario', () => {
     // BUG-SECURITY corregido: passwordHash no debe exponerse en respuestas de la API
     expect(body.passwordHash).toBeUndefined()
     createdUserIds.push(body.id)
+
+    // Correo de bienvenida: link de reset, no contraseña en texto plano
+    expect(sendEmail).toHaveBeenCalledOnce()
+    expect(sendEmail.mock.calls[0][0].to).toBe('qa-users-nuevo-alumno@test.local')
+
+    const token = await prisma.passwordResetToken.findFirst({ where: { userId: body.id, usedAt: null } })
+    expect(token).not.toBeNull()
+    expect(token!.expiresAt.getTime()).toBeGreaterThan(Date.now() + 55 * 60 * 1000)
+
+    const created = await prisma.user.findUnique({ where: { id: body.id } })
+    expect(created?.mustChangePassword).toBe(true)
+  })
+
+  it('admin crea usuario COACH correctamente → 201, también manda correo de bienvenida', async () => {
+    sendEmail.mockClear()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        name: 'Nuevo Coach',
+        email: 'qa-users-nuevo-coach@test.local',
+        role: 'COACH',
+      },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    createdUserIds.push(body.id)
+    expect(sendEmail).toHaveBeenCalledOnce()
+    const token = await prisma.passwordResetToken.findFirst({ where: { userId: body.id, usedAt: null } })
+    expect(token).not.toBeNull()
+  })
+
+  it('si el correo de bienvenida falla, el usuario queda creado igual → 201', async () => {
+    sendEmail.mockRejectedValueOnce(new Error('smtp down'))
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { name: 'Email Falla', email: 'qa-users-email-falla@test.local' },
+    })
+    expect(res.statusCode).toBe(201)
+    createdUserIds.push(res.json().id)
   })
 
   it('email duplicado en el mismo gym → 400 con mensaje de error descriptivo', async () => {
@@ -462,7 +513,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Otro Usuario',
         email: 'qa-users-member-a@test.local', // email duplicado en gym A
-        password: 'password123',
       },
     })
     expect(res.statusCode).toBe(400)
@@ -478,7 +528,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Otro Usuario Mayúsculas',
         email: 'QA-Users-Member-A@Test.LOCAL',
-        password: 'password123',
       },
     })
     expect(res.statusCode).toBe(400)
@@ -495,7 +544,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Mismo Email Otro Gym',
         email: 'qa-users-member-a@test.local', // mismo email, pero en gymB
-        password: 'password123',
       },
     })
     expect(res.statusCode).toBe(201)
@@ -513,7 +561,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Usuario Con RUT',
         email: 'qa-users-rut-first@test.local',
-        password: 'password123',
         rut: '12345678-5',
       },
     })
@@ -528,7 +575,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Otro Usuario Con RUT',
         email: 'qa-users-rut-second@test.local',
-        password: 'password123',
         rut: '12345678-5',
       },
     })
@@ -544,7 +590,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Rut Otro Gym',
         email: 'qa-users-rut-other-gym@test.local',
-        password: 'password123',
         rut: '12345678-5', // mismo RUT, gymB → permitido
       },
     })
@@ -560,7 +605,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'RUT Inválido',
         email: 'qa-users-rut-bad-checkdigit@test.local',
-        password: 'password123',
         rut: '12345678-9', // dígito verificador real es 5, no 9
       },
     })
@@ -575,7 +619,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'RUT Formato Libre',
         email: 'qa-users-rut-free-format@test.local',
-        password: 'password123',
         rut: 'no-es-un-rut-12345<script>',
       },
     })
@@ -590,7 +633,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'RUT Con Puntos',
         email: 'qa-users-rut-con-puntos@test.local',
-        password: 'password123',
         rut: '87.654.321-4',
       },
     })
@@ -607,7 +649,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Nace En El Futuro',
         email: 'qa-users-birthdate-future@test.local',
-        password: 'password123',
         birthDate: '2099-01-01',
       },
     })
@@ -622,7 +663,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Usuario Rol Invalido',
         email: 'qa-users-bad-role@test.local',
-        password: 'password123',
         role: 'SUPER_ADMIN', // no permitido en createUserSchema
       },
     })
@@ -637,7 +677,6 @@ describe('Users: POST /api/users — crear usuario', () => {
       payload: {
         name: 'Usuario Source Invalido',
         email: 'qa-users-bad-source@test.local',
-        password: 'password123',
         source: 'tiktok', // no está en enum
       },
     })
@@ -953,7 +992,6 @@ describe('Users: SUPER_ADMIN tiene acceso completo', () => {
       payload: {
         name: 'Test SUPER_ADMIN',
         email: 'qa-users-superadmin-test@test.local',
-        password: 'password123',
       },
     })
     expect(res.statusCode).toBe(403)

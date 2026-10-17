@@ -63,7 +63,7 @@ export default function StaffPage() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', role: 'COACH' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'COACH' })
 
   // Inline edit state
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -122,7 +122,7 @@ export default function StaffPage() {
       }
       setSuccess(`${form.role === 'COACH' ? 'Coach' : 'Admin'} creado correctamente`)
       setShowForm(false)
-      setForm({ name: '', email: '', password: '', phone: '', role: 'COACH' })
+      setForm({ name: '', email: '', phone: '', role: 'COACH' })
       setAvatarFile(null); setAvatarPreview(null)
       fetchStaff()
     } catch (err: any) {
@@ -239,11 +239,6 @@ export default function StaffPage() {
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Teléfono</label>
               <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="input" />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Contraseña temporal *</label>
-              <input type="text" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                required minLength={6} placeholder="Mínimo 6 caracteres" className="input" />
             </div>
           </div>
           <button type="submit" disabled={saving} className="btn-brand w-full py-2.5 disabled:opacity-50">
