@@ -993,6 +993,135 @@ const BENCHMARKS = [
   },
 ] as const
 
+// ─── Movimientos oficiales ─────────────────────────────────────────────────────
+// Misma lista que CF_MOVEMENTS en apps/web/lib/movements.ts — acá es la fuente de
+// verdad sembrada como catálogo global (gymId null, isOfficial true); el frontend
+// ya no mantiene su propia copia hardcodeada, la lee de GET /movements.
+const MOVEMENTS: { name: string; cat: string }[] = [
+  { name: 'Air Squat', cat: 'Fundacionales' },
+  { name: 'Front Squat', cat: 'Fundacionales' },
+  { name: 'Overhead Squat', cat: 'Fundacionales' },
+  { name: 'Shoulder Press', cat: 'Fundacionales' },
+  { name: 'Push Press', cat: 'Fundacionales' },
+  { name: 'Push Jerk', cat: 'Fundacionales' },
+  { name: 'Deadlift', cat: 'Fundacionales' },
+  { name: 'Sumo Deadlift High Pull', cat: 'Fundacionales' },
+  { name: 'Medicine Ball Clean', cat: 'Fundacionales' },
+  { name: 'Clean', cat: 'Levantamiento olímpico' },
+  { name: 'Power Clean', cat: 'Levantamiento olímpico' },
+  { name: 'Hang Clean', cat: 'Levantamiento olímpico' },
+  { name: 'Hang Power Clean', cat: 'Levantamiento olímpico' },
+  { name: 'Squat Clean', cat: 'Levantamiento olímpico' },
+  { name: 'Snatch', cat: 'Levantamiento olímpico' },
+  { name: 'Power Snatch', cat: 'Levantamiento olímpico' },
+  { name: 'Hang Snatch', cat: 'Levantamiento olímpico' },
+  { name: 'Hang Power Snatch', cat: 'Levantamiento olímpico' },
+  { name: 'Squat Snatch', cat: 'Levantamiento olímpico' },
+  { name: 'Clean and Jerk', cat: 'Levantamiento olímpico' },
+  { name: 'Clean and Push Jerk', cat: 'Levantamiento olímpico' },
+  { name: 'Hang Clean and Push Jerk', cat: 'Levantamiento olímpico' },
+  { name: 'Split Jerk', cat: 'Levantamiento olímpico' },
+  { name: 'Thruster', cat: 'Levantamiento olímpico' },
+  { name: 'Shoulder-to-Overhead', cat: 'Levantamiento olímpico' },
+  { name: 'Ground-to-Overhead', cat: 'Levantamiento olímpico' },
+  { name: 'Wall Ball', cat: 'Levantamiento olímpico' },
+  { name: 'Barbell Front-rack Lunge', cat: 'Levantamiento olímpico' },
+  { name: 'Overhead Walking Lunge', cat: 'Levantamiento olímpico' },
+  { name: 'Back Squat', cat: 'Powerlifting / Fuerza' },
+  { name: 'Bench Press', cat: 'Powerlifting / Fuerza' },
+  { name: 'Sumo Deadlift', cat: 'Powerlifting / Fuerza' },
+  { name: 'Good Morning', cat: 'Powerlifting / Fuerza' },
+  { name: 'Back Extension (GHD)', cat: 'Powerlifting / Fuerza' },
+  { name: 'GHD Hip Extension', cat: 'Powerlifting / Fuerza' },
+  { name: 'GHD Hip and Back Extension', cat: 'Powerlifting / Fuerza' },
+  { name: 'GHD Sit-up', cat: 'Powerlifting / Fuerza' },
+  { name: 'Dumbbell Clean', cat: 'Dumbbell' },
+  { name: 'Dumbbell Hang Clean', cat: 'Dumbbell' },
+  { name: 'Dumbbell Hang Power Clean', cat: 'Dumbbell' },
+  { name: 'Dumbbell Power Clean', cat: 'Dumbbell' },
+  { name: 'Dumbbell Power Snatch', cat: 'Dumbbell' },
+  { name: 'Dumbbell Squat Snatch', cat: 'Dumbbell' },
+  { name: 'Dumbbell Push Press', cat: 'Dumbbell' },
+  { name: 'Dumbbell Push Jerk', cat: 'Dumbbell' },
+  { name: 'Dumbbell Thruster', cat: 'Dumbbell' },
+  { name: 'Dumbbell Front Squat', cat: 'Dumbbell' },
+  { name: 'Dumbbell Overhead Squat', cat: 'Dumbbell' },
+  { name: 'Dumbbell Front-rack Lunge', cat: 'Dumbbell' },
+  { name: 'Dumbbell Overhead Walking Lunge', cat: 'Dumbbell' },
+  { name: 'Dumbbell Box Step-up', cat: 'Dumbbell' },
+  { name: 'Dumbbell Deadlift', cat: 'Dumbbell' },
+  { name: 'Dumbbell Farmers Carry', cat: 'Dumbbell' },
+  { name: 'Dumbbell Turkish Get-up', cat: 'Dumbbell' },
+  { name: 'Dumbbell Shoulder-to-Overhead', cat: 'Dumbbell' },
+  { name: 'Alternating Dumbbell Snatch', cat: 'Dumbbell' },
+  { name: 'Kettlebell Swing', cat: 'Kettlebell' },
+  { name: 'Kettlebell Clean', cat: 'Kettlebell' },
+  { name: 'Kettlebell Snatch', cat: 'Kettlebell' },
+  { name: 'Kettlebell Press', cat: 'Kettlebell' },
+  { name: 'Kettlebell Turkish Get-up', cat: 'Kettlebell' },
+  { name: 'Kettlebell Goblet Squat', cat: 'Kettlebell' },
+  { name: 'Kettlebell Box Step-up', cat: 'Kettlebell' },
+  { name: 'Kettlebell Farmers Carry', cat: 'Kettlebell' },
+  { name: 'Pull-up', cat: 'Gimnasia' },
+  { name: 'Kipping Pull-up', cat: 'Gimnasia' },
+  { name: 'Butterfly Pull-up', cat: 'Gimnasia' },
+  { name: 'Chest-to-Bar Pull-up', cat: 'Gimnasia' },
+  { name: 'Ring Muscle-Up', cat: 'Gimnasia' },
+  { name: 'Bar Muscle-Up', cat: 'Gimnasia' },
+  { name: 'Ring Dip', cat: 'Gimnasia' },
+  { name: 'Dip', cat: 'Gimnasia' },
+  { name: 'Push-up', cat: 'Gimnasia' },
+  { name: 'Handstand Push-up', cat: 'Gimnasia' },
+  { name: 'Kipping Handstand Push-up', cat: 'Gimnasia' },
+  { name: 'Chest-to-Wall Handstand Push-up', cat: 'Gimnasia' },
+  { name: 'Freestanding Handstand Push-up', cat: 'Gimnasia' },
+  { name: 'Strict Handstand Push-up', cat: 'Gimnasia' },
+  { name: 'Wall-Facing Handstand Push-up', cat: 'Gimnasia' },
+  { name: 'Handstand Walk', cat: 'Gimnasia' },
+  { name: 'Handstand', cat: 'Gimnasia' },
+  { name: 'Handstand Pirouette', cat: 'Gimnasia' },
+  { name: 'Wall Walk', cat: 'Gimnasia' },
+  { name: 'Toes-to-Bar', cat: 'Gimnasia' },
+  { name: 'Knees-to-Elbows', cat: 'Gimnasia' },
+  { name: 'Rope Climb', cat: 'Gimnasia' },
+  { name: 'Legless Rope Climb', cat: 'Gimnasia' },
+  { name: 'Box Jump', cat: 'Gimnasia' },
+  { name: 'Box Step-up', cat: 'Gimnasia' },
+  { name: 'Box Jump-over', cat: 'Gimnasia' },
+  { name: 'Burpee Box Jump-over', cat: 'Gimnasia' },
+  { name: 'Burpee', cat: 'Gimnasia' },
+  { name: 'Bar-facing Burpee', cat: 'Gimnasia' },
+  { name: 'Lateral Burpee over Dumbbell', cat: 'Gimnasia' },
+  { name: 'Pistol Squat', cat: 'Gimnasia' },
+  { name: 'AbMat Sit-up', cat: 'Gimnasia' },
+  { name: 'L-sit', cat: 'Gimnasia' },
+  { name: 'Hanging L-sit', cat: 'Gimnasia' },
+  { name: 'Hollow Rock', cat: 'Gimnasia' },
+  { name: 'Glide Kip', cat: 'Gimnasia' },
+  { name: 'Back Scale', cat: 'Gimnasia' },
+  { name: 'Front Scale', cat: 'Gimnasia' },
+  { name: 'Forward Roll From Support', cat: 'Gimnasia' },
+  { name: 'Freestanding Handstand Hold', cat: 'Gimnasia' },
+  { name: 'Running', cat: 'Cardio / Metabólico' },
+  { name: 'Rowing', cat: 'Cardio / Metabólico' },
+  { name: 'Assault Bike', cat: 'Cardio / Metabólico' },
+  { name: 'Ski Erg', cat: 'Cardio / Metabólico' },
+  { name: 'Swimming', cat: 'Cardio / Metabólico' },
+  { name: 'Biking', cat: 'Cardio / Metabólico' },
+  { name: 'Double-under', cat: 'Cardio / Metabólico' },
+  { name: 'Single-under', cat: 'Cardio / Metabólico' },
+  { name: 'Shuttle Run', cat: 'Cardio / Metabólico' },
+  { name: 'Walking Lunge', cat: 'Cardio / Metabólico' },
+]
+
+function slugifyMovement(name: string): string {
+  return 'mov-' + name
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 // ─── Seed ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('Seeding benchmarks...')
@@ -1061,6 +1190,30 @@ async function main() {
   }
 
   console.log(`Done: ${created} created, ${updated} updated`)
+
+  console.log('Seeding movements...')
+  let movCreated = 0
+  let movUpdated = 0
+
+  for (const m of MOVEMENTS) {
+    const externalId = slugifyMovement(m.name)
+    const existing = await prisma.movement.findUnique({ where: { externalId } })
+
+    if (existing) {
+      await prisma.movement.update({
+        where: { id: existing.id },
+        data: { nombre: m.name, categoria: m.cat },
+      })
+      movUpdated++
+    } else {
+      await prisma.movement.create({
+        data: { externalId, nombre: m.name, categoria: m.cat, isOfficial: true },
+      })
+      movCreated++
+    }
+  }
+
+  console.log(`Done: ${movCreated} created, ${movUpdated} updated`)
 }
 
 main()

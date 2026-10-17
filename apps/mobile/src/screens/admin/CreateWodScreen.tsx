@@ -27,6 +27,8 @@ const emptyMovement = (): Movement => ({
 
 const emptyBlock = (): Block => ({ title: '', timecap: '', movements: [emptyMovement()] })
 
+interface MovementOption { nombre: string; categoria: string }
+
 const SCORE_TYPES: { value: string; label: string; hint: string }[] = [
   { value: 'REPS',   label: 'Reps / Puntos', hint: 'Gana quien hace más' },
   { value: 'TIME',   label: 'Tiempo',         hint: 'Gana quien termina más rápido' },
@@ -39,6 +41,7 @@ export default function CreateWodScreen({ route, navigation }: any) {
   const { wodId, classTypeId: initialClassTypeId, date: initialDate } = route.params || {}
   const isEdit = !!wodId
   const [classTypes, setClassTypes] = useState<any[]>([])
+  const [movements, setMovements] = useState<MovementOption[]>([])
   const [selectedClassTypeId, setSelectedClassTypeId] = useState(initialClassTypeId || '')
   const [scoreType, setScoreType] = useState('REPS')
   const [form, setForm] = useState({ title: '', date: initialDate || '' })
@@ -47,11 +50,13 @@ export default function CreateWodScreen({ route, navigation }: any) {
   const [saving, setSaving] = useState(false)
   const [showTypePicker, setShowTypePicker] = useState(false)
   const [showScorePicker, setShowScorePicker] = useState(false)
+  const [movPickerTarget, setMovPickerTarget] = useState<{ bi: number; mi: number } | null>(null)
 
   useEffect(() => {
     const loadData = async () => {
-      const [ctRes] = await Promise.all([api.get('/class-types')])
+      const [ctRes, movRes] = await Promise.all([api.get('/class-types'), api.get('/movements')])
       setClassTypes(ctRes.data)
+      setMovements(movRes.data)
 
       if (isEdit) {
         const from = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
@@ -249,10 +254,12 @@ export default function CreateWodScreen({ route, navigation }: any) {
                   </TouchableOpacity>
                 )}
               </View>
-              <TextInput
-                style={s.input} placeholder="Nombre del movimiento *" placeholderTextColor="#4b5563"
-                value={m.movementName} onChangeText={v => setMovField(bi, mi, 'movementName', v)}
-              />
+              <TouchableOpacity style={s.picker} onPress={() => setMovPickerTarget({ bi, mi })}>
+                <Text style={m.movementName ? s.pickerText : s.pickerPlaceholder}>
+                  {m.movementName || 'Seleccionar movimiento *'}
+                </Text>
+                <Text style={s.pickerArrow}>▾</Text>
+              </TouchableOpacity>
               <View style={s.movRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.smallLabel}>Series</Text>
@@ -346,6 +353,38 @@ export default function CreateWodScreen({ route, navigation }: any) {
           ))}
         </View>
       </BottomSheet>
+
+      <BottomSheet
+        visible={!!movPickerTarget}
+        onClose={() => setMovPickerTarget(null)}
+        title="Elegir movimiento"
+        scrollable={true}
+      >
+        <View style={{ paddingHorizontal: 24 }}>
+          {Object.entries(
+            movements.reduce((acc: Record<string, MovementOption[]>, m) => {
+              (acc[m.categoria] ||= []).push(m)
+              return acc
+            }, {})
+          ).map(([categoria, items]) => (
+            <View key={categoria} style={{ marginBottom: 8 }}>
+              <Text style={s.catHeader}>{categoria.toUpperCase()}</Text>
+              {items.map(m => (
+                <TouchableOpacity
+                  key={m.nombre}
+                  style={s.sheetItem}
+                  onPress={() => {
+                    if (movPickerTarget) setMovField(movPickerTarget.bi, movPickerTarget.mi, 'movementName', m.nombre)
+                    setMovPickerTarget(null)
+                  }}
+                >
+                  <Text style={s.sheetItemText}>{m.nombre}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ))}
+        </View>
+      </BottomSheet>
     </ScrollView>
   )
 }
@@ -410,4 +449,5 @@ const s = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#1f2937'
   },
   sheetItemText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  catHeader: { color: '#6b7280', fontWeight: '700', fontSize: 12, letterSpacing: 0.5, marginTop: 12, marginBottom: 4 },
 })

@@ -64,7 +64,6 @@ export async function getGym(gymId: string, { forAdmin = false }: { forAdmin?: b
       status: true,
       attendanceMode: true,
       bankAccount: true,
-      movementLibrary: true,
       timezone: true,
       waitlistConfirmEnabled: true,
       waitlistConfirmMins: true,
