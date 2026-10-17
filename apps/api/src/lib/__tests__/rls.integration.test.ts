@@ -16,7 +16,7 @@ import { runWithTenantContext, TenantContext } from '../tenant-context'
 import { registerTenantContext } from '../tenant-hook'
 
 const SLUGS = ['qa-rls-gym-a', 'qa-rls-gym-b']
-const ids = { gymA: '', gymB: '', userA: '', userB: '', planA: '', planB: '', membershipB: '', officialBenchmark: '' }
+const ids = { gymA: '', gymB: '', userA: '', userB: '', planA: '', planB: '', membershipB: '', officialBenchmark: '', officialMovement: '', customMovementB: '' }
 
 const asGym = (gymId: string, userId: string | null = null): TenantContext => ({ gymId, userId, bypassRls: false })
 // Las queries de Prisma son perezosas: se ejecutan al hacer await, así que el await
@@ -30,6 +30,7 @@ async function cleanup() {
   await prisma.plan.deleteMany({ where: { gymId: { in: gymIds } } })
   await prisma.user.deleteMany({ where: { gymId: { in: gymIds } } })
   await prisma.benchmark.deleteMany({ where: { nombre: 'QA RLS Oficial' } })
+  await prisma.movement.deleteMany({ where: { nombre: { in: ['QA RLS Movimiento Oficial', 'QA RLS Movimiento Custom B'] } } })
   await prisma.gym.deleteMany({ where: { id: { in: gymIds } } })
 }
 
@@ -48,6 +49,13 @@ beforeAll(async () => {
   ids.officialBenchmark = (await prisma.benchmark.create({
     // isOfficial false: solo importa gymId null, y no interfiere con el conteo de seedBenchmarks
     data: { nombre: 'QA RLS Oficial', categoria: 'GIRL', formato: 'For time', isOfficial: false },
+  })).id
+  // gymId null: solo importa para probar que es visible cross-gym, isOfficial no afecta la policy
+  ids.officialMovement = (await prisma.movement.create({
+    data: { nombre: 'QA RLS Movimiento Oficial', categoria: 'Fundacionales', isOfficial: false },
+  })).id
+  ids.customMovementB = (await prisma.movement.create({
+    data: { nombre: 'QA RLS Movimiento Custom B', categoria: 'Personalizado', isOfficial: false, gymId: ids.gymB },
   })).id
 })
 
@@ -86,6 +94,16 @@ describe('RLS — lectura', () => {
   it('benchmarks oficiales (gymId null) son visibles para cualquier gym', async () => {
     const b = await inCtx(asGym(ids.gymA), () => prisma.benchmark.findUnique({ where: { id: ids.officialBenchmark } }))
     expect(b?.id).toBe(ids.officialBenchmark)
+  })
+
+  it('movimientos oficiales (gymId null) son visibles para cualquier gym', async () => {
+    const m = await inCtx(asGym(ids.gymA), () => prisma.movement.findUnique({ where: { id: ids.officialMovement } }))
+    expect(m?.id).toBe(ids.officialMovement)
+  })
+
+  it('movimiento custom de otro gym no es visible', async () => {
+    const m = await inCtx(asGym(ids.gymA), () => prisma.movement.findUnique({ where: { id: ids.customMovementB } }))
+    expect(m).toBeNull()
   })
 
   it('sin contexto (sistema) se ven ambos gyms', async () => {

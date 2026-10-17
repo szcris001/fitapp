@@ -12,52 +12,13 @@ import api from '../lib/api'
 import { BottomSheet } from '../components/BottomSheet'
 import { useAuthStore } from '../store/auth.store'
 
-// ── Orden de categorías estándar CF ──────────────────────────────────────────
-const CAT_OLYMPIC = 'Levantamiento olímpico'
-const CAT_STRENGTH = 'Powerlifting / Fuerza'
-const CAT_GYMNASTICS = 'Gimnasia'
-const CAT_DUMBBELL = 'Dumbbell / Kettlebell'
-const CAT_OTHER = 'Otros'
+// ── Orden de categorías del catálogo (global + custom del gym, GET /movements) ──
+const CAT_ORDER = [
+  'Fundacionales', 'Levantamiento olímpico', 'Powerlifting / Fuerza',
+  'Dumbbell', 'Kettlebell', 'Gimnasia', 'Cardio / Metabólico', 'Personalizado',
+]
 
-const CAT_ORDER = [CAT_OLYMPIC, CAT_STRENGTH, CAT_GYMNASTICS, CAT_DUMBBELL, CAT_OTHER]
-
-// Mapeo rápido nombre → categoría estándar (fallback si el gym no la define)
-const STANDARD_CATEGORIES: Record<string, string> = {}
-;[
-  [CAT_OLYMPIC, [
-    'Clean', 'Power Clean', 'Hang Clean', 'Hang Power Clean', 'Squat Clean',
-    'Snatch', 'Power Snatch', 'Hang Snatch', 'Hang Power Snatch', 'Squat Snatch',
-    'Clean and Jerk', 'Clean and Push Jerk', 'Hang Clean and Push Jerk', 'Split Jerk',
-    'Thruster', 'Shoulder-to-Overhead', 'Ground-to-Overhead', 'Wall Ball',
-    'Push Jerk', 'Push Press', 'Shoulder Press', 'Barbell Front-rack Lunge',
-    'Overhead Walking Lunge',
-  ]],
-  [CAT_STRENGTH, [
-    'Back Squat', 'Bench Press', 'Deadlift', 'Sumo Deadlift', 'Good Morning',
-    'Front Squat', 'Overhead Squat', 'Air Squat', 'Pistol Squat',
-    'Romanian Deadlift', 'Back Extension (GHD)', 'GHD Hip Extension',
-  ]],
-  [CAT_GYMNASTICS, [
-    'Pull Up', 'Strict Pull Up', 'Chest-to-Bar Pull Up', 'Ring Muscle Up',
-    'Bar Muscle Up', 'HSPU', 'Handstand Push Up', 'Ring Dip', 'Dip',
-    'Toes to Bar', 'L-Sit', 'Muscle Up', 'Rope Climb',
-  ]],
-  [CAT_DUMBBELL, [
-    'Dumbbell Clean', 'Dumbbell Power Clean', 'Dumbbell Power Snatch',
-    'Dumbbell Push Press', 'Dumbbell Thruster', 'Dumbbell Front Squat',
-    'Dumbbell Overhead Squat', 'Kettlebell Swing', 'Kettlebell Snatch',
-    'Kettlebell Clean', 'Kettlebell Turkish Get Up',
-  ]],
-].forEach(([cat, names]: any) => {
-  for (const n of names as string[]) STANDARD_CATEGORIES[n.toLowerCase()] = cat
-})
-
-function resolveCategory(name: string, gymCat?: string): string {
-  if (gymCat) return gymCat
-  return STANDARD_CATEGORIES[name.toLowerCase()] ?? CAT_OTHER
-}
-
-type GymMovement = { name: string; category?: string }
+type GymMovement = { name: string; category: string }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 export default function ProgressScreen() {
@@ -96,11 +57,11 @@ export default function ProgressScreen() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [rmsRes, skillsRes, progressRes, gymRes, wodResultsRes] = await Promise.all([
+      const [rmsRes, skillsRes, progressRes, movementsRes, wodResultsRes] = await Promise.all([
         api.get('/rms/me'),
         api.get('/skills'),
         api.get('/gymnastic-progress/me'),
-        api.get('/gyms/me'),
+        api.get('/movements'),
         api.get('/wod-results/me'),
       ])
 
@@ -119,12 +80,8 @@ export default function ProgressScreen() {
       }
       setAchievedMap(achieved)
 
-      const lib: any[] = gymRes.data?.movementLibrary || []
       setGymMovements(
-        lib.map((m: any) => ({
-          name: typeof m === 'string' ? m : (m.name ?? ''),
-          category: typeof m === 'object' ? (m.category ?? undefined) : undefined,
-        })).filter(m => Boolean(m.name))
+        (movementsRes.data || []).map((m: any) => ({ name: m.nombre, category: m.categoria }))
       )
     } catch {
       Alert.alert('Error', 'No se pudo cargar el progreso')
@@ -140,7 +97,7 @@ export default function ProgressScreen() {
   const allSections = useMemo(() => {
     const catMap: Record<string, string[]> = {}
     for (const m of gymMovements) {
-      const cat = resolveCategory(m.name, m.category)
+      const cat = m.category
       if (!catMap[cat]) catMap[cat] = []
       if (!catMap[cat].includes(m.name)) catMap[cat].push(m.name)
     }
@@ -224,7 +181,7 @@ export default function ProgressScreen() {
     const map: Record<string, any[]> = {}
     for (const rm of rms) {
       const gymMov = gymMovements.find(m => m.name.toLowerCase() === rm.movementName.toLowerCase())
-      const cat = resolveCategory(rm.movementName, gymMov?.category)
+      const cat = gymMov?.category ?? 'Personalizado'
       if (!map[cat]) map[cat] = []
       map[cat].push(rm)
     }
@@ -279,16 +236,9 @@ export default function ProgressScreen() {
               <Text style={s.emptyIcon}>🏋️</Text>
               <Text style={[s.emptyTitle, { color: c.text1 }]}>Sin marcas registradas</Text>
               <Text style={[s.emptySub, { color: c.text3 }]}>Registrá tu primer PR para ver tu evolución</Text>
-              {gymMovements.length > 0 && (
-                <TouchableOpacity style={[s.ctaBtn, { backgroundColor: c.primary }]} onPress={openAddRM}>
-                  <Text style={s.ctaBtnText}>+ Registrar primera marca</Text>
-                </TouchableOpacity>
-              )}
-              {gymMovements.length === 0 && (
-                <Text style={[s.emptySub, { color: c.text3, marginTop: 8 }]}>
-                  El administrador debe configurar la biblioteca de movimientos
-                </Text>
-              )}
+              <TouchableOpacity style={[s.ctaBtn, { backgroundColor: c.primary }]} onPress={openAddRM}>
+                <Text style={s.ctaBtnText}>+ Registrar primera marca</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <>
@@ -329,12 +279,10 @@ export default function ProgressScreen() {
                   </View>
                 </View>
               ))}
-              {gymMovements.length > 0 && (
-                <TouchableOpacity style={[s.addRMBtn, { borderColor: c.primary + '60' }]} onPress={openAddRM}>
-                  <Ionicons name="add-circle-outline" size={18} color={c.primary} />
-                  <Text style={[s.addRMText, { color: c.primary }]}>Registrar nueva marca</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity style={[s.addRMBtn, { borderColor: c.primary + '60' }]} onPress={openAddRM}>
+                <Ionicons name="add-circle-outline" size={18} color={c.primary} />
+                <Text style={[s.addRMText, { color: c.primary }]}>Registrar nueva marca</Text>
+              </TouchableOpacity>
             </>
           )}
         </ScrollView>

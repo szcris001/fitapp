@@ -20,27 +20,6 @@ const createSedeSchema = z.object({
   address: z.string().optional(),
 })
 
-// Acepta tanto el formato legado (string suelto) como el actual ({name, cat}) — la UI
-// solo escribe objetos, pero gyms sembrados o integraciones externas pueden seguir
-// mandando strings. Todo se normaliza a {name, cat} antes de guardar.
-const movementsLibrarySchema = z.array(
-  z.union([
-    z.string(),
-    z.object({ name: z.string(), cat: z.string().optional() }),
-  ])
-    .transform(item => typeof item === 'string' ? { name: item, cat: 'Personalizado' } : { name: item.name, cat: item.cat ?? 'Personalizado' })
-    .pipe(z.object({
-      name: z.string().trim().min(1, 'El nombre del movimiento no puede estar vacío').max(100),
-      cat: z.string().trim().min(1).max(50),
-    })),
-)
-
-// Para dedupe: minúsculas + sin tildes, igual criterio que la búsqueda de alumnos
-// (lib/search.ts en web) — "Sentadilla" y "Sentadillá" son el mismo movimiento.
-function normalizeMovementName(name: string): string {
-  return name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-}
-
 // El JWT solo lleva { userId, gymId, role }: email y nombre se leen de la DB.
 // Tras un switch-sede el gymId del JWT puede no ser el del usuario, por eso se busca por id.
 async function getRequester(userId: string) {
@@ -276,31 +255,6 @@ export async function gymRoutes(app: FastifyInstance) {
     })
 
     return reply.send({ ...result, total: members.length })
-  })
-
-  app.get('/gyms/me/movements-library', { preHandler: requireAdmin }, async (request, reply) => {
-    const user = request.user as any
-    const gym = await prisma.gym.findUnique({ where: { id: user.gymId }, select: { movementLibrary: true } })
-    return reply.send(gym?.movementLibrary ?? [])
-  })
-
-  app.put('/gyms/me/movements-library', { preHandler: requireAdmin }, async (request, reply) => {
-    const user = request.user as any
-    const parsed = movementsLibrarySchema.safeParse((request.body as any)?.movements)
-    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
-
-    // Dedupe por nombre normalizado (minúsculas + sin tildes): "Sentadilla" y "Sentadillá"
-    // son el mismo movimiento para quien busca, aunque el usuario los haya tipeado distinto.
-    const seen = new Set<string>()
-    const movements = parsed.data.filter(m => {
-      const key = normalizeMovementName(m.name)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-
-    await prisma.gym.update({ where: { id: user.gymId }, data: { movementLibrary: movements } })
-    return reply.send({ movements })
   })
 
   // ─── Suscripción de plataforma ─────────────────────────────────────────────

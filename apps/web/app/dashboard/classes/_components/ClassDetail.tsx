@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../lib/api'
-import { CF_MOVEMENTS } from '../../../../lib/movements'
 import { GYM_TIMEZONE } from '../../../../lib/gym-timezone'
 import {
   ChevronLeft, ChevronRight,
@@ -40,23 +39,18 @@ const localDateStr = (d: Date) =>
 
 
 /* ─── Movement Picker ────────────────────────────── */
-function MovementPicker({ value, onChange, extra = [] }: { value: string; onChange: (v: string) => void; extra?: { name: string; cat: string }[] }) {
+function MovementPicker({ value, onChange, movements }: { value: string; onChange: (v: string) => void; movements: { name: string; cat: string }[] }) {
   const [query, setQuery] = useState(value)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { setQuery(value) }, [value])
 
-  const allMovements = [
-    ...CF_MOVEMENTS,
-    ...extra.filter(e => !CF_MOVEMENTS.some(m => m.name.toLowerCase() === e.name.toLowerCase())),
-  ]
-
   const grouped: [string, string[]][] = (() => {
     if (!query.trim()) return []
     const q = query.toLowerCase()
     const bycat: Record<string, string[]> = {}
-    for (const m of allMovements) {
+    for (const m of movements) {
       if (m.name.toLowerCase().includes(q)) {
         if (!bycat[m.cat]) bycat[m.cat] = []
         bycat[m.cat].push(m.name)
@@ -74,13 +68,13 @@ function MovementPicker({ value, onChange, extra = [] }: { value: string; onChan
   const handleBlur = () => {
     setTimeout(() => {
       setOpen(false)
-      if (query && !allMovements.some(m => m.name === query)) {
+      if (query && !movements.some(m => m.name === query)) {
         setQuery(value)
       }
     }, 150)
   }
 
-  const isValid = !query || allMovements.some(m => m.name === query)
+  const isValid = !query || movements.some(m => m.name === query)
 
   return (
     <div ref={containerRef} className="relative flex-1">
@@ -205,7 +199,7 @@ function WodEditorModal({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [gymMovements, setGymMovements] = useState<{ name: string; cat: string }[]>([])
+  const [movements, setMovements] = useState<{ name: string; cat: string }[]>([])
   const [expandedMovs, setExpandedMovs] = useState<Set<string>>(new Set())
   const toggleMov = (bi: number, mi: number) => {
     const key = `${bi}-${mi}`
@@ -215,13 +209,10 @@ function WodEditorModal({
   useEffect(() => {
     Promise.all([
       api.get('/benchmarks'),
-      api.get('/gyms/me/movements-library'),
-    ]).then(([benchRes, libRes]) => {
+      api.get('/movements'),
+    ]).then(([benchRes, movRes]) => {
       setBenchmarks(benchRes.data)
-      const raw: any[] = libRes.data ?? []
-      setGymMovements(raw.map(item =>
-        typeof item === 'string' ? { name: item, cat: 'Personalizado' } : item
-      ))
+      setMovements((movRes.data ?? []).map((m: any) => ({ name: m.nombre, cat: m.categoria })))
     }).catch(() => {})
   }, [])
 
@@ -748,7 +739,7 @@ function WodEditorModal({
                                 <MovementPicker
                                   value={m.movementName}
                                   onChange={v => setMov(bi, mi, 'movementName', v)}
-                                  extra={gymMovements}
+                                  movements={movements}
                                 />
                               </div>
                               <input value={m.repScheme} onChange={e => setMov(bi, mi, 'repScheme', e.target.value)}

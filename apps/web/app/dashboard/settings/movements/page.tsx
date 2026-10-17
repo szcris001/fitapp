@@ -1,29 +1,27 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api from '../../../../lib/api'
-import { Plus, X, Search, Check, Dumbbell } from 'lucide-react'
-import { CF_MOVEMENTS, CF_CATEGORIES, MOV_CATEGORIES } from '../../../../lib/movements'
+import { Plus, X, Search, Dumbbell } from 'lucide-react'
+import { CF_CATEGORIES, MOV_CATEGORIES } from '../../../../lib/movements'
 
-interface LibraryMovement {
-  name: string
-  cat: string
+interface Movement {
+  id: string
+  nombre: string
+  categoria: string
+  isOfficial: boolean
 }
 
-function normalize(raw: any[]): LibraryMovement[] {
-  return raw.map(item =>
-    typeof item === 'string' ? { name: item, cat: 'Personalizado' } : item
-  )
-}
+const FALLBACK_COLOR = { color: '#6366f1', bg: '#eef2ff' }
+const colorFor = (cat: string) => CF_CATEGORIES.find(c => c.name === cat) ?? { ...FALLBACK_COLOR, name: cat }
 
 export default function MovementsPage() {
   const { user, loadFromStorage } = useAuthStore()
-  const router = useRouter()
 
-  const [library, setLibrary] = useState<LibraryMovement[]>([])
+  const [movements, setMovements] = useState<Movement[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [activeCat, setActiveCat] = useState<string>('Todos')
 
@@ -35,51 +33,49 @@ export default function MovementsPage() {
 
   useEffect(() => {
     if (!user) return  // el layout redirige a /login
-    api.get('/gyms/me/movements-library')
-      .then(({ data }) => setLibrary(normalize(data ?? [])))
+    api.get('/movements')
+      .then(({ data }) => setMovements(data ?? []))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [user])
 
-  const persist = async (updated: LibraryMovement[]) => {
+  const officialMovements = useMemo(() => movements.filter(m => m.isOfficial), [movements])
+  const customMovements = useMemo(() => movements.filter(m => !m.isOfficial), [movements])
+
+  const addCustom = async () => {
+    const nombre = customName.trim()
+    if (!nombre) return
+    setSaving(true)
+    setError('')
+    try {
+      const { data } = await api.post('/movements', { nombre, categoria: customCat })
+      setMovements(prev => [...prev, data])
+      setCustomName('')
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'No se pudo agregar el movimiento')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeCustom = async (id: string) => {
     setSaving(true)
     try {
-      await api.put('/gyms/me/movements-library', { movements: updated })
-      setLibrary(updated)
+      await api.delete(`/movements/${id}`)
+      setMovements(prev => prev.filter(m => m.id !== id))
     } catch {
     } finally { setSaving(false) }
   }
 
-  const inLibrary = (name: string) =>
-    library.some(m => m.name.toLowerCase() === name.toLowerCase())
-
-  const toggleCF = (name: string, cat: string) => {
-    if (inLibrary(name)) {
-      persist(library.filter(m => m.name.toLowerCase() !== name.toLowerCase()))
-    } else {
-      persist([...library, { name, cat }])
-    }
-  }
-
-  const addCustom = async () => {
-    const name = customName.trim()
-    if (!name || inLibrary(name)) return
-    await persist([...library, { name, cat: customCat }])
-    setCustomName('')
-  }
-
-  const removeFromLibrary = (name: string) =>
-    persist(library.filter(m => m.name.toLowerCase() !== name.toLowerCase()))
-
-  // Catálogo filtrado
-  const filteredCF = useMemo(() => {
+  // Catálogo oficial filtrado (solo lectura)
+  const filteredOfficial = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return CF_MOVEMENTS.filter(m => {
-      const matchSearch = !q || m.name.toLowerCase().includes(q)
-      const matchCat = activeCat === 'Todos' || m.cat === activeCat
+    return officialMovements.filter(m => {
+      const matchSearch = !q || m.nombre.toLowerCase().includes(q)
+      const matchCat = activeCat === 'Todos' || m.categoria === activeCat
       return matchSearch && matchCat
     })
-  }, [search, activeCat])
+  }, [officialMovements, search, activeCat])
 
   const catTabs = ['Todos', ...CF_CATEGORIES.map(c => c.name)]
 
@@ -91,8 +87,6 @@ export default function MovementsPage() {
       </div>
     )
   }
-
-  const customMovements = library.filter(m => !CF_MOVEMENTS.some(cf => cf.name.toLowerCase() === m.name.toLowerCase()))
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 space-y-10">
@@ -109,30 +103,19 @@ export default function MovementsPage() {
               Biblioteca de movimientos
             </h1>
             <p className="text-sm" style={{ color: 'var(--text-3)' }}>
-              Los movimientos activados aquí son los que verán tus alumnos en la app para registrar sus marcas personales
+              El catálogo oficial está disponible para todos los gimnasios. Acá podés sumar los movimientos propios de tu box.
             </p>
           </div>
         </div>
-
-        {/* Contador resumen */}
-        <div className="mt-4 flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold px-3 py-1 rounded-full"
-            style={{ backgroundColor: 'color-mix(in srgb, var(--brand-primary) 15%, transparent)', color: 'var(--brand-primary)' }}>
-            {library.length} movimientos activos
-          </span>
-          {saving && (
-            <span className="text-xs" style={{ color: 'var(--text-3)' }}>Guardando…</span>
-          )}
-        </div>
       </div>
 
-      {/* ── Catálogo estándar ── */}
+      {/* ── Catálogo oficial (solo lectura) ── */}
       <div>
         <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--text-1)' }}>
           Catálogo CrossFit estándar
         </h2>
         <p className="text-sm mb-4" style={{ color: 'var(--text-3)' }}>
-          Activa los movimientos que usa tu gimnasio. Toca uno para agregarlo o quitarlo de tu biblioteca.
+          Siempre disponible para tus alumnos y coaches al registrar marcas o armar un WOD — es de referencia, no se puede desactivar.
         </p>
 
         {/* Buscador */}
@@ -165,7 +148,7 @@ export default function MovementsPage() {
 
         {/* Grid de movimientos por categoría */}
         {(activeCat === 'Todos' ? CF_CATEGORIES : CF_CATEGORIES.filter(c => c.name === activeCat)).map(cat => {
-          const moves = filteredCF.filter(m => m.cat === cat.name)
+          const moves = filteredOfficial.filter(m => m.categoria === cat.name)
           if (moves.length === 0) return null
           return (
             <div key={cat.name} className="mb-5">
@@ -175,31 +158,20 @@ export default function MovementsPage() {
                 {cat.name.toUpperCase()}
               </p>
               <div className="flex flex-wrap gap-2">
-                {moves.map(m => {
-                  const active = inLibrary(m.name)
-                  return (
-                    <button
-                      key={m.name}
-                      onClick={() => toggleCF(m.name, m.cat)}
-                      disabled={saving}
-                      title={active ? 'Quitar de mi biblioteca' : 'Agregar a mi biblioteca'}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all disabled:opacity-50"
-                      style={active
-                        ? { backgroundColor: cat.color, color: '#fff', boxShadow: `0 0 0 2px ${cat.color}40` }
-                        : { backgroundColor: cat.color + '14', color: cat.color, border: `1px solid ${cat.color}30` }}>
-                      {active
-                        ? <Check className="w-3.5 h-3.5 shrink-0" />
-                        : <Plus className="w-3.5 h-3.5 shrink-0" />}
-                      {m.name}
-                    </button>
-                  )
-                })}
+                {moves.map(m => (
+                  <span
+                    key={m.id}
+                    className="px-3 py-1.5 rounded-full text-sm font-medium"
+                    style={{ backgroundColor: cat.color + '14', color: cat.color, border: `1px solid ${cat.color}30` }}>
+                    {m.nombre}
+                  </span>
+                ))}
               </div>
             </div>
           )
         })}
 
-        {filteredCF.length === 0 && (
+        {filteredOfficial.length === 0 && (
           <p className="text-sm py-6 text-center" style={{ color: 'var(--text-3)' }}>
             No hay movimientos que coincidan con la búsqueda.
           </p>
@@ -242,6 +214,7 @@ export default function MovementsPage() {
               Agregar
             </button>
           </div>
+          {error && <p className="text-xs mt-2" style={{ color: '#ef4444' }}>{error}</p>}
         </div>
 
         {/* Lista de custom */}
@@ -251,23 +224,26 @@ export default function MovementsPage() {
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {customMovements.map(m => (
-              <span key={m.name}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium"
-                style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-2)', border: '1px solid var(--border-1)' }}>
-                {m.name}
-                <span className="text-xs opacity-60">{m.cat}</span>
-                <button
-                  onClick={() => removeFromLibrary(m.name)}
-                  disabled={saving}
-                  className="ml-1 transition-colors disabled:opacity-50"
-                  style={{ color: 'var(--text-4)' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-4)')}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
-            ))}
+            {customMovements.map(m => {
+              const cat = colorFor(m.categoria)
+              return (
+                <span key={m.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium"
+                  style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-2)', border: '1px solid var(--border-1)' }}>
+                  {m.nombre}
+                  <span className="text-xs" style={{ color: cat.color }}>{m.categoria}</span>
+                  <button
+                    onClick={() => removeCustom(m.id)}
+                    disabled={saving}
+                    className="ml-1 transition-colors disabled:opacity-50"
+                    style={{ color: 'var(--text-4)' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-4)')}>
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )
+            })}
           </div>
         )}
       </div>

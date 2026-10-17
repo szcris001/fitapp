@@ -52,7 +52,6 @@ model Gym {
   ownerEmail             String?
   deletedAt              DateTime?
   country                String                   @default("CL")
-  movementLibrary        Json                     @default("[]")
   bankAccount            Json                     @default("{}")
   stripeCustomerId       String?
   attendanceMode         String                   @default("manual")
@@ -80,6 +79,7 @@ model Gym {
   skills                 GymSkill[]
   subscriptions          GymSubscription[]
   subPayments            GymSubscriptionPayment[]
+  movements              Movement[]
   plans                  Plan[]
   users                  User[]
   wods                   Wod[]
@@ -502,6 +502,17 @@ model BenchmarkResult {
 
   @@index([benchmarkId, gymId])
   @@index([userId])
+}
+
+model Movement {
+  id         String   @id @default(uuid())
+  externalId String?  @unique
+  gymId      String?
+  nombre     String
+  categoria  String
+  isOfficial Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  gym        Gym?     @relation(fields: [gymId], references: [id], onDelete: Cascade)
 }
 
 model FintocLink {

@@ -27,6 +27,7 @@ import { gymPaymentsRoutes } from './modules/superadmin/gym-payments.routes'
 import { platformAssetsRoutes } from './modules/superadmin/platform-assets.routes'
 import { skillRoutes } from './modules/gyms/skills.routes'
 import { benchmarkRoutes } from './modules/analytics/benchmark.routes'
+import { movementRoutes } from './modules/movements/movements.routes'
 import { startCronJobs } from './lib/cron'
 import { requireActiveGym } from './middlewares/auth.middleware'
 import { mediaRoutes } from './modules/media/media.routes'
@@ -198,6 +199,7 @@ app.register(gymPaymentsRoutes, { prefix: '/api' })
 app.register(platformAssetsRoutes, { prefix: '/api' })
 app.register(skillRoutes, { prefix: '/api' })
 app.register(benchmarkRoutes, { prefix: '/api' })
+app.register(movementRoutes, { prefix: '/api' })
 
 const start = async () => {
   try {
