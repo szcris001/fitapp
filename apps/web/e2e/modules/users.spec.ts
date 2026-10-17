@@ -82,7 +82,6 @@ test.describe('USR — admin', () => {
     const p = await open(page, '/dashboard/users/new')
     await field(page, 'Nombre completo *').fill(name)
     await field(page, 'Email *').fill(email)
-    await field(page, 'Contraseña *').fill('QaE2e2026!')
     await field(page, 'Género').selectOption('F')
     await page.getByRole('button', { name: 'Crear alumno' }).click()
 
@@ -102,7 +101,7 @@ test.describe('USR — admin', () => {
     const u = uid()
     const name = `QA E2E José Pérez ${u}`
     const email = `qa-e2e-tildes-${u}@qa-norte.test`
-    const res = await api('admin', 'POST', '/users', { name, email, password: 'QaE2e2026!', role: 'MEMBER' })
+    const res = await api('admin', 'POST', '/users', { name, email, role: 'MEMBER' })
     expect(res.status, JSON.stringify(res.data)).toBe(201)
 
     const p = await open(page, '/dashboard/users')
@@ -116,7 +115,6 @@ test.describe('USR — admin', () => {
     const p = await open(page, '/dashboard/users/new')
     await field(page, 'Nombre completo *').fill(`QA E2E Duplicado ${uid()}`)
     await field(page, 'Email *').fill(dup)
-    await field(page, 'Contraseña *').fill('QaE2e2026!')
     await page.getByRole('button', { name: 'Crear alumno' }).click()
 
     await expect(page.getByText(/email ya está registrado en este gimnasio/i)).toBeVisible()
@@ -133,7 +131,6 @@ test.describe('USR — admin', () => {
     const p = await open(page, '/dashboard/users/new')
     await field(page, 'Nombre completo *').fill(name)
     await field(page, 'Email *').fill(email)
-    await field(page, 'Contraseña *').fill('QaE2e2026!')
     // 66666666-6: válido por dígito verificador, y fuera del rango 11111111-1..55555555-5
     // que usan los 5 alumnos sembrados de Norte (qa/fixtures.json) — evita un 400 por duplicado.
     await field(page, 'RUT').fill('66666666-6')
@@ -153,7 +150,6 @@ test.describe('USR — admin', () => {
     const p = await open(page, '/dashboard/users/new')
     await field(page, 'Nombre completo *').fill(`QA E2E RUT Inválido ${uid()}`)
     await field(page, 'Email *').fill(`qa-e2e-rut-invalido-${uid()}@qa-norte.test`)
-    await field(page, 'Contraseña *').fill('QaE2e2026!')
     await field(page, 'RUT').fill('11111111-9') // dígito verificador real es 1, no 9
     await page.getByRole('button', { name: 'Crear alumno' }).click()
 

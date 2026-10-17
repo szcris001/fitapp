@@ -37,8 +37,12 @@ async function createStudent(tag: string): Promise<Student> {
   const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
   const name = `E2E ${tag} ${suffix}`
   const email = `e2e-pay-${suffix}@qa-norte.test`
-  const { status, data } = await api('admin', 'POST', '/users', { name, email, password: QA.password, role: 'MEMBER' })
+  const { status, data } = await api('admin', 'POST', '/users', { name, email, role: 'MEMBER' })
   expect(status, JSON.stringify(data)).toBe(201)
+  // POST /users ya no acepta password (manda correo de bienvenida con link de reset) —
+  // fijamos una conocida para poder loguear al fixture en loginStudent().
+  const reset = await api('admin', 'POST', `/users/${data.id}/reset-password`, { newPassword: QA.password })
+  expect(reset.status, JSON.stringify(reset.data)).toBe(200)
   return { id: data.id, name, email }
 }
 

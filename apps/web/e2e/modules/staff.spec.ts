@@ -13,10 +13,15 @@ const uid = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
 /** Crea un coach por API y devuelve sus credenciales iniciales */
 async function createCoach(tag: string) {
   const u = uid()
-  const body = { name: `QA E2E ${tag} ${u}`, email: `qa-e2e-staff-${tag.toLowerCase()}-${u}@qa-norte.test`, password: 'QaE2e2026!', role: 'COACH' }
+  const password = 'QaE2e2026!'
+  const body = { name: `QA E2E ${tag} ${u}`, email: `qa-e2e-staff-${tag.toLowerCase()}-${u}@qa-norte.test`, role: 'COACH' }
   const res = await api('admin', 'POST', '/users', body)
   expect(res.status, JSON.stringify(res.data)).toBe(201)
-  return { id: res.data.id as string, ...body }
+  // POST /users ya no acepta password (manda correo de bienvenida con link de reset) —
+  // fijamos una conocida para poder loguear como este coach antes del reset de la UI.
+  const reset = await api('admin', 'POST', `/users/${res.data.id}/reset-password`, { newPassword: password })
+  expect(reset.status, JSON.stringify(reset.data)).toBe(200)
+  return { id: res.data.id as string, ...body, password }
 }
 
 test.describe('STF — admin', () => {
