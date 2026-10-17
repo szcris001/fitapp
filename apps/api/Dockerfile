@@ -55,4 +55,12 @@ EXPOSE 3001
 # dentro de uploads/ falla con EACCES en cualquier plataforma que monte un volumen ahí.
 # Se corrige el dueño en cada arranque y recién ahí se baja a "node" con su-exec para
 # correr migraciones, crear el rol de la app y lanzar el servidor sin privilegios.
-CMD ["sh", "-c", "chown -R node:node uploads && exec su-exec node sh -c 'npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js && exec env -u DATABASE_ADMIN_URL -u APP_DB_PASSWORD node dist/index.js'"]
+#
+# prisma/seed.ts siembra los 113 benchmarks oficiales (Fran, Grace, Murph, los Open...):
+# son globales (gymId null, visibles para todos los gyms vía el OR en GET /benchmarks),
+# no hace falta repetirlo por gym — pero antes era 100% manual y nunca se había corrido
+# contra producción (Cristian, 2026-10-17: "no veo los benchmarks"). Corre acá en cada
+# arranque con ts-node (no hay build de prisma/, queda fuera de src/): es un upsert por
+# externalId, así que repetirlo en cada deploy es gratis. No bloquea el arranque si
+# falla — es contenido de referencia, no algo de lo que dependa que el server levante.
+CMD ["sh", "-c", "chown -R node:node uploads && exec su-exec node sh -c 'npx prisma migrate deploy && node dist/scripts/setup-app-db-role.js && (npx ts-node prisma/seed.ts || echo \"[seed] benchmarks oficiales: fallo, revisar logs\") && exec env -u DATABASE_ADMIN_URL -u APP_DB_PASSWORD node dist/index.js'"]
