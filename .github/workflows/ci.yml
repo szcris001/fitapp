@@ -227,6 +227,13 @@ jobs:
           pnpm prisma migrate deploy
           pnpm exec ts-node src/scripts/setup-app-db-role.ts
 
+      # Catálogos globales (benchmarks, movimientos): en producción los siembra el
+      # CMD del Dockerfile en cada arranque — acá hace falta el paso explícito porque
+      # la suite E2E depende de ese catálogo (p. ej. CLS-09, selector de movimiento).
+      - name: Seed catálogos globales
+        working-directory: apps/api
+        run: pnpm seed
+
       - name: Build and start the API
         working-directory: apps/api
         run: |
