@@ -41,7 +41,6 @@ const birthDateField = z.string()
 export const createUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email().toLowerCase(),
-  password: z.string().min(6),
   phone: z.string().optional(),
   gender: z.string().optional(),
   birthDate: birthDateField,

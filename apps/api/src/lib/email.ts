@@ -412,6 +412,40 @@ export async function sendWelcomeEmail(data: {
   return {}
 }
 
+// Alta de alumno/coach desde el panel: a diferencia de sendWelcomeEmail (gym nuevo),
+// este NO manda ninguna contraseña — el admin ya no la inventa (ver createUser en
+// users.service.ts). El link reusa el mismo PasswordResetToken de "olvidé mi
+// contraseña" para que el propio usuario elija la suya.
+export async function sendUserWelcomeEmail(data: { userName: string; userEmail: string; gymName: string; resetUrl: string }) {
+  const from = buildFrom(data.gymName)
+  const logoUrl = await getPlatformLogoUrl()
+
+  const html = wrapInLayout(
+    data.gymName, '#6366f1', '🤝', `¡Bienvenido a ${data.gymName}!`,
+    `<p style="color:#374151;font-size:15px;margin:0 0 8px;">Hola <strong>${escapeHtml(data.userName)}</strong>,</p>
+    <p style="color:#6b7280;font-size:14px;margin:0 0 28px;line-height:1.6;">
+      Ya tenés una cuenta en <strong>${escapeHtml(data.gymName)}</strong>. Elegí tu contraseña para empezar — este link es válido por <strong>1 hora</strong>.
+    </p>
+    <a href="${data.resetUrl}"
+      style="display:block;text-align:center;background:#6366f1;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 24px;border-radius:12px;">
+      Elegir mi contraseña →
+    </a>
+    <p style="color:#9ca3af;font-size:12px;margin:20px 0 0;text-align:center;">
+      Si no esperabas este correo, podés ignorarlo.
+    </p>`,
+    logoUrl,
+  )
+
+  const { ethereal, previewUrl } = await sendEmail({
+    from,
+    to: data.userEmail,
+    subject: `🤝 Bienvenido a ${data.gymName}`,
+    html,
+  })
+
+  if (ethereal) console.info(`[Email] Welcome user email preview: ${previewUrl}`)
+}
+
 export async function sendTestEmail(gymId: string): Promise<{ success: boolean; previewUrl?: string; to: string }> {
   const gym = await prisma.gym.findUnique({
     where: { id: gymId },

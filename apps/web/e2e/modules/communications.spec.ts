@@ -40,7 +40,7 @@ test.describe('COM — comunicaciones', () => {
     // Alumno nuevo con plan Ilimitado activo (pago manual)
     const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
     const email = `e2e-com-${suffix}@qa-norte.test`
-    const created = await api('admin', 'POST', '/users', { name: `E2E Comunicación ${suffix}`, email, password: QA.password, role: 'MEMBER' })
+    const created = await api('admin', 'POST', '/users', { name: `E2E Comunicación ${suffix}`, email, role: 'MEMBER' })
     expect(created.status).toBe(201)
     const userId: string = created.data.id
 

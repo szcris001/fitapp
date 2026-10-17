@@ -1,7 +1,9 @@
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import { prisma } from '../../lib/prisma'
 import { CreateUserInput, UpdateUserInput } from './users.schema'
 import { handlePrismaError } from '../../lib/prismaError'
+import { sendUserWelcomeEmail } from '../../lib/email'
 
 export async function listUsers(gymId: string, status?: string, role?: string) {
   const where: any = { gymId }
@@ -80,10 +82,13 @@ export async function createUser(gymId: string | null, data: CreateUserInput) {
     }
   }
 
-  const passwordHash = await bcrypt.hash(data.password, 10)
+  // Password descartable: nadie la usa ni la ve — el usuario elige la suya real vía
+  // el link del correo de bienvenida (mismo mecanismo que "olvidé mi contraseña").
+  const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10)
 
+  let created
   try {
-    const created = await prisma.user.create({
+    created = await prisma.user.create({
       data: {
         gymId,
         name: data.name,
@@ -95,12 +100,32 @@ export async function createUser(gymId: string | null, data: CreateUserInput) {
         source: data.source,
         role: data.role || 'MEMBER',
         rut: data.rut || null,
+        mustChangePassword: true, // defensivo: la hash generada arriba nunca debería usarse
       },
     })
-    return created
   } catch (err) {
     handlePrismaError(err)
   }
+
+  try {
+    const gym = await prisma.gym.findUnique({ where: { id: gymId }, select: { name: true } })
+    const token = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hora, igual que forgot-password
+    await prisma.passwordResetToken.create({ data: { userId: created.id, token, expiresAt } })
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`
+    await sendUserWelcomeEmail({
+      userName: created.name,
+      userEmail: created.email,
+      gymName: gym?.name ?? 'Tribu-Box',
+      resetUrl,
+    })
+  } catch (err) {
+    // No debe romper el alta si el correo falla (mismo patrón que sendWelcomeEmail
+    // en superadmin.routes.ts) — el admin puede mandar "olvidé mi contraseña" a mano.
+    console.error('[Users] Error enviando welcome email', err)
+  }
+
+  return created
 }
 
 // Cuenta los ADMIN del gym sin contar a userId — usado antes de bajarle el rol a un
