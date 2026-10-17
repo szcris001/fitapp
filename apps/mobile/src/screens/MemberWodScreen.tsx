@@ -17,6 +17,7 @@ import { useTheme } from '../theme/ThemeContext'
 import { useAuthStore } from '../store/auth.store'
 import { BottomSheet } from '../components/BottomSheet'
 import api from '../lib/api'
+import { parseScoreInput } from '../lib/wodScore'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -271,24 +272,16 @@ function LogResultModal({
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const submit = async () => {
-    let score: number
-    if (scoreType === 'TIME') {
-      const m = parseInt(mins, 10)
-      const s = parseInt(secs, 10)
-      if (isNaN(m) || isNaN(s) || m < 0 || s < 0 || s > 59) {
-        Alert.alert('Tiempo inválido', 'Ingresa minutos y segundos válidos (segundos: 0-59).')
-        return
-      }
-      score = m * 60 + s
-      if (score === 0) {
+    const input = scoreType === 'TIME' ? { mins, secs }
+      : scoreType === 'CUSTOM' ? { text: scoreText }
+      : { value: scoreValue }
+    const parsed = parseScoreInput(scoreType, input)
+    if ('error' in parsed) {
+      if (parsed.error === 'zero_time') {
         Alert.alert('Tiempo inválido', 'El tiempo no puede ser cero.')
-        return
-      }
-    } else if (scoreType === 'CUSTOM') {
-      score = parseFloat(scoreValue) || 0
-    } else {
-      score = parseFloat(scoreValue)
-      if (isNaN(score) || score <= 0) {
+      } else if (parsed.error === 'invalid_time') {
+        Alert.alert('Tiempo inválido', 'Ingresa minutos y segundos válidos (segundos: 0-59).')
+      } else {
         const placeholders: Record<string, string> = {
           REPS: 'un número de repeticiones',
           ROUNDS: 'un número de rondas',
@@ -296,19 +289,19 @@ function LogResultModal({
         }
         Alert.alert(
           'Score inválido',
-          `Ingresa ${placeholders[scoreType] ?? 'un valor numérico'} mayor a cero.`,
+          `Ingresa ${placeholders[scoreType] ?? 'un valor numérico'} válido.`,
         )
-        return
       }
+      return
     }
 
     const body: Record<string, any> = {
-      score: isNaN(score) ? 0 : score,
+      score: parsed.score,
       rx,
-      notes: notes.trim() || undefined,
+      notes: notes.trim() || null,
     }
     if (scoreType === 'CUSTOM') {
-      body.scoreText = scoreText.trim() || undefined
+      body.scoreText = parsed.scoreText ?? null
     }
 
     setSaving(true)

@@ -193,6 +193,18 @@ export async function wodRoutes(app: FastifyInstance) {
     return reply.send(wods)
   })
 
+  // ─── GET ONE ──────────────────────────────────────────────────────────────────
+  app.get('/wods/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+    const user = request.user as any
+    const { id } = request.params as any
+    const wod = await prisma.wod.findFirst({
+      where: { id, gymId: user.gymId },
+      include: { ...includeBlocks, classType: { select: { id: true, name: true, color: true } } },
+    })
+    if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+    return reply.send(wod)
+  })
+
   // ─── UPDATE ──────────────────────────────────────────────────────────────────
   app.put('/wods/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
     const user = request.user as any

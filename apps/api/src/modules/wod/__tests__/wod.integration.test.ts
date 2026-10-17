@@ -533,6 +533,83 @@ describe('WOD: GET /api/wods/class/:classId — WOD por clase', () => {
 })
 
 // =============================================================================
+// Suite 2b: GET /wods/:id — un WOD puntual por id
+// =============================================================================
+
+describe('WOD: GET /api/wods/:id — un WOD por id', () => {
+  let app: FastifyInstance
+  let wodId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const wod = await prisma.wod.create({
+      data: {
+        gymId: gymAId,
+        classTypeId: classTypeAId,
+        title: 'WOD para GET by id',
+        date: gymDayStart(todayDateString(), DEFAULT_GYM_TIMEZONE),
+        blocks: {
+          create: [
+            {
+              title: 'Bloque único',
+              order: 0,
+              movements: { create: [{ order: 0, movementName: 'Snatch', repScheme: '3x3' }] },
+            },
+          ],
+        },
+      },
+    })
+    wodId = wod.id
+    createdWodIds.push(wodId)
+  })
+
+  afterAll(async () => { await app.close() })
+
+  it('sin token → 401', async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/wods/${wodId}` })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('id inexistente → 404', async () => {
+    const fakeId = '00000000-0000-4000-a000-000000000002'
+    const res = await app.inject({
+      method: 'GET', url: `/api/wods/${fakeId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('WOD de otro gym → 404 (aislamiento)', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}`,
+      headers: { authorization: `Bearer ${adminBToken}` },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('MEMBER no puede leer este endpoint (es de coach/admin) → 403', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('happy path → 200 con bloques, movimientos y classType', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.id).toBe(wodId)
+    expect(body.classType.id).toBe(classTypeAId)
+    expect(body.blocks).toHaveLength(1)
+    expect(body.blocks[0].movements[0].movementName).toBe('Snatch')
+  })
+})
+
+// =============================================================================
 // Suite 3: GET /wods/class/:classId/my-loads — Cargas personalizadas
 // =============================================================================
 

@@ -7,6 +7,7 @@ import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import api from '../../lib/api'
 import { BottomSheet } from '../../components/BottomSheet'
+import { parseScoreInput } from '../../lib/wodScore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,18 +63,12 @@ function ResultForm({
   const [notes, setNotes] = useState(initial?.notes ?? '')
 
   const getScore = (): { score: number; scoreText?: string } | null => {
-    if (scoreType === 'TIME') {
-      const m = parseInt(mins, 10)
-      const s = parseInt(secs, 10)
-      if (isNaN(m) || isNaN(s) || m < 0 || s < 0 || s > 59 || m * 60 + s === 0) return null
-      return { score: m * 60 + s }
-    }
-    if (scoreType === 'CUSTOM') {
-      return { score: parseFloat(customValue) || 0, scoreText: scoreText.trim() || undefined }
-    }
-    const n = parseFloat(scoreValue)
-    if (isNaN(n) || n <= 0) return null
-    return { score: n }
+    const input = scoreType === 'TIME' ? { mins, secs }
+      : scoreType === 'CUSTOM' ? { text: scoreText }
+      : { value: scoreValue }
+    const result = parseScoreInput(scoreType, input)
+    if ('error' in result) return null
+    return { score: result.score, scoreText: result.scoreText ?? undefined }
   }
 
   // Reporta el estado actual al padre tras cada render, nunca sincrónicamente
@@ -246,9 +241,9 @@ export default function WodResultsScreen({ route }: any) {
     try {
       const body = {
         score: parsed.score,
-        scoreText: parsed.scoreText,
+        scoreText: parsed.scoreText ?? null,
         rx: formRef.current.rx,
-        notes: formRef.current.notes.trim() || undefined,
+        notes: formRef.current.notes.trim() || null,
       }
       if (editingEntry) {
         await api.put(`/wods/${wodId}/results/${pickedMember.id}`, body)
