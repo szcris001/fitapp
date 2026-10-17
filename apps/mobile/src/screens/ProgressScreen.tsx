@@ -20,6 +20,12 @@ const CAT_ORDER = [
 
 type GymMovement = { name: string; category: string }
 
+function formatSemesterLabel(periodStartIso: string): string {
+  const d = new Date(periodStartIso)
+  const year = d.getUTCFullYear()
+  return d.getUTCMonth() === 0 ? `Ene-Jun ${year}` : `Jul-Dic ${year}`
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 export default function ProgressScreen() {
   const { theme } = useTheme()
@@ -42,6 +48,9 @@ export default function ProgressScreen() {
   // Resultados de WOD (pizarra del día)
   const [wodResults, setWodResults] = useState<any[]>([])
 
+  // Insignias de constancia semestral
+  const [badges, setBadges] = useState<any[]>([])
+
   // Modal agregar RM — dos pasos: 'pick' (elegir movimiento) → 'weight' (ingresar peso)
   const [showAddRM, setShowAddRM] = useState(false)
   const [rmStep, setRmStep] = useState<'pick' | 'weight'>('pick')
@@ -57,17 +66,19 @@ export default function ProgressScreen() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [rmsRes, skillsRes, progressRes, movementsRes, wodResultsRes] = await Promise.all([
+      const [rmsRes, skillsRes, progressRes, movementsRes, wodResultsRes, badgesRes] = await Promise.all([
         api.get('/rms/me'),
         api.get('/skills'),
         api.get('/gymnastic-progress/me'),
         api.get('/movements'),
         api.get('/wod-results/me'),
+        api.get('/consistency-badges/me'),
       ])
 
       setRms(rmsRes.data || [])
       setSkills(skillsRes.data || [])
       setWodResults(wodResultsRes.data || [])
+      setBadges(badgesRes.data || [])
 
       const achieved: Record<string, string[]> = {}
       for (const p of (progressRes.data || [])) {
@@ -295,6 +306,24 @@ export default function ProgressScreen() {
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32 }}
           showsVerticalScrollIndicator={false}
         >
+          {badges.map(b => (
+            <View key={b.id} style={[s.skillCard, { backgroundColor: c.surface, borderColor: c.success }]}>
+              <View style={s.skillHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.skillName, { color: c.text1 }]}>
+                    🏅 Constancia semestral — {formatSemesterLabel(b.periodStart)}
+                  </Text>
+                  <Text style={[s.skillDesc, { color: c.text3 }]}>
+                    Cargaste el 100% de tus resultados de WOD ({b.loggedCount}/{b.eligibleCount} clases)
+                  </Text>
+                </View>
+                <View style={[s.skillBadge, { backgroundColor: c.success + '25' }]}>
+                  <Text style={[s.skillBadgeText, { color: c.success }]}>✓</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+
           {skills.length === 0 ? (
             <View style={s.emptyWrap}>
               <Text style={[s.emptyTitle, { color: c.text1 }]}>Sin habilidades configuradas</Text>
