@@ -45,6 +45,7 @@ export async function getUserById(gymId: string, userId: string) {
       },
       rmRecords: { orderBy: { recordedAt: 'desc' } },
       gymnasticProgress: { orderBy: { achievedAt: 'desc' } },
+      consistencyBadges: { orderBy: { periodStart: 'desc' } },
       bookings: {
         where: { status: 'ATTENDED' },
         orderBy: { attendedAt: 'desc' },

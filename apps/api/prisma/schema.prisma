@@ -74,6 +74,7 @@ model Gym {
   benchmarkResults       BenchmarkResult[]
   classes                Class[]
   classTypes             ClassType[]
+  consistencyBadges      ConsistencyBadge[]
   fintocLink             FintocLink?
   fintocPaymentIntents   FintocPaymentIntent[]
   skills                 GymSkill[]
@@ -107,6 +108,7 @@ model User {
   rut                String?
   bookings           Booking[]
   coachClasses       Class[]              @relation("CoachClasses")
+  consistencyBadges  ConsistencyBadge[]
   gymnasticProgress  GymnasticProgress[]
   memberships        Membership[]
   passwordResets     PasswordResetToken[]
@@ -580,6 +582,22 @@ model WodResult {
   @@unique([wodId, userId])
   @@index([gymId, wodId])
   @@index([wodId, rx, score])
+}
+
+model ConsistencyBadge {
+  id            String   @id @default(uuid())
+  gymId         String
+  userId        String
+  periodStart   DateTime // gymDayStart del 1 ene / 1 jul
+  periodEnd     DateTime // exclusivo
+  eligibleCount Int      // clases asistidas con WOD planificado en el período
+  loggedCount   Int      // de esas, con WodResult cargado (== eligibleCount si se otorgó)
+  awardedAt     DateTime @default(now())
+  gym           Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodStart])
+  @@index([gymId, periodStart])
 }
 
 model FintocPaymentIntent {
