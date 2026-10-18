@@ -29,6 +29,7 @@ import { skillRoutes } from './modules/gyms/skills.routes'
 import { benchmarkRoutes } from './modules/analytics/benchmark.routes'
 import { movementRoutes } from './modules/movements/movements.routes'
 import { consistencyRoutes } from './modules/consistency/consistency.routes'
+import { pillarRoutes } from './modules/pillars/pillars.routes'
 import { startCronJobs } from './lib/cron'
 import { requireActiveGym } from './middlewares/auth.middleware'
 import { mediaRoutes } from './modules/media/media.routes'
@@ -202,6 +203,7 @@ app.register(skillRoutes, { prefix: '/api' })
 app.register(benchmarkRoutes, { prefix: '/api' })
 app.register(movementRoutes, { prefix: '/api' })
 app.register(consistencyRoutes, { prefix: '/api' })
+app.register(pillarRoutes, { prefix: '/api' })
 
 const start = async () => {
   try {

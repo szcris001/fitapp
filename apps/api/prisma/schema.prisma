@@ -81,6 +81,8 @@ model Gym {
   subscriptions          GymSubscription[]
   subPayments            GymSubscriptionPayment[]
   movements              Movement[]
+  pillars                Pillar[]
+  pillarAwards           PillarAward[]
   plans                  Plan[]
   users                  User[]
   wods                   Wod[]
@@ -118,6 +120,8 @@ model User {
   gym                Gym?                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
   wodResultsRecorded WodResult[]          @relation("WodResultRecordedBy")
   wodResults         WodResult[]
+  pillarAwardsReceived PillarAward[]      @relation("PillarAwardUser")
+  pillarAwardsGiven   PillarAward[]       @relation("PillarAwardedBy")
 
   paymentCheckouts PaymentCheckout[]
 
@@ -600,6 +604,49 @@ model ConsistencyBadge {
   @@index([gymId, periodStart])
 }
 
+model Pillar {
+  id          String        @id @default(uuid())
+  gymId       String
+  type        PillarType
+  name        String // editable por el gym: "Fuerza", "Mejor compañero"
+  description String?
+  icon        String?
+  isActive    Boolean       @default(true)
+  config      Json          @default("{}") // forma depende de `type`
+  order       Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  gym         Gym           @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  awards      PillarAward[]
+
+  @@index([gymId, isActive])
+}
+
+model PillarAward {
+  id          String    @id @default(uuid())
+  gymId       String
+  userId      String
+  pillarId    String
+  // STRENGTH/ATTENDANCE/GYMNASTICS: inicio del semestre. TENURE: fecha del hito. MANUAL: null.
+  periodStart DateTime?
+  periodEnd   DateTime?
+  metadata    Json      @default("{}") // snapshot explicable del award (no referencia al config vigente)
+  awardedById String? // null si es automático; userId del admin/coach si es MANUAL
+  awardedAt   DateTime  @default(now())
+  gym         Gym       @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  user        User      @relation("PillarAwardUser", fields: [userId], references: [id], onDelete: Cascade)
+  pillar      Pillar    @relation(fields: [pillarId], references: [id], onDelete: Cascade)
+  awardedBy   User?     @relation("PillarAwardedBy", fields: [awardedById], references: [id], onDelete: SetNull)
+
+  // NULL en Postgres nunca es igual a otro NULL en un índice único — por eso esta
+  // constraint NO deduplica awards MANUAL (periodStart siempre null ahí): un coach
+  // puede otorgar "Mejor compañero" varias veces en la vida del alumno, cada vez es
+  // un logro nuevo. Para los automáticos sí deduplica por período/hito.
+  @@unique([userId, pillarId, periodStart])
+  @@index([gymId, pillarId])
+  @@index([userId])
+}
+
 model FintocPaymentIntent {
   id             String          @id @default(uuid())
   gymId          String
@@ -615,6 +662,14 @@ model FintocPaymentIntent {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   gym            Gym             @relation(fields: [gymId], references: [id], onDelete: Cascade)
+}
+
+enum PillarType {
+  STRENGTH
+  ATTENDANCE
+  TENURE
+  GYMNASTICS
+  MANUAL
 }
 
 enum WodScoreType {

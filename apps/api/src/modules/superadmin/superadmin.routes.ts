@@ -7,6 +7,7 @@ import { prismaErrorMessage } from '../../lib/prismaError'
 import { sendWelcomeEmail } from '../../lib/email'
 import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../payments/payments.service'
 import { logger } from '../../lib/logger'
+import { seedDefaultPillarsForGym } from '../pillars/pillars.service'
 
 const createGymSchema = z.object({
   gymName: z.string().min(2),
@@ -162,6 +163,8 @@ export async function superAdminRoutes(app: FastifyInstance) {
             ownerEmail: adminEmail,
           },
         })
+
+        await seedDefaultPillarsForGym(newGym.id, tx)
 
         if (existingUser) {
           // Reutiliza el usuario del gym eliminado

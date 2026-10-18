@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma'
 import { redis } from '../../lib/redis'
 import { RegisterInput, LoginInput } from './auth.schema'
 import { sendEmail, buildFrom, escapeHtml, wrapInLayout, getPlatformLogoUrl } from '../../lib/email'
+import { seedDefaultPillarsForGym } from '../pillars/pillars.service'
 
 const REFRESH_TOKEN_EXPIRES_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? '7', 10)
 
@@ -116,20 +117,24 @@ export async function registerGym(data: RegisterInput) {
 
   const passwordHash = await bcrypt.hash(data.password, 10)
 
-  const gym = await prisma.gym.create({
-    data: {
-      name: data.gymName,
-      slug: data.gymSlug,
-      users: {
-        create: {
-          name: data.adminName,
-          email: data.email,
-          passwordHash,
-          role: 'ADMIN',
+  const gym = await prisma.$transaction(async (tx) => {
+    const created = await tx.gym.create({
+      data: {
+        name: data.gymName,
+        slug: data.gymSlug,
+        users: {
+          create: {
+            name: data.adminName,
+            email: data.email,
+            passwordHash,
+            role: 'ADMIN',
+          },
         },
       },
-    },
-    include: { users: true },
+      include: { users: true },
+    })
+    await seedDefaultPillarsForGym(created.id, tx)
+    return created
   })
 
   const admin = gym.users[0]
