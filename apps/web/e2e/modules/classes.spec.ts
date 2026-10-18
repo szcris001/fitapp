@@ -90,7 +90,7 @@ async function classesOf(classTypeId: string, from: string, to: string) {
 async function createActiveMember(tag: string) {
   const email = `qa-e2e-${PREFIX.toLowerCase()}-${tag.toLowerCase()}-${RUN}@qa-norte.test`
   const { data: user } = await api('admin', 'POST', '/users', {
-    name: `${PREFIX} ${tag} ${RUN}`, email, password: 'QaE2e2026!', role: 'MEMBER',
+    name: `${PREFIX} ${tag} ${RUN}`, email, role: 'MEMBER',
   })
   const { data: plans } = await api('admin', 'GET', '/plans')
   const plan = (plans as { id: string; name: string }[]).find(p => p.name === QA.gyms.norte.plans.mensual.name)!

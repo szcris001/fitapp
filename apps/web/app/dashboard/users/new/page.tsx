@@ -16,7 +16,7 @@ export default function NewUserPage() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({
-    name: '', email: '', password: '', phone: '',
+    name: '', email: '', phone: '',
     gender: '', birthDate: '', rut: '',
     // Fecha local (no UTC): pasado ~21:00 en Chile, toISOString() ya cae en el día siguiente
     planId: '', startsAt: new Date().toLocaleDateString('sv'),
@@ -45,7 +45,7 @@ export default function NewUserPage() {
     setError('')
     try {
       const { data: newUser } = await api.post('/users', {
-        name: form.name, email: form.email, password: form.password,
+        name: form.name, email: form.email,
         phone: form.phone || undefined, gender: form.gender || undefined,
         birthDate: form.birthDate || undefined, rut: form.rut || undefined, role: 'MEMBER',
       })
@@ -134,10 +134,6 @@ export default function NewUserPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Email *</label>
                   <input type="email" value={form.email} onChange={e => set('email', e.target.value)} required className="input" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Contraseña *</label>
-                  <input type="password" value={form.password} onChange={e => set('password', e.target.value)} required minLength={6} className="input" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>RUT</label>

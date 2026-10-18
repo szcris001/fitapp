@@ -150,7 +150,7 @@ test.describe('PLN — admin', () => {
     // Asignarlo a un alumno crea una membresía TRIAL sin cobro y de 30 días
     const u = uid()
     const member = await api('admin', 'POST', '/users', {
-      name: `QA E2E Trial ${u}`, email: `qa-e2e-trial-${u}@qa-norte.test`, password: 'QaE2e2026!', role: 'MEMBER',
+      name: `QA E2E Trial ${u}`, email: `qa-e2e-trial-${u}@qa-norte.test`, role: 'MEMBER',
     })
     expect(member.status).toBe(201)
     const m = await api('admin', 'POST', '/memberships', {
