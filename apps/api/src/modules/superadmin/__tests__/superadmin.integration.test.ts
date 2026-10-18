@@ -482,6 +482,10 @@ describe('Superadmin: POST /api/superadmin/gyms', () => {
     // Guardar para cleanup
     createdGymIds.push(body.gym.id)
 
+    // El gym nace con los 5 pilares de reconocimiento default
+    const pillars = await prisma.pillar.findMany({ where: { gymId: body.gym.id } })
+    expect(pillars).toHaveLength(5)
+
     // sendWelcomeEmail fue llamado una vez
     expect(mockEmail).toHaveBeenCalledOnce()
     expect(mockEmail).toHaveBeenCalledWith(expect.objectContaining({

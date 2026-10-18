@@ -13,6 +13,8 @@ import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../paym
 import { signMediaToken } from '../../lib/media-token'
 import { canEnterSede, sedeRole } from '../../lib/sede-access'
 import { detectImageExt } from '../../lib/image-sniff'
+import { seedDefaultPillarsForGym } from '../pillars/pillars.service'
+import { runWithTenantContext } from '../../lib/tenant-context'
 
 const createSedeSchema = z.object({
   name: z.string().min(2),
@@ -61,9 +63,21 @@ export async function gymRoutes(app: FastifyInstance) {
     if (existing) return reply.status(409).send({ error: 'El slug ya está en uso' })
 
     try {
-      const sede = await prisma.gym.create({
-        data: { name, slug, address, ownerEmail: requester.email },
-      })
+      // El request corre con el contexto RLS del gym ACTUAL del admin (no el de la
+      // sede recién creada) — la conexión de la transacción fija ese contexto una
+      // sola vez, al pedirla, así que hace falta bypass para toda la tx (no solo
+      // para el INSERT de Pillar) o el WITH CHECK (gymId = current_gym_id()) la
+      // rechazaría. La autorización de esta ruta ya la hace requireAdmin + el
+      // chequeo de `requester` arriba, no depende de RLS.
+      const sede = await runWithTenantContext({ gymId: null, userId: null, bypassRls: true }, () =>
+        prisma.$transaction(async (tx) => {
+          const created = await tx.gym.create({
+            data: { name, slug, address, ownerEmail: requester.email },
+          })
+          await seedDefaultPillarsForGym(created.id, tx)
+          return created
+        }),
+      )
       return reply.status(201).send(sede)
     } catch (err: any) {
       const msg = prismaErrorMessage(err)

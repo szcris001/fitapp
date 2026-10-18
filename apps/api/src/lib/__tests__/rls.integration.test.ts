@@ -16,7 +16,7 @@ import { runWithTenantContext, TenantContext } from '../tenant-context'
 import { registerTenantContext } from '../tenant-hook'
 
 const SLUGS = ['qa-rls-gym-a', 'qa-rls-gym-b']
-const ids = { gymA: '', gymB: '', userA: '', userB: '', planA: '', planB: '', membershipB: '', officialBenchmark: '', officialMovement: '', customMovementB: '' }
+const ids = { gymA: '', gymB: '', userA: '', userB: '', planA: '', planB: '', membershipB: '', officialBenchmark: '', officialMovement: '', customMovementB: '', pillarB: '', pillarAwardB: '' }
 
 const asGym = (gymId: string, userId: string | null = null): TenantContext => ({ gymId, userId, bypassRls: false })
 // Las queries de Prisma son perezosas: se ejecutan al hacer await, así que el await
@@ -31,6 +31,8 @@ async function cleanup() {
   await prisma.user.deleteMany({ where: { gymId: { in: gymIds } } })
   await prisma.benchmark.deleteMany({ where: { nombre: 'QA RLS Oficial' } })
   await prisma.movement.deleteMany({ where: { nombre: { in: ['QA RLS Movimiento Oficial', 'QA RLS Movimiento Custom B'] } } })
+  await prisma.pillarAward.deleteMany({ where: { gymId: { in: gymIds } } })
+  await prisma.pillar.deleteMany({ where: { gymId: { in: gymIds } } })
   await prisma.gym.deleteMany({ where: { id: { in: gymIds } } })
 }
 
@@ -56,6 +58,14 @@ beforeAll(async () => {
   })).id
   ids.customMovementB = (await prisma.movement.create({
     data: { nombre: 'QA RLS Movimiento Custom B', categoria: 'Personalizado', isOfficial: false, gymId: ids.gymB },
+  })).id
+  // Pillar/PillarAward no tienen filas globales (a diferencia de Benchmark/Movement) —
+  // toda fila pertenece a un gym real, mismo chequeo de aislamiento simple que Membership.
+  ids.pillarB = (await prisma.pillar.create({
+    data: { gymId: ids.gymB, type: 'MANUAL', name: 'QA RLS Pilar B', config: {} },
+  })).id
+  ids.pillarAwardB = (await prisma.pillarAward.create({
+    data: { gymId: ids.gymB, userId: ids.userB, pillarId: ids.pillarB, awardedById: ids.userB },
   })).id
 })
 
@@ -84,6 +94,16 @@ describe('RLS — lectura', () => {
   it('tablas hijas: membresía de un usuario de otro gym no es visible', async () => {
     const m = await inCtx(asGym(ids.gymA), () => prisma.membership.findUnique({ where: { id: ids.membershipB } }))
     expect(m).toBeNull()
+  })
+
+  it('pilar de otro gym no es visible', async () => {
+    const p = await inCtx(asGym(ids.gymA), () => prisma.pillar.findUnique({ where: { id: ids.pillarB } }))
+    expect(p).toBeNull()
+  })
+
+  it('award de pilar de otro gym no es visible', async () => {
+    const a = await inCtx(asGym(ids.gymA), () => prisma.pillarAward.findUnique({ where: { id: ids.pillarAwardB } }))
+    expect(a).toBeNull()
   })
 
   it('su propia fila de User es visible aunque el contexto sea otra sede (switch-sede)', async () => {

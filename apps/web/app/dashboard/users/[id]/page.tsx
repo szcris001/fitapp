@@ -392,6 +392,94 @@ function ResetPasswordModal({ userId, onClose, onSuccess }: { userId: string; on
   )
 }
 
+function ManualPillarAwardModal({ userId, onClose, onSuccess }: { userId: string; onClose: () => void; onSuccess: () => void }) {
+  const [pillars, setPillars] = useState<any[]>([])
+  const [pillarId, setPillarId] = useState('')
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.get('/pillars').then(({ data }) => {
+      const manual = (data as any[]).filter(p => p.type === 'MANUAL' && p.isActive)
+      setPillars(manual)
+      setPillarId(manual[0]?.id || '')
+    }).catch(() => {})
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!pillarId) { setError('No hay reconocimientos manuales configurados'); return }
+    setSaving(true)
+    setError('')
+    try {
+      await api.post(`/pillars/${pillarId}/awards`, { userId, message: message.trim() || undefined })
+      onSuccess()
+      onClose()
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al otorgar el reconocimiento')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}
+        onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden modal-animate card" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border-1)' }}>
+            <div className="flex items-center gap-2">
+              <Award className="w-5 h-5" style={{ color: '#f59e0b' }} />
+              <h2 className="font-semibold" style={{ color: 'var(--text-1)' }}>Otorgar reconocimiento</h2>
+            </div>
+            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg"
+              style={{ color: 'var(--text-3)' }}
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--surface-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            {pillars.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--text-3)' }}>
+                No hay reconocimientos manuales configurados — agregá uno en Configuración → Pilares.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Reconocimiento</label>
+                  <select value={pillarId} onChange={e => setPillarId(e.target.value)} className="input">
+                    {pillars.map(p => <option key={p.id} value={p.id}>{p.icon ? `${p.icon} ` : ''}{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-2)' }}>Mensaje (opcional)</label>
+                  <textarea
+                    value={message}
+                    onChange={e => setMessage(e.target.value)}
+                    placeholder="Por qué se lo merece..."
+                    className="input"
+                    rows={3}
+                  />
+                </div>
+              </>
+            )}
+            {error && (
+              <div className="text-sm rounded-lg px-3 py-2 bg-red-50 border border-red-200 text-red-600">{error}</div>
+            )}
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose} className="flex-1 btn-secondary py-2.5 rounded-xl text-sm">Cancelar</button>
+              <button type="submit" disabled={saving || pillars.length === 0} className="flex-1 btn-brand py-2.5 rounded-xl text-sm font-medium disabled:opacity-50">
+                {saving ? 'Guardando...' : 'Otorgar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </>
+  )
+}
+
 /* ─── Helpers ───────────────────────────────────── */
 function calcAge(birthDate: string): number {
   const birth = new Date(birthDate)
@@ -430,6 +518,7 @@ export default function UserDetailPage() {
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [showPayment, setShowPayment] = useState(false)
   const [showResetPassword, setShowResetPassword] = useState(false)
+  const [showAwardPillar, setShowAwardPillar] = useState(false)
   const [showExtendModal, setShowExtendModal] = useState(false)
   const [showReversalModal, setShowReversalModal] = useState(false)
   const [extendDays, setExtendDays] = useState(7)
@@ -1033,6 +1122,40 @@ export default function UserDetailPage() {
             </div>
           )}
 
+          {/* Pilares de reconocimiento */}
+          <div className="card rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Award className="w-4 h-4" style={{ color: '#f59e0b' }} />
+              <h3 className="font-semibold" style={{ color: 'var(--text-1)' }}>Pilares de reconocimiento</h3>
+              <button onClick={() => setShowAwardPillar(true)}
+                className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg btn-secondary">
+                Otorgar reconocimiento
+              </button>
+            </div>
+            {member.pillarAwardsReceived?.length > 0 ? (
+              <div className="space-y-2">
+                {member.pillarAwardsReceived.map((a: any) => (
+                  <div key={a.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'var(--border-1)' }}>
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
+                      <CheckCircle className="w-3 h-3 text-green-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>
+                        {a.pillar?.icon ? `${a.pillar.icon} ` : ''}{a.pillar?.name}
+                        {a.periodStart && a.pillar?.type !== 'TENURE' ? ` — ${formatSemesterLabel(a.periodStart)}` : ''}
+                      </p>
+                      <p className="text-xs" style={{ color: 'var(--text-4)' }}>
+                        {a.metadata?.message || new Date(a.awardedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm" style={{ color: 'var(--text-4)' }}>Sin reconocimientos todavía.</p>
+            )}
+          </div>
+
         </div>{/* fin columna izquierda */}
 
         {/* ── Columna derecha: membresía activa ── */}
@@ -1144,6 +1267,14 @@ export default function UserDetailPage() {
           userId={params.id as string}
           onClose={() => setShowResetPassword(false)}
           onSuccess={() => setSuccess('Contraseña reseteada. El alumno deberá cambiarla al ingresar.')}
+        />
+      )}
+
+      {showAwardPillar && (
+        <ManualPillarAwardModal
+          userId={params.id as string}
+          onClose={() => setShowAwardPillar(false)}
+          onSuccess={() => { setSuccess('Reconocimiento otorgado'); fetchData(false) }}
         />
       )}
 

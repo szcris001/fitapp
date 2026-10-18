@@ -992,7 +992,14 @@ describe('Multi-sede — my-sedes y switch-sede con JWT mínimo', () => {
       payload: { name: 'QA Sede Created', slug: CREATED_SLUG },
     })
     expect(res.statusCode).toBe(201)
-    expect(JSON.parse(res.body).ownerEmail).toBe('qa-gyms-admin-a@test.local')
+    const body = JSON.parse(res.body)
+    expect(body.ownerEmail).toBe('qa-gyms-admin-a@test.local')
+
+    // La sede nace con los 5 pilares default — regresión del bug donde el INSERT
+    // corría con el contexto RLS del gym del admin (no el de la sede recién creada)
+    // y violaba el WITH CHECK, haciendo fallar la creación entera con 400.
+    const pillars = await prisma.pillar.findMany({ where: { gymId: body.id } })
+    expect(pillars).toHaveLength(5)
   })
 
   it('POST /gyms/switch-sede a sede propia → 200, JWT mínimo con el nuevo gymId', async () => {
