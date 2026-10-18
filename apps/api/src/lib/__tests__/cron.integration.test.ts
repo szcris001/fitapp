@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../prisma'
-import { runMembershipExpiryStatusJob, runPendingConfirmReminderJob } from '../cron'
+import { runMembershipExpiryStatusJob, runPendingConfirmReminderJob, runConsistencyBadgeJob } from '../cron'
 
 vi.mock('../push', () => ({
   sendPushNotification: vi.fn().mockResolvedValue(undefined),
@@ -209,5 +209,15 @@ describe('runPendingConfirmReminderJob', () => {
 
     const updated = await prisma.booking.findUnique({ where: { id: booking.id } })
     expect(updated?.confirmReminderSentAt).not.toBeNull()
+  })
+})
+
+describe('runConsistencyBadgeJob', () => {
+  // La lógica real de cálculo/otorgamiento ya está cubierta a fondo en
+  // consistency.integration.test.ts — acá solo se confirma que el job orquestador
+  // (recorre todos los gyms ACTIVE) no explota, ni siquiera con un gym sin
+  // miembros elegibles (el caso de este archivo, que no crea bookings/wods).
+  it('corre sin lanzar excepción', async () => {
+    await expect(runConsistencyBadgeJob()).resolves.not.toThrow()
   })
 })

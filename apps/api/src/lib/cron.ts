@@ -5,6 +5,7 @@ import { sendPushNotification } from './push'
 import { chargeAutoRenewMembership } from '../modules/payments/payments.service'
 import { gymDayRangeFromToday, DEFAULT_GYM_TIMEZONE } from './gym-day'
 import { logger } from './logger'
+import { awardConsistencyBadgesForGym, semesterWindowsForYear } from '../modules/consistency/consistency.service'
 
 /**
  * Aviso diario a las 9:00 AM: membresías de miembros por vencer.
@@ -384,6 +385,32 @@ export async function runMembershipExpiryStatusJob() {
   if (count > 0) logger.info(`[Cron] ${count} membresía(s) pasada(s) a EXPIRED`)
 }
 
+/**
+ * Insignia de constancia semestral: al cierre de cada semestre (1 ene / 1 jul),
+ * calcula y otorga a cada MEMBER que cargó el 100% de sus resultados de WOD
+ * en las clases a las que asistió. Idempotente: el @@unique([userId, periodStart])
+ * de ConsistencyBadge hace que una corrida repetida sea un no-op seguro.
+ */
+export async function runConsistencyBadgeJob() {
+  logger.info('[Cron] Calculando insignias de constancia semestral...')
+  const gyms = await prisma.gym.findMany({ where: { status: 'ACTIVE' }, select: { id: true, timezone: true } })
+  const now = new Date()
+  // Al correr el 1/1 se cierra el 2do semestre del año anterior; al correr el 1/7, el 1ro de este año.
+  const year = now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear()
+
+  for (const gym of gyms) {
+    const tz = gym.timezone || DEFAULT_GYM_TIMEZONE
+    const windows = semesterWindowsForYear(year, tz)
+    const window = now.getUTCMonth() === 0 ? windows[1] : windows[0]
+    try {
+      const awarded = await awardConsistencyBadgesForGym(gym.id, window)
+      if (awarded > 0) logger.info(`[Cron] ${awarded} insignia(s) de constancia otorgada(s) en gym ${gym.id}`)
+    } catch (err) {
+      logger.error({ err }, `[Cron] Error calculando constancia para gym ${gym.id}`)
+    }
+  }
+}
+
 export function startCronJobs() {
   // Expirar PENDING_CONFIRM — cada minuto
   cron.schedule('* * * * *', async () => {
@@ -433,5 +460,11 @@ export function startCronJobs() {
     catch (err) { logger.error({ err }, '[Cron] Error en auto-renovaciones') }
   })
 
-  logger.info('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · recordatorio confirmación 5min · auto-suspend horario · expiración membresías horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM')
+  // Insignia de constancia semestral — 00:05 los días 1 de enero y 1 de julio
+  cron.schedule('5 0 1 1,7 *', async () => {
+    try { await runConsistencyBadgeJob() }
+    catch (err) { logger.error({ err }, '[Cron] Error en job de constancia semestral') }
+  })
+
+  logger.info('[Cron] Jobs iniciados — pendingConfirm cada min · auto-asistencia 5min · recordatorio confirmación 5min · auto-suspend horario · expiración membresías horario · membresías 9:00 AM · suscripciones 8:00 AM · auto-renovación 7:00 AM · constancia semestral 1/1 y 1/7')
 }

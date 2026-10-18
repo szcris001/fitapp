@@ -8,10 +8,16 @@ import { GYM_TIMEZONE, daysUntilGymLocal } from '../../../../lib/gym-timezone'
 import {
   ArrowLeft, Edit2, CheckCircle, CreditCard, Banknote,
   RefreshCw, X, ExternalLink, Wallet, Camera, KeyRound,
-  Phone, User2, Calendar, Trophy, Activity, Clock, TrendingUp,
+  Phone, User2, Calendar, Trophy, Activity, Clock, TrendingUp, Award,
 } from 'lucide-react'
 
 /* ─── Constants ─────────────────────────────────── */
+function formatSemesterLabel(periodStartIso: string): string {
+  const d = new Date(periodStartIso)
+  const year = d.getUTCFullYear()
+  return d.getUTCMonth() === 0 ? `Ene-Jun ${year}` : `Jul-Dic ${year}`
+}
+
 const STATUS_LABEL: Record<string, string> = {
   ACTIVE: 'Activo', INACTIVE: 'Inactivo', TRIAL: 'Prueba', EXPIRED: 'Expirado',
 }
@@ -994,6 +1000,32 @@ export default function UserDetailPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Constancia semestral */}
+          {member.consistencyBadges?.length > 0 && (
+            <div className="card rounded-xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Award className="w-4 h-4" style={{ color: '#f59e0b' }} />
+                <h3 className="font-semibold" style={{ color: 'var(--text-1)' }}>Constancia semestral</h3>
+                <span className="badge-yellow ml-auto">
+                  {member.consistencyBadges.length} insignia{member.consistencyBadges.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {member.consistencyBadges.map((b: any) => (
+                  <div key={b.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'var(--border-1)' }}>
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
+                      <CheckCircle className="w-3 h-3 text-green-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>{formatSemesterLabel(b.periodStart)}</p>
+                      <p className="text-xs" style={{ color: 'var(--text-4)' }}>{b.loggedCount}/{b.eligibleCount} clases con WOD — 100% cargado</p>
                     </div>
                   </div>
                 ))}
