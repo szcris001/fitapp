@@ -97,6 +97,22 @@ PostgreSQL 16 managed by Prisma. Key models: `Gym`, `User`, `Plan`, `Membership`
 
 Migrations live in `apps/api/prisma/migrations/`. Always run `prisma migrate dev` from `apps/api/`.
 
+## Equipo de agentes especializados
+
+`AGENTS.md` (raíz) tiene el detalle completo — originalmente pensado para que Cristian invocara cada agente a mano (`> nombre-agente: ...`). En la práctica, delego yo proactivamente cuando la tarea calza, sin esperar a que se escriba el comando.
+
+**Presupuesto real: Plan Pro, ~3-4 invocaciones de subagente por día.** Priorizar estos 4 casos (son el 90% del uso real, según `AGENTS.md`):
+- `architect` — antes de cualquier cambio de esquema Prisma o feature nueva que toque el modelo de datos.
+- `qa-engineer` — después de cerrar una feature, para tests de zonas de riesgo (multi-tenancy, cálculos críticos, pagos). Mantiene `QUALITY.md`.
+- `security` — obligatorio antes de cada deploy a producción, o al agregar endpoints públicos / cambiar auth.
+- `payments-specialist` — único autorizado a tocar `apps/api/src/modules/payments` (pasarelas, webhooks, conciliación Fintoc).
+
+El resto (`backend-dev`, `web-dev`, `mobile-dev`, `product-owner`, `devops`) son excepcionales. La mayoría de las features de este repo tocan api+web+mobile en el mismo PR (`feat(api,web,mobile): ...`) — para esas, `architect` diseña si hay esquema nuevo y el resto (api, web, mobile) se implementa en **modo directo** en la misma sesión, no una invocación por plataforma. Reservar `backend-dev`/`web-dev`/`mobile-dev` solo para algo grande y aislado en una sola plataforma (ej. rediseño completo de una pantalla mobile, sin tocar api ni web). Un bug fix, un componente nuevo, o implementar un diseño ya aprobado también es modo directo.
+
+Si ya van 3-4 invocaciones de subagente en la sesión/día, avisar antes de sumar una más en vez de seguir de largo sin decir nada.
+
+**Tras cada PR mergeado a `master`**: agregar una entrada corta a `STATE.md` (qué se hizo, qué módulos/archivos, quién lo hizo — modo directo o qué agente). Es el único archivo pensado para sobrevivir entre sesiones de Claude Code — si no se actualiza, la próxima sesión arranca ciega.
+
 ## Reglas de Seguridad Obligatorias
 
 Estas reglas aplican a **todos los agentes** que toquen código de la API. Violarlas es un bug de seguridad, no un bug de negocio.

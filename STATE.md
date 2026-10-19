@@ -4,13 +4,22 @@
 > Los agentes principales (qa-engineer, payments-specialist, architect, backend-dev) tienen sección fija.
 > Los excepcionales (web-dev, mobile-dev, product-owner, devops) solo agregan entrada cuando actúan.
 
-**Última actualización**: 2026-06-25 · security (auditoría auth/multi-tenancy: 6 vulnerabilidades corregidas, RLS ampliado a 8 tablas adicionales)
+**Última actualización**: 2026-10-19 · Claude Code (modo directo) — ver backfill abajo
 
 ---
 
 ## Foco actual
 
-895/895 tests API pasando + 28/28 tests E2E Playwright web. WOD % RM implementado (migración `20260620010406_add_wod_movement_percentage`). Seguridad pre-deploy aplicada. Dockerfiles creados. Plataforma elegida: Railway. Pendiente: middleware RLS en Fastify, sandboxes de pasarelas, tests nuevos para % RM, staging, E2E mobile (Maestro).
+Producto rebrandeado **FitApp → Tribu-Box** (PR #94). Deploy en Railway, auto-deploy desde `master`. RLS real (`fitapp_app` sin BYPASSRLS, `TenantAwarePool`), email transaccional vía Resend. Lo más reciente mergeado: reconocimiento por pilares (fuerza/asistencia/antigüedad/gimnasia/manual) + constancia semestral, ambos visibles en mobile y en la ficha del alumno web (#121–#126).
+
+**Gap detectado 2026-10-19**: entre #92 y #126 (35 PRs, mayo→octubre) prácticamente todo se hizo en modo directo — ni los agentes especialistas ni este archivo se usaron, a pesar de que `architect`/`qa-engineer` debían cubrir diseño de esquema y tests. Desde ahora, `CLAUDE.md` instruye delegar proactivamente (sin esperar que se pida) y registrar acá cada PR mergeado. `QUALITY.md`/`BACKLOG.md` quedan pendientes de decidir si se revivan igual.
+
+### Backfill mayo–octubre 2026 (resumen, no PR-por-PR — ver `git log --oneline` para el detalle)
+
+- **Email/branding** (#92–95): SMTP → Resend (API HTTPS, SMTP bloqueado en Railway Hobby); rebrand FitApp → Tribu-Box; forgotPassword verificado en producción.
+- **Clases/reservas** (#96–117): horas 24h, duración de membresía en tz del gym (no la del proceso), `Plan.durationDays` configurable (ya no 30 fijos), `Plan.classTypes` + confirmación previa a la clase + cron de membresías vencidas, push de recordatorio, `maxClasses` por día (no total del período), selector de tipos de clase por plan, rediseño Clases/Inicio en mobile.
+- **Catálogos y WOD** (#118–120): seed automático de benchmarks oficiales en cada deploy, catálogo de movimientos global + personalizado por gym, fix de accesibilidad y fuga de datos en el editor de WOD.
+- **Reconocimientos** (#121–126, esta sesión): correo de bienvenida con link de contraseña; insignia de constancia semestral (carga de resultados WOD); pilares de reconocimiento (catálogo `Pillar` + `PillarAward` genéricos, 4 automáticos + 1 manual, cron semestral + diario); centralización de progreso/pilares en la ficha del alumno; backfill de pilares para gyms preexistentes; fix de zona horaria en "nueva clase" (semana se calculaba con el reloj del navegador, no el de Chile — encontrado vía E2E `CLS-11` reproducible entre 00:00–03:00 UTC).
 
 ---
 
