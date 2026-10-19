@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma'
 import { CreateUserInput, UpdateUserInput } from './users.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 import { sendUserWelcomeEmail } from '../../lib/email'
-import { formatScore } from '../wod/wod.service'
+import { getBenchmarkHistory } from '../analytics/benchmark.service'
 
 export async function listUsers(gymId: string, status?: string, role?: string) {
   const where: any = { gymId }
@@ -50,14 +50,6 @@ export async function getUserById(gymId: string, userId: string) {
       gymnasticProgress: { orderBy: { achievedAt: 'desc' } },
       consistencyBadges: { orderBy: { periodStart: 'desc' } },
       pillarAwardsReceived: { include: { pillar: true }, orderBy: { awardedAt: 'desc' } },
-      // Progreso del alumno: WODs de clase que se planificaron a partir de un benchmark
-      // del catálogo (ver Wod.benchmarkId) — la fila sigue siendo del alumno (WodResult),
-      // el benchmark es solo procedencia, nunca el dueño del dato.
-      wodResults: {
-        where: { wod: { benchmarkId: { not: null } } },
-        orderBy: { wod: { date: 'desc' } },
-        include: { wod: { select: { date: true, scoreType: true, benchmark: { select: { id: true, nombre: true, categoria: true } } } } },
-      },
       bookings: {
         where: { status: 'ATTENDED' },
         orderBy: { attendedAt: 'desc' },
@@ -72,20 +64,13 @@ export async function getUserById(gymId: string, userId: string) {
   })
   if (!user) throw new Error('Usuario no encontrado')
 
-  const { wodResults, ...rest } = user
-  const benchmarkHistory = wodResults.map(r => ({
-    id: r.id,
-    benchmarkId: r.wod.benchmark!.id,
-    benchmarkName: r.wod.benchmark!.nombre,
-    benchmarkCategory: r.wod.benchmark!.categoria,
-    date: r.wod.date,
-    score: r.score,
-    scoreText: r.scoreText,
-    scoreFormatted: formatScore(r.score, r.scoreText, r.wod.scoreType),
-    rx: r.rx,
-  }))
+  // Progreso de benchmarks del alumno: une las dos vías de carga (en clase, vía
+  // WodResult con wod.benchmarkId; y por su cuenta, vía BenchmarkResult) en una
+  // sola lista ordenada por fecha, cada entrada marcada con su origen (source).
+  // Ver benchmark.service.ts#getBenchmarkHistory.
+  const benchmarkHistory = await getBenchmarkHistory(gymId, userId)
 
-  return { ...rest, benchmarkHistory }
+  return { ...user, benchmarkHistory }
 }
 
 export async function createUser(gymId: string | null, data: CreateUserInput) {
