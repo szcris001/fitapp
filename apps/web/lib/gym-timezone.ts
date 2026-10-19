@@ -32,6 +32,19 @@ export function gymLocalToIso(day: string, hhmm: string, timezone: string = GYM_
 }
 
 /**
+ * Día calendario de `d` en la zona del gym, como medianoche UTC de ese día — para que
+ * el resto del código pueda sumar/comparar días con setUTCDate/getUTCDate sin que la
+ * zona horaria de quien ejecuta el código (navegador o proceso) lo corra un día. Sin
+ * esto, "hoy" calculado con `new Date()` del navegador queda un día adelantado al de
+ * Chile entre las 00:00 y las 03:00 UTC, que todavía es "ayer" en Chile (hallazgo QA:
+ * la pantalla de nueva clase armaba la semana equivocada en ese horario).
+ */
+export function gymCalendarDate(d: Date | string = new Date(), timezone: string = GYM_TIMEZONE): Date {
+  const [y, m, day] = new Date(d).toLocaleDateString('sv', { timeZone: timezone }).split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, day))
+}
+
+/**
  * Días calendario que faltan hasta `target`, contados en la zona del gym (no la del
  * navegador). Restar milisegundos y dividir por 86 400 000 (como antes) se corre 1 día
  * cada vez que el período cruza un cambio de horario — real en Chile, o el de la TZ
@@ -40,9 +53,7 @@ export function gymLocalToIso(day: string, hhmm: string, timezone: string = GYM_
  * 2026-10-14, "31d restantes" en vez de "30d").
  */
 export function daysUntilGymLocal(target: Date | string, timezone: string = GYM_TIMEZONE): number {
-  const toLocalUtcMidnight = (d: Date) => {
-    const [y, m, day] = d.toLocaleDateString('sv', { timeZone: timezone }).split('-').map(Number)
-    return Date.UTC(y, m - 1, day)
-  }
-  return Math.round((toLocalUtcMidnight(new Date(target)) - toLocalUtcMidnight(new Date())) / 86_400_000)
+  return Math.round(
+    (gymCalendarDate(target, timezone).getTime() - gymCalendarDate(new Date(), timezone).getTime()) / 86_400_000
+  )
 }
