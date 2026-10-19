@@ -464,7 +464,9 @@ export default function ProgressScreen() {
                     ]}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={[s.rmName, { color: c.text1 }]}>{r.wodTitle || r.classTypeName}</Text>
+                      <Text style={[s.rmName, { color: c.text1 }]}>
+                        {r.benchmarkName ? `🏋️ ${r.benchmarkName}` : (r.wodTitle || r.classTypeName)}
+                      </Text>
                       <Text style={[s.rmDate, { color: c.text3 }]}>
                         {r.classTypeName} · {new Date(r.wodDate).toLocaleDateString('es-CL', {
                           day: 'numeric', month: 'short', year: 'numeric',

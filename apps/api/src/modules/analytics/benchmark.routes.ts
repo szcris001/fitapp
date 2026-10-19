@@ -29,8 +29,8 @@ const createBenchmarkSchema = z.object({
 
 export async function benchmarkRoutes(app: FastifyInstance) {
 
-  // ── List with filters ─────────────────────────────────────────────────────
-  app.get('/benchmarks', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+  // ── List with filters (catálogo de lectura, no sensible — mismo patrón que /movements) ──
+  app.get('/benchmarks', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const q = request.query as any
 
@@ -89,7 +89,7 @@ export async function benchmarkRoutes(app: FastifyInstance) {
   })
 
   // ── Get single ────────────────────────────────────────────────────────────
-  app.get('/benchmarks/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+  app.get('/benchmarks/:id', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as any
 

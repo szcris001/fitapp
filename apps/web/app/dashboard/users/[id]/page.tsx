@@ -1060,6 +1060,34 @@ export default function UserDetailPage() {
                 </div>
               )}
 
+              {/* Benchmarks realizados en clase — progreso del alumno, no del WOD/clase/benchmark */}
+              {member.benchmarkHistory?.length > 0 && (
+                <div className="p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Activity className="w-4 h-4" style={{ color: '#f59e0b' }} />
+                    <h4 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Benchmarks realizados en clase</h4>
+                    <span className="badge-yellow ml-auto">{member.benchmarkHistory.length} resultado{member.benchmarkHistory.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {member.benchmarkHistory.map((r: any) => (
+                      <div key={r.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'var(--border-1)' }}>
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
+                          <CheckCircle className="w-3 h-3 text-green-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>
+                            {r.benchmarkName} {r.rx ? '— Rx' : '— Scaled'}
+                          </p>
+                          <p className="text-xs" style={{ color: 'var(--text-4)' }}>
+                            {r.scoreFormatted} · {new Date(r.date).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Progresión gimnástica */}
               {member.gymnasticProgress?.length > 0 && (
                 <div className="p-6">

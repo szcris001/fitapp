@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { authenticate, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
-import { includeBlocks, getMyLoads } from './wod.service'
+import { includeBlocks, getMyLoads, formatScore, computeRank } from './wod.service'
 import { gymDayRange, gymDayStart, getGymTimezone } from '../../lib/gym-day'
 import { WodScoreType } from '../../generated/prisma'
 
@@ -14,28 +14,16 @@ interface AuthUser {
   role: string
 }
 
-function formatScore(score: number, scoreText: string | null, scoreType: string): string {
-  if (scoreType === 'TIME') {
-    const mins = Math.floor(score / 60)
-    const secs = String(Math.round(score % 60)).padStart(2, '0')
-    return `${mins}:${secs}`
-  }
-  if (scoreType === 'CUSTOM') {
-    return scoreText ?? ''
-  }
-  return String(score)
-}
-
-async function computeRank(wodId: string, scoreType: string, rx: boolean, score: number) {
-  if (scoreType === 'CUSTOM') return { rank: null, totalInCategory: null }
-  const isAscending = scoreType === 'TIME'
-  const [better, total] = await Promise.all([
-    prisma.wodResult.count({
-      where: { wodId, rx, score: isAscending ? { lt: score } : { gt: score } },
-    }),
-    prisma.wodResult.count({ where: { wodId, rx } }),
-  ])
-  return { rank: better + 1, totalInCategory: total }
+// El benchmarkId del body nunca se confía a ciegas: debe ser del catálogo oficial
+// o del propio gym (mismo patrón que validar coachId/classTypeId en otros módulos).
+async function resolveBenchmarkId(gymId: string, benchmarkId: string | null | undefined) {
+  if (benchmarkId === undefined) return undefined
+  if (benchmarkId === null) return null
+  const benchmark = await prisma.benchmark.findFirst({
+    where: { id: benchmarkId, OR: [{ gymId: null, isOfficial: true }, { gymId }] },
+    select: { id: true },
+  })
+  return benchmark ? benchmark.id : 'INVALID'
 }
 
 function toFloat(v: any) { return v != null && v !== '' ? Number(v) : null }
@@ -87,6 +75,7 @@ const wodInputSchema = z.object({
   date:        z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Fecha inválida (YYYY-MM-DD)'),
   scoreType:   z.enum(WodScoreType).optional(),
   blocks:      z.array(wodBlockSchema).max(20).default([]),
+  benchmarkId: z.string().uuid().nullish(),
 })
 
 const wodUpdateSchema = wodInputSchema.omit({ classTypeId: true }).partial()
@@ -111,13 +100,16 @@ export async function wodRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     }
-    const { classTypeId, title, date, scoreType, blocks } = parsed.data
+    const { classTypeId, title, date, scoreType, blocks, benchmarkId } = parsed.data
 
     // Verify classType belongs to this gym
     const classType = await prisma.classType.findFirst({
       where: { id: classTypeId, gymId: user.gymId },
     })
     if (!classType) return reply.status(404).send({ error: 'Tipo de clase no encontrado' })
+
+    const resolvedBenchmarkId = await resolveBenchmarkId(user.gymId, benchmarkId)
+    if (resolvedBenchmarkId === 'INVALID') return reply.status(404).send({ error: 'Benchmark no encontrado' })
 
     // One WOD per classType per day (día local del gym)
     const tz = await getGymTimezone(user.gymId)
@@ -136,6 +128,7 @@ export async function wodRoutes(app: FastifyInstance) {
           title,
           date: gymDayStart(date, tz),
           ...(scoreType ? { scoreType } : {}),
+          ...(resolvedBenchmarkId !== undefined ? { benchmarkId: resolvedBenchmarkId } : {}),
           blocks: { create: sanitizeBlocks(blocks) },
         },
         include: includeBlocks,
@@ -213,10 +206,13 @@ export async function wodRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     }
-    const { title, date, blocks, scoreType } = parsed.data
+    const { title, date, blocks, scoreType, benchmarkId } = parsed.data
 
     const wod = await prisma.wod.findFirst({ where: { id, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
+
+    const resolvedBenchmarkId = await resolveBenchmarkId(user.gymId, benchmarkId)
+    if (resolvedBenchmarkId === 'INVALID') return reply.status(404).send({ error: 'Benchmark no encontrado' })
 
     try {
       const dateValue = date !== undefined ? gymDayStart(date, await getGymTimezone(user.gymId)) : undefined
@@ -229,6 +225,7 @@ export async function wodRoutes(app: FastifyInstance) {
             ...(dateValue ? { date: dateValue } : {}),
             blocks: { create: sanitizeBlocks(blocks ?? []) },
             ...(scoreType !== undefined ? { scoreType } : {}),
+            ...(resolvedBenchmarkId !== undefined ? { benchmarkId: resolvedBenchmarkId } : {}),
           },
           include: includeBlocks,
         })
@@ -368,7 +365,13 @@ export async function wodRoutes(app: FastifyInstance) {
       orderBy: { wod: { date: 'desc' } },
       take: 50,
       include: {
-        wod: { select: { id: true, title: true, date: true, scoreType: true, classType: { select: { name: true } } } },
+        wod: {
+          select: {
+            id: true, title: true, date: true, scoreType: true,
+            classType: { select: { name: true } },
+            benchmark: { select: { id: true, nombre: true, categoria: true } },
+          },
+        },
       },
     })
 
@@ -387,6 +390,9 @@ export async function wodRoutes(app: FastifyInstance) {
         rx: r.rx,
         rank,
         totalInCategory,
+        benchmarkId: wod.benchmark?.id ?? null,
+        benchmarkName: wod.benchmark?.nombre ?? null,
+        benchmarkCategory: wod.benchmark?.categoria ?? null,
       }
     }))
 
@@ -398,7 +404,10 @@ export async function wodRoutes(app: FastifyInstance) {
     const user = request.user as AuthUser
     const { id: wodId } = request.params as { id: string }
 
-    const wod = await prisma.wod.findFirst({ where: { id: wodId, gymId: user.gymId } })
+    const wod = await prisma.wod.findFirst({
+      where: { id: wodId, gymId: user.gymId },
+      include: { benchmark: { select: { id: true, nombre: true, categoria: true } } },
+    })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
 
     const result = await prisma.wodResult.findUnique({
@@ -409,7 +418,15 @@ export async function wodRoutes(app: FastifyInstance) {
 
     const scoreFormatted = formatScore(result.score, result.scoreText, wod.scoreType)
     const { rank, totalInCategory } = await computeRank(wodId, wod.scoreType, result.rx, result.score)
-    return reply.send({ ...result, scoreFormatted, rank, totalInCategory })
+    return reply.send({
+      ...result,
+      scoreFormatted,
+      rank,
+      totalInCategory,
+      benchmarkId: wod.benchmark?.id ?? null,
+      benchmarkName: wod.benchmark?.nombre ?? null,
+      benchmarkCategory: wod.benchmark?.categoria ?? null,
+    })
   })
 
   // ─── RESULTS: POST /me (miembro registra su propio resultado) ────────────────
