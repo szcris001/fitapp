@@ -1023,137 +1023,149 @@ export default function UserDetailPage() {
             )}
           </div>
 
-          {/* Récords personales */}
-          {rmCount > 0 && (
-            <div className="card rounded-xl p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Trophy className="w-4 h-4" style={{ color: '#f59e0b' }} />
-                <h3 className="font-semibold" style={{ color: 'var(--text-1)' }}>Récords personales</h3>
-                <span className="badge-yellow ml-auto">{rmCount} movimientos</span>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {Object.entries(bestRms).map(([movement, rm]: any) => (
-                  <div key={movement} className="rounded-xl p-4 transition-all"
-                    style={{ backgroundColor: 'var(--surface-base)', border: '1px solid var(--border-1)' }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(245,158,11,0.4)')}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-1)')}>
-                    <p className="text-xs mb-1 font-medium" style={{ color: 'var(--text-4)' }}>{movement}</p>
-                    <p className="text-2xl font-bold" style={{ color: 'var(--text-1)' }}>
-                      {rm.weightKg}
-                      <span className="text-sm font-normal ml-1" style={{ color: 'var(--text-4)' }}>kg</span>
-                    </p>
-                    <p className="text-xs mt-1" style={{ color: 'var(--text-4)' }}>
-                      {new Date(rm.recordedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </p>
-                  </div>
-                ))}
-              </div>
+          {/* Progreso y reconocimientos — RM, gimnasia, constancia y pilares centralizados
+              en un solo bloque (antes eran 4 cards sueltas); cada sección conserva su
+              contenido/acciones tal cual, solo cambia el contenedor exterior. */}
+          <div className="card rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b" style={{ borderColor: 'var(--border-1)' }}>
+              <h3 className="font-semibold" style={{ color: 'var(--text-1)' }}>Progreso y reconocimientos</h3>
             </div>
-          )}
+            <div className="divide-y" style={{ borderColor: 'var(--border-1)' }}>
 
-          {/* Progresión gimnástica */}
-          {member.gymnasticProgress?.length > 0 && (
-            <div className="card rounded-xl p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <TrendingUp className="w-4 h-4" style={{ color: '#22c55e' }} />
-                <h3 className="font-semibold" style={{ color: 'var(--text-1)' }}>Progresión gimnástica</h3>
-                <span className="badge-green ml-auto">{member.gymnasticProgress.length} hitos</span>
-              </div>
-              <div className="space-y-3">
-                {Object.entries(
-                  member.gymnasticProgress.reduce((acc: any, p: any) => {
-                    if (!acc[p.skillName]) acc[p.skillName] = []
-                    acc[p.skillName].push(p)
-                    return acc
-                  }, {})
-                ).map(([skill, milestones]: any) => (
-                  <div key={skill} className="rounded-xl overflow-hidden border" style={{ borderColor: 'var(--border-1)' }}>
-                    <div className="flex items-center justify-between px-4 py-3"
-                      style={{ backgroundColor: 'var(--surface-base)' }}>
-                      <span className="font-medium text-sm" style={{ color: 'var(--text-1)' }}>{skill}</span>
-                      <span className="text-xs" style={{ color: '#22c55e' }}>
-                        {(milestones as any[]).length} hito{(milestones as any[]).length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <div className="divide-y" style={{ borderColor: 'var(--border-1)' }}>
-                      {(milestones as any[]).map((p: any) => (
-                        <div key={p.id} className="flex items-center gap-3 px-4 py-2.5">
-                          <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
-                            <CheckCircle className="w-3 h-3 text-green-600" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>{p.milestone}</p>
-                            <p className="text-xs" style={{ color: 'var(--text-4)' }}>
-                              {new Date(p.achievedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
-                            </p>
-                          </div>
+              {/* Récords personales */}
+              {rmCount > 0 && (
+                <div className="p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Trophy className="w-4 h-4" style={{ color: '#f59e0b' }} />
+                    <h4 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Récords personales</h4>
+                    <span className="badge-yellow ml-auto">{rmCount} movimientos</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {Object.entries(bestRms).map(([movement, rm]: any) => (
+                      <div key={movement} className="rounded-xl p-4 transition-all"
+                        style={{ backgroundColor: 'var(--surface-base)', border: '1px solid var(--border-1)' }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(245,158,11,0.4)')}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-1)')}>
+                        <p className="text-xs mb-1 font-medium" style={{ color: 'var(--text-4)' }}>{movement}</p>
+                        <p className="text-2xl font-bold" style={{ color: 'var(--text-1)' }}>
+                          {rm.weightKg}
+                          <span className="text-sm font-normal ml-1" style={{ color: 'var(--text-4)' }}>kg</span>
+                        </p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--text-4)' }}>
+                          {new Date(rm.recordedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Progresión gimnástica */}
+              {member.gymnasticProgress?.length > 0 && (
+                <div className="p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <TrendingUp className="w-4 h-4" style={{ color: '#22c55e' }} />
+                    <h4 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Progresión gimnástica</h4>
+                    <span className="badge-green ml-auto">{member.gymnasticProgress.length} hitos</span>
+                  </div>
+                  <div className="space-y-3">
+                    {Object.entries(
+                      member.gymnasticProgress.reduce((acc: any, p: any) => {
+                        if (!acc[p.skillName]) acc[p.skillName] = []
+                        acc[p.skillName].push(p)
+                        return acc
+                      }, {})
+                    ).map(([skill, milestones]: any) => (
+                      <div key={skill} className="rounded-xl overflow-hidden border" style={{ borderColor: 'var(--border-1)' }}>
+                        <div className="flex items-center justify-between px-4 py-3"
+                          style={{ backgroundColor: 'var(--surface-base)' }}>
+                          <span className="font-medium text-sm" style={{ color: 'var(--text-1)' }}>{skill}</span>
+                          <span className="text-xs" style={{ color: '#22c55e' }}>
+                            {(milestones as any[]).length} hito{(milestones as any[]).length !== 1 ? 's' : ''}
+                          </span>
                         </div>
-                      ))}
-                    </div>
+                        <div className="divide-y" style={{ borderColor: 'var(--border-1)' }}>
+                          {(milestones as any[]).map((p: any) => (
+                            <div key={p.id} className="flex items-center gap-3 px-4 py-2.5">
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
+                                <CheckCircle className="w-3 h-3 text-green-600" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>{p.milestone}</p>
+                                <p className="text-xs" style={{ color: 'var(--text-4)' }}>
+                                  {new Date(p.achievedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              )}
 
-          {/* Constancia semestral */}
-          {member.consistencyBadges?.length > 0 && (
-            <div className="card rounded-xl p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Award className="w-4 h-4" style={{ color: '#f59e0b' }} />
-                <h3 className="font-semibold" style={{ color: 'var(--text-1)' }}>Constancia semestral</h3>
-                <span className="badge-yellow ml-auto">
-                  {member.consistencyBadges.length} insignia{member.consistencyBadges.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {member.consistencyBadges.map((b: any) => (
-                  <div key={b.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'var(--border-1)' }}>
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
-                      <CheckCircle className="w-3 h-3 text-green-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>{formatSemesterLabel(b.periodStart)}</p>
-                      <p className="text-xs" style={{ color: 'var(--text-4)' }}>{b.loggedCount}/{b.eligibleCount} clases con WOD — 100% cargado</p>
-                    </div>
+              {/* Constancia semestral */}
+              {member.consistencyBadges?.length > 0 && (
+                <div className="p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Award className="w-4 h-4" style={{ color: '#f59e0b' }} />
+                    <h4 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Constancia semestral</h4>
+                    <span className="badge-yellow ml-auto">
+                      {member.consistencyBadges.length} insignia{member.consistencyBadges.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <div className="space-y-2">
+                    {member.consistencyBadges.map((b: any) => (
+                      <div key={b.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'var(--border-1)' }}>
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
+                          <CheckCircle className="w-3 h-3 text-green-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>{formatSemesterLabel(b.periodStart)}</p>
+                          <p className="text-xs" style={{ color: 'var(--text-4)' }}>{b.loggedCount}/{b.eligibleCount} clases con WOD — 100% cargado</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-          {/* Pilares de reconocimiento */}
-          <div className="card rounded-xl p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Award className="w-4 h-4" style={{ color: '#f59e0b' }} />
-              <h3 className="font-semibold" style={{ color: 'var(--text-1)' }}>Pilares de reconocimiento</h3>
-              <button onClick={() => setShowAwardPillar(true)}
-                className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg btn-secondary">
-                Otorgar reconocimiento
-              </button>
-            </div>
-            {member.pillarAwardsReceived?.length > 0 ? (
-              <div className="space-y-2">
-                {member.pillarAwardsReceived.map((a: any) => (
-                  <div key={a.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'var(--border-1)' }}>
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
-                      <CheckCircle className="w-3 h-3 text-green-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>
-                        {a.pillar?.icon ? `${a.pillar.icon} ` : ''}{a.pillar?.name}
-                        {a.periodStart && a.pillar?.type !== 'TENURE' ? ` — ${formatSemesterLabel(a.periodStart)}` : ''}
-                      </p>
-                      <p className="text-xs" style={{ color: 'var(--text-4)' }}>
-                        {a.metadata?.message || new Date(a.awardedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
-                      </p>
-                    </div>
+              {/* Pilares de reconocimiento */}
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Award className="w-4 h-4" style={{ color: '#f59e0b' }} />
+                  <h4 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Pilares de reconocimiento</h4>
+                  <button onClick={() => setShowAwardPillar(true)}
+                    className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg btn-secondary">
+                    Otorgar reconocimiento
+                  </button>
+                </div>
+                {member.pillarAwardsReceived?.length > 0 ? (
+                  <div className="space-y-2">
+                    {member.pillarAwardsReceived.map((a: any) => (
+                      <div key={a.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'var(--border-1)' }}>
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-green-100">
+                          <CheckCircle className="w-3 h-3 text-green-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium" style={{ color: 'var(--text-1)' }}>
+                            {a.pillar?.icon ? `${a.pillar.icon} ` : ''}{a.pillar?.name}
+                            {a.periodStart && a.pillar?.type !== 'TENURE' ? ` — ${formatSemesterLabel(a.periodStart)}` : ''}
+                          </p>
+                          <p className="text-xs" style={{ color: 'var(--text-4)' }}>
+                            {a.metadata?.message || new Date(a.awardedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--text-4)' }}>Sin reconocimientos todavía.</p>
+                )}
               </div>
-            ) : (
-              <p className="text-sm" style={{ color: 'var(--text-4)' }}>Sin reconocimientos todavía.</p>
-            )}
+
+            </div>
           </div>
 
         </div>{/* fin columna izquierda */}
