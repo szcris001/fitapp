@@ -109,6 +109,15 @@ jobs:
           pnpm prisma migrate deploy
           pnpm exec ts-node src/scripts/setup-app-db-role.ts
 
+      # Catálogos globales (benchmarks, movimientos) sembrados antes de los tests —
+      # algunos (ej. wod.integration.test.ts) asumen que ya existe al menos un
+      # benchmark oficial, igual que en dev local tras meses de uso. Sin este paso,
+      # solo quedaban sembrados por el efecto secundario de seedBenchmarks.test.ts,
+      # y vitest corre los archivos en paralelo sin orden garantizado — carrera real.
+      - name: Seed catálogos globales
+        working-directory: apps/api
+        run: pnpm seed
+
       - name: Run tests
         working-directory: apps/api
         run: pnpm test

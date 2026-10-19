@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma'
 import { CreateUserInput, UpdateUserInput } from './users.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 import { sendUserWelcomeEmail } from '../../lib/email'
+import { getBenchmarkHistory } from '../analytics/benchmark.service'
 
 export async function listUsers(gymId: string, status?: string, role?: string) {
   const where: any = { gymId }
@@ -62,7 +63,14 @@ export async function getUserById(gymId: string, userId: string) {
     },
   })
   if (!user) throw new Error('Usuario no encontrado')
-  return user
+
+  // Progreso de benchmarks del alumno: une las dos vías de carga (en clase, vía
+  // WodResult con wod.benchmarkId; y por su cuenta, vía BenchmarkResult) en una
+  // sola lista ordenada por fecha, cada entrada marcada con su origen (source).
+  // Ver benchmark.service.ts#getBenchmarkHistory.
+  const benchmarkHistory = await getBenchmarkHistory(gymId, userId)
+
+  return { ...user, benchmarkHistory }
 }
 
 export async function createUser(gymId: string | null, data: CreateUserInput) {

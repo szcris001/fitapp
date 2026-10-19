@@ -24,7 +24,7 @@ export interface ClassDetail {
   classType: { id: string; name: string; color: string | null }
   coach: { id: string; name: string; email: string; avatarUrl: string | null } | null
   bookings: { id: string; status: string; user: { name: string; email: string; avatarUrl: string | null } }[]
-  wods: { id: string; title: string | null; blocks: { id: string; title: string | null; timecap: string | null; order: number; movements: { id: string; movementName: string; repScheme: string | null; weightRookieM: number | null; weightRookieF: number | null; weightScaleM: number | null; weightScaleF: number | null; weightRxM: number | null; weightRxF: number | null; scaledMovement: string | null; notes: string | null; sets: number | null; reps: number | null; roundWeights: any[] | null }[] }[] }[]
+  wods: { id: string; title: string | null; benchmarkId: string | null; blocks: { id: string; title: string | null; timecap: string | null; order: number; movements: { id: string; movementName: string; repScheme: string | null; weightRookieM: number | null; weightRookieF: number | null; weightScaleM: number | null; weightScaleF: number | null; weightRxM: number | null; weightRxF: number | null; scaledMovement: string | null; notes: string | null; sets: number | null; reps: number | null; roundWeights: any[] | null }[] }[] }[]
 }
 
 /* ─── Helpers ────────────────────────────────────── */
@@ -159,9 +159,10 @@ function WodEditorModal({
     })),
   })
 
-  const [form, setForm] = useState<{ title: string; scoreType: string; blocks: BlockRow[] }>({
+  const [form, setForm] = useState<{ title: string; scoreType: string; benchmarkId: string | null; blocks: BlockRow[] }>({
     title: wod?.title || '',
     scoreType: (wod as any)?.scoreType ?? 'REPS',
+    benchmarkId: wod?.benchmarkId ?? null,
     blocks: wod?.blocks?.length
       ? wod.blocks.map((b: any) => ({
           title:     b.title ?? '',
@@ -359,7 +360,7 @@ function WodEditorModal({
       weightRookieM: '', weightRookieF: '', weightScaleM: '', weightScaleF: '', percentage: '',
     }))
     const timecap = b.duracionMins ? `${b.duracionMins}min` : ''
-    setForm(f => ({ ...f, title: b.nombre, blocks: [{ title: b.formato || '', scheme: '', timecap, notes: '', movements: movements.length ? movements : [emptyMov()] }] }))
+    setForm(f => ({ ...f, title: b.nombre, benchmarkId: b.id, blocks: [{ title: b.formato || '', scheme: '', timecap, notes: '', movements: movements.length ? movements : [emptyMov()] }] }))
   }
 
   const save = async () => {
@@ -395,7 +396,7 @@ function WodEditorModal({
             : null,
         })),
       }))
-      const payload = { classTypeId: cls.classTypeId, title: form.title || null, date: new Date(cls.startsAt).toISOString(), scoreType: form.scoreType, blocks }
+      const payload = { classTypeId: cls.classTypeId, title: form.title || null, date: new Date(cls.startsAt).toISOString(), scoreType: form.scoreType, benchmarkId: form.benchmarkId, blocks }
       if (wod) { await api.put(`/wods/${wod.id}`, payload) } else { await api.post('/wods', payload) }
       const { data } = await api.get(`/classes/${cls.id}`)
       onSaved(data)

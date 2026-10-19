@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { BenchmarkCategory } from '../../generated/prisma'
+import { getBenchmarkHistory } from './benchmark.service'
 
 const VALID_CATEGORIES = ['GIRL', 'HERO', 'OPEN', 'GAMES', 'CUSTOM'] as const
 
@@ -29,8 +30,8 @@ const createBenchmarkSchema = z.object({
 
 export async function benchmarkRoutes(app: FastifyInstance) {
 
-  // ── List with filters ─────────────────────────────────────────────────────
-  app.get('/benchmarks', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+  // ── List with filters (catálogo de lectura, no sensible — mismo patrón que /movements) ──
+  app.get('/benchmarks', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const q = request.query as any
 
@@ -89,7 +90,7 @@ export async function benchmarkRoutes(app: FastifyInstance) {
   })
 
   // ── Get single ────────────────────────────────────────────────────────────
-  app.get('/benchmarks/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+  app.get('/benchmarks/:id', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as any
 
@@ -217,6 +218,18 @@ export async function benchmarkRoutes(app: FastifyInstance) {
       orderBy: { recordedAt: 'desc' },
     })
     return reply.send(results)
+  })
+
+  // ── Historial unificado de benchmarks del alumno (clase + personal) ──────
+  // Complementa a GET /wod-results/me (que es "todos mis resultados de WOD",
+  // con rank, benchmark o no) — este es específicamente el progreso de
+  // benchmarks, juntando WodResult (hecho en clase, wod.benchmarkId) y
+  // BenchmarkResult (cargado por el alumno por su cuenta). Cada entrada trae
+  // `source: 'class' | 'personal'` para distinguir el origen en la UI.
+  app.get('/benchmarks/history/me', { preHandler: authenticate }, async (request, reply) => {
+    const user = request.user as any
+    const history = await getBenchmarkHistory(user.gymId, user.userId)
+    return reply.send(history)
   })
 
   // ── Leaderboard del box para un benchmark ─────────────────────────────────

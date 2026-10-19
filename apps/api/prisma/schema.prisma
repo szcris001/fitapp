@@ -262,13 +262,22 @@ model Wod {
   classTypeId String
   gymId       String
   scoreType   WodScoreType @default(REPS)
+  // Benchmark del que se originó este WOD (el coach lo aplicó desde el catálogo
+  // en el editor). Nullable: la mayoría de los WODs no vienen de un benchmark.
+  // SetNull (no Cascade ni Restrict): si se borra un benchmark custom del gym,
+  // los WODs ya planificados a partir de él (y los WodResult de los alumnos que
+  // ya lo corrieron) no deben desaparecer ni bloquear el borrado — esa historia
+  // ya es del alumno, no del benchmark (ver WodResult).
+  benchmarkId String?
   classType   ClassType    @relation(fields: [classTypeId], references: [id])
   gym         Gym          @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  benchmark   Benchmark?   @relation(fields: [benchmarkId], references: [id], onDelete: SetNull)
   blocks      WodBlock[]
   results     WodResult[]
 
   @@index([gymId, classTypeId])
   @@index([date])
+  @@index([benchmarkId])
 }
 
 model WodBlock {
@@ -474,6 +483,7 @@ model Benchmark {
   gym          Gym?                @relation(fields: [gymId], references: [id], onDelete: Cascade)
   movimientos  BenchmarkMovement[]
   resultados   BenchmarkResult[]
+  wods         Wod[]
 }
 
 model BenchmarkMovement {
@@ -586,6 +596,7 @@ model WodResult {
   @@unique([wodId, userId])
   @@index([gymId, wodId])
   @@index([wodId, rx, score])
+  @@index([gymId, userId])
 }
 
 model ConsistencyBadge {

@@ -7,6 +7,31 @@ export const includeBlocks = {
     orderBy: { order: 'asc' as const },
     include: { movements: { orderBy: { order: 'asc' as const } } },
   },
+  benchmark: { select: { id: true, nombre: true, categoria: true } },
+}
+
+export function formatScore(score: number, scoreText: string | null, scoreType: string): string {
+  if (scoreType === 'TIME') {
+    const mins = Math.floor(score / 60)
+    const secs = String(Math.round(score % 60)).padStart(2, '0')
+    return `${mins}:${secs}`
+  }
+  if (scoreType === 'CUSTOM') {
+    return scoreText ?? ''
+  }
+  return String(score)
+}
+
+export async function computeRank(wodId: string, scoreType: string, rx: boolean, score: number) {
+  if (scoreType === 'CUSTOM') return { rank: null, totalInCategory: null }
+  const isAscending = scoreType === 'TIME'
+  const [better, total] = await Promise.all([
+    prisma.wodResult.count({
+      where: { wodId, rx, score: isAscending ? { lt: score } : { gt: score } },
+    }),
+    prisma.wodResult.count({ where: { wodId, rx } }),
+  ])
+  return { rank: better + 1, totalInCategory: total }
 }
 
 // RM del movimiento: nombre igual (sin mayúsculas/espacios); si no hay, el más reciente
