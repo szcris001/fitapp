@@ -1706,3 +1706,291 @@ describe('WOD: validación de entrada y POST /api/wods/import', () => {
     expect(blocks).toBe(1)
   })
 })
+
+// =============================================================================
+// Suite: benchmarkId — link con el catálogo de Benchmark (feat/wod-benchmark-link)
+// =============================================================================
+//
+// Nota de aislamiento: NO creamos benchmarks oficiales (isOfficial:true, gymId:null)
+// nuevos acá — seedBenchmarks.test.ts corre en paralelo (vitest ejecuta archivos de
+// test en workers separados sobre la misma DB) y cuenta exactamente 113 registros
+// oficiales. Para el caso "benchmarkId oficial" usamos uno YA existente del seed
+// (findFirst, sin crear ni borrar). Los benchmarks custom (isOfficial:false) sí se
+// crean y limpian libremente — no afectan ese conteo.
+
+describe('WOD: benchmarkId — link con el catálogo de Benchmark', () => {
+  let app: FastifyInstance
+  let officialBenchmarkId: string
+  let officialBenchmarkName: string
+  let customBenchmarkAId: string
+  let customBenchmarkBId: string
+  const createdBenchmarkIds: string[] = []
+
+  beforeAll(async () => {
+    app = await buildApp()
+
+    const official = await prisma.benchmark.findFirst({
+      where: { isOfficial: true, gymId: null },
+      select: { id: true, nombre: true },
+    })
+    if (!official) throw new Error('No hay benchmarks oficiales sembrados — correr el seed antes de este test')
+    officialBenchmarkId = official.id
+    officialBenchmarkName = official.nombre
+
+    const customA = await prisma.benchmark.create({
+      data: { nombre: 'QA Custom Bench A', categoria: 'CUSTOM', formato: 'AMRAP 20', isOfficial: false, gymId: gymAId },
+    })
+    customBenchmarkAId = customA.id
+    createdBenchmarkIds.push(customA.id)
+
+    const customB = await prisma.benchmark.create({
+      data: { nombre: 'QA Custom Bench B', categoria: 'CUSTOM', formato: 'For time', isOfficial: false, gymId: gymBId },
+    })
+    customBenchmarkBId = customB.id
+    createdBenchmarkIds.push(customB.id)
+  })
+
+  afterAll(async () => {
+    await prisma.benchmark.deleteMany({ where: { id: { in: createdBenchmarkIds } } })
+    await app.close()
+  })
+
+  it('POST /wods con benchmarkId custom de OTRO gym → 404', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(200), blocks: [], benchmarkId: customBenchmarkBId },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toMatch(/Benchmark no encontrado/i)
+
+    // No debe haber quedado un WOD creado a medias para esa fecha
+    const wod = await prisma.wod.findFirst({
+      where: { gymId: gymAId, classTypeId: classTypeAId, date: gymDayStart(dateString(200), DEFAULT_GYM_TIMEZONE) },
+    })
+    expect(wod).toBeNull()
+  })
+
+  it('POST /wods con benchmarkId oficial (gymId:null, isOfficial:true) → 201, se persiste', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${coachAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(201), blocks: [], benchmarkId: officialBenchmarkId },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    createdWodIds.push(body.id)
+    expect(body.benchmarkId).toBe(officialBenchmarkId)
+    expect(body.benchmark).toMatchObject({ id: officialBenchmarkId, nombre: officialBenchmarkName })
+
+    const inDb = await prisma.wod.findUnique({ where: { id: body.id }, select: { benchmarkId: true } })
+    expect(inDb?.benchmarkId).toBe(officialBenchmarkId)
+  })
+
+  it('POST /wods con benchmarkId custom del propio gym → 201, se persiste', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(202), blocks: [], benchmarkId: customBenchmarkAId },
+    })
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    createdWodIds.push(body.id)
+    expect(body.benchmarkId).toBe(customBenchmarkAId)
+    expect(body.benchmark).toMatchObject({ id: customBenchmarkAId, nombre: 'QA Custom Bench A' })
+  })
+
+  it('POST /wods con benchmarkId inexistente (uuid random) → 404', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(203), blocks: [], benchmarkId: '00000000-0000-4000-a000-000000000099' },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toMatch(/Benchmark no encontrado/i)
+  })
+
+  it('POST /wods con benchmarkId que no es un UUID válido → 400 (Zod)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(204), blocks: [], benchmarkId: 'no-es-un-uuid' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('PUT /wods/:id con benchmarkId:null → desvincula el WOD', async () => {
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(205), blocks: [], benchmarkId: customBenchmarkAId },
+    })
+    expect(create.statusCode).toBe(201)
+    const id = create.json().id
+    createdWodIds.push(id)
+    expect(create.json().benchmarkId).toBe(customBenchmarkAId)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/wods/${id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { benchmarkId: null, blocks: [] },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().benchmarkId).toBeNull()
+    expect(res.json().benchmark).toBeNull()
+
+    const inDb = await prisma.wod.findUnique({ where: { id }, select: { benchmarkId: true } })
+    expect(inDb?.benchmarkId).toBeNull()
+  })
+
+  it('PUT /wods/:id sin benchmarkId en el body → no lo toca (conserva el que tenía)', async () => {
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(206), blocks: [], benchmarkId: officialBenchmarkId },
+    })
+    expect(create.statusCode).toBe(201)
+    const id = create.json().id
+    createdWodIds.push(id)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/wods/${id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { title: 'Título nuevo, sin tocar benchmarkId', blocks: [] },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().title).toBe('Título nuevo, sin tocar benchmarkId')
+    expect(res.json().benchmarkId).toBe(officialBenchmarkId)
+
+    const inDb = await prisma.wod.findUnique({ where: { id }, select: { benchmarkId: true } })
+    expect(inDb?.benchmarkId).toBe(officialBenchmarkId)
+  })
+
+  it('PUT /wods/:id con benchmarkId custom de OTRO gym → 404, no modifica el WOD', async () => {
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, date: dateString(207), blocks: [], title: 'Original' },
+    })
+    expect(create.statusCode).toBe(201)
+    const id = create.json().id
+    createdWodIds.push(id)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/wods/${id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { title: 'Hackeado', blocks: [], benchmarkId: customBenchmarkBId },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toMatch(/Benchmark no encontrado/i)
+
+    // El título tampoco debe haber cambiado (falla antes del update)
+    const inDb = await prisma.wod.findUnique({ where: { id } })
+    expect(inDb?.title).toBe('Original')
+    expect(inDb?.benchmarkId).toBeNull()
+  })
+})
+
+// =============================================================================
+// Suite: GET /wod-results/me — benchmarkName según procedencia del WOD
+// =============================================================================
+
+describe('WOD: /wod-results/me incluye benchmarkName solo si el WOD viene de un benchmark', () => {
+  let app: FastifyInstance
+  let wodWithBenchmarkId: string
+  let wodWithoutBenchmarkId: string
+  let benchmarkId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+
+    const bench = await prisma.benchmark.create({
+      data: { nombre: 'QA Bench Historial', categoria: 'GIRL', formato: '21-15-9', isOfficial: false, gymId: gymAId },
+    })
+    benchmarkId = bench.id
+
+    const wodBench = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId: classTypeAId, title: 'WOD con benchmark', date: new Date(), benchmarkId },
+    })
+    wodWithBenchmarkId = wodBench.id
+    createdWodIds.push(wodWithBenchmarkId)
+
+    const wodPlain = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId: classTypeAId, title: 'WOD sin benchmark', date: new Date() },
+    })
+    wodWithoutBenchmarkId = wodPlain.id
+    createdWodIds.push(wodWithoutBenchmarkId)
+  })
+
+  afterAll(async () => {
+    await prisma.wodResult.deleteMany({ where: { wodId: { in: [wodWithBenchmarkId, wodWithoutBenchmarkId] } } })
+    await prisma.benchmark.delete({ where: { id: benchmarkId } })
+    await app.close()
+  })
+
+  it('resultado sobre un WOD con benchmarkId → aparece en /wod-results/me con benchmarkName seteado', async () => {
+    const post = await app.inject({
+      method: 'POST',
+      url: `/api/wods/${wodWithBenchmarkId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 200, rx: true },
+    })
+    expect(post.statusCode).toBe(201)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/wod-results/me',
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const entry = res.json().find((r: any) => r.wodId === wodWithBenchmarkId)
+    expect(entry).toBeDefined()
+    expect(entry.benchmarkId).toBe(benchmarkId)
+    expect(entry.benchmarkName).toBe('QA Bench Historial')
+    expect(entry.benchmarkCategory).toBe('GIRL')
+  })
+
+  it('resultado sobre un WOD sin benchmarkId → benchmarkName es null', async () => {
+    const post = await app.inject({
+      method: 'POST',
+      url: `/api/wods/${wodWithoutBenchmarkId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 50, rx: false },
+    })
+    expect(post.statusCode).toBe(201)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/wod-results/me',
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const entry = res.json().find((r: any) => r.wodId === wodWithoutBenchmarkId)
+    expect(entry).toBeDefined()
+    expect(entry.benchmarkId).toBeNull()
+    expect(entry.benchmarkName).toBeNull()
+    expect(entry.benchmarkCategory).toBeNull()
+  })
+
+  it('GET /wods/:id/results/me también trae benchmarkName cuando el WOD viene de un benchmark', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/wods/${wodWithBenchmarkId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().benchmarkId).toBe(benchmarkId)
+    expect(res.json().benchmarkName).toBe('QA Bench Historial')
+  })
+})

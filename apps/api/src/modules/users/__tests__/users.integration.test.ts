@@ -367,6 +367,94 @@ describe('Users: GET /api/users/:id', () => {
   })
 })
 
+// ─── Suite 3b: GET /users/:id — benchmarkHistory (feat/wod-benchmark-link) ───
+
+describe('Users: GET /api/users/:id — benchmarkHistory solo incluye resultados de WODs con benchmark', () => {
+  let app: FastifyInstance
+  let classTypeId: string
+  let wodWithBenchmarkId: string
+  let wodPlainId: string
+  let benchmarkId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+
+    const classType = await prisma.classType.create({
+      data: { gymId: gymAId, name: 'QA Users ClassType', color: '#222222' },
+    })
+    classTypeId = classType.id
+
+    const benchmark = await prisma.benchmark.create({
+      data: { nombre: 'QA Users Benchmark Historial', categoria: 'HERO', formato: 'For time', isOfficial: false, gymId: gymAId },
+    })
+    benchmarkId = benchmark.id
+
+    const wodWithBenchmark = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId, title: 'WOD con benchmark', date: new Date(), scoreType: 'TIME', benchmarkId },
+    })
+    wodWithBenchmarkId = wodWithBenchmark.id
+
+    const wodPlain = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId, title: 'WOD normal (sin benchmark)', date: new Date(), scoreType: 'REPS' },
+    })
+    wodPlainId = wodPlain.id
+
+    // Resultado del alumno sobre el WOD que viene de un benchmark → debe aparecer
+    await prisma.wodResult.create({
+      data: { gymId: gymAId, wodId: wodWithBenchmarkId, userId: memberAId, score: 240, rx: true, recordedBy: memberAId },
+    })
+    // Resultado del alumno sobre un WOD normal → NO debe aparecer en benchmarkHistory
+    await prisma.wodResult.create({
+      data: { gymId: gymAId, wodId: wodPlainId, userId: memberAId, score: 100, rx: false, recordedBy: memberAId },
+    })
+  })
+
+  afterAll(async () => {
+    await prisma.wodResult.deleteMany({ where: { wodId: { in: [wodWithBenchmarkId, wodPlainId] } } })
+    await prisma.wod.deleteMany({ where: { id: { in: [wodWithBenchmarkId, wodPlainId] } } })
+    await prisma.benchmark.delete({ where: { id: benchmarkId } })
+    await prisma.classType.delete({ where: { id: classTypeId } })
+    await app.close()
+  })
+
+  it('benchmarkHistory incluye solo el resultado del WOD con benchmarkId, no el del WOD normal', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${memberAId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body.benchmarkHistory)).toBe(true)
+
+    const ids = body.benchmarkHistory.map((h: any) => h.benchmarkId)
+    expect(ids).toContain(benchmarkId)
+    expect(body.benchmarkHistory).toHaveLength(1)
+
+    const entry = body.benchmarkHistory[0]
+    expect(entry.benchmarkName).toBe('QA Users Benchmark Historial')
+    expect(entry.benchmarkCategory).toBe('HERO')
+    expect(entry.score).toBe(240)
+    expect(entry.rx).toBe(true)
+    expect(entry.scoreFormatted).toBe('4:00') // formatScore con scoreType TIME: 240s = 4:00
+
+    // El resultado del WOD normal no debe filtrarse acá
+    expect(body.wodResults).toBeUndefined() // el campo crudo se reemplaza por benchmarkHistory
+  })
+
+  it('GET /users/me (mismo endpoint vía service) también expone benchmarkHistory filtrado', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/users/me',
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.benchmarkHistory).toHaveLength(1)
+    expect(body.benchmarkHistory[0].benchmarkId).toBe(benchmarkId)
+  })
+})
+
 // ─── Suite 4: POST /users — crear usuario ────────────────────────────────────
 
 describe('Users: POST /api/users — crear usuario', () => {

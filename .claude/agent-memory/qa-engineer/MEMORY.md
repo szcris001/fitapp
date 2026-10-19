@@ -22,3 +22,4 @@
 - [bugs_e2e_2026-09-29.md](bugs_e2e_2026-09-29.md) — Bugs E2E CFG/SUP abiertos: superadmin sin switch-sede, pasarelas no cargan en Config, teléfono no se puede vaciar, caché del logo
 - [testing_e2e_payments_gotchas.md](testing_e2e_payments_gotchas.md) — E2E Playwright pagos/fintoc/IA/COM: 429 por rate limit compartido (wizard y redirect falsos), patrón alumno propio + receipt, FIN one-shot
 - [bugs_e2e_classes_wods_2026-09-29.md](bugs_e2e_classes_wods_2026-09-29.md) — Bugs E2E CLS/WOD: TZ en recurrentes/edición/listClasses (probar 21:30), leaderboard web roto, disciplinas, picker recortado
+- [testing_wod_benchmark_link_gotchas.md](testing_wod_benchmark_link_gotchas.md) — Wod.benchmarkId↔Benchmark: nunca crear benchmarks oficiales en tests (rompe conteo 113 de seedBenchmarks en paralelo), contrato resolveBenchmarkId, benchmarkHistory en users
