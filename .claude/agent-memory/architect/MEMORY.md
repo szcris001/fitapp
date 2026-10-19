@@ -6,3 +6,4 @@
 - [project_fintoc_payments_design.md](project_fintoc_payments_design.md) — Diseño Fintoc Payments (Pay by Bank) aprobado 2026-05-06: tabla FintocPaymentIntent, 3 endpoints, idempotencia doble barrera
 - [project_wod_results_design.md](project_wod_results_design.md) — Diseño WOD Results + Leaderboard aprobado 2026-06-11: enum WodScoreType, tabla WodResult, 4 endpoints, formatScore en service
 - [project_gym_cascade_delete.md](project_gym_cascade_delete.md) — Borrado permanente de Gym aprobado 2026-10-04: 19 FKs a Cascade, razonamiento diamante, shadow DB rota desde RLS (workaround con migrate diff + deploy)
+- [project_wod_benchmark_link.md](project_wod_benchmark_link.md) — Diseño Benchmark↔Wod aprobado 2026-10-19: Wod.benchmarkId SetNull, progreso vía join (sin duplicar BenchmarkResult), permisos de catálogo abiertos a authenticate

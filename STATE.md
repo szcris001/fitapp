@@ -209,6 +209,19 @@ Producto rebrandeado **FitApp → Tribu-Box** (PR #94). Deploy en Railway, auto-
 
 **Contratos de API**: desactualizados (no hay docs/api-contracts.md). Gym cascade delete no agrega/cambia endpoints, solo el comportamiento interno de uno ya existente.
 
+**[NUEVO 2026-10-19] Diseño: conectar Benchmark ↔ WOD (progreso del alumno)** — pedido por Cristian al investigar por qué un alumno no podía ver el listado de benchmarks. Hallazgo: `Benchmark`/`BenchmarkResult` (catálogo + logging ad-hoc del alumno) y `Wod`/`WodResult` (WOD del día de una clase + resultado del alumno) estaban totalmente desconectados — el editor web (`ClassDetail.tsx`, `applyBenchmark`) solo copiaba texto de un benchmark al formulario del WOD, sin dejar rastro. Pedido explícito de Cristian: cuando un alumno hace en clase un WOD basado en un benchmark, el resultado debe modelarse como progreso propio del alumno (mismo espíritu que `RmRecord`/`GymnasticProgress`/`PillarAward`), no del WOD/clase/benchmark.
+
+Diseño aprobado y **migración ya aplicada en la DB local** (`prisma migrate deploy`, workaround shadow-DB rota — ver gotcha de 2026-10-04 arriba):
+- `prisma/schema.prisma`: `Wod.benchmarkId String?` (FK a `Benchmark`, `onDelete: SetNull` — si se borra un benchmark custom, el WOD y los `WodResult` ya cargados no desaparecen, esa historia ya es del alumno). `Benchmark.wods Wod[]` (relación inversa). `WodResult` gana `@@index([gymId, userId])` (la query de "mi historial" no tenía índice dedicado).
+- Migración `20261019000000_add_wod_benchmark_link` — aplicada y verificada (`migrate diff` queda vacío, policy `tenant_isolation` de `Wod` intacta sin cambios, no requiere RLS nueva porque la policy ya es `gymId = current_gym_id()` sin importar esta columna).
+- **No se duplica en `BenchmarkResult`**: el histórico de progreso se lee vía join `WodResult → Wod → Benchmark`, sin tabla nueva. `BenchmarkResult`/`POST /benchmarks/:id/result` se mantienen tal cual, como vía alternativa para "el alumno hizo el benchmark por su cuenta" (sigue alimentando Pizarra/TV — `GET /benchmarks/board`, `/benchmarks/:id/leaderboard`, que NO se tocan).
+- Endpoints a modificar (backend-dev): `POST /wods` y `PUT /wods/:id` aceptan `benchmarkId?: string | null` (validado contra catálogo oficial o del propio gym, nunca confiar en el id del body sin chequear); `GET /wod-results/me` y `GET /wods/:id/results/me` devuelven `benchmarkId/benchmarkName/benchmarkCategory`; `GET /users/:id` (`users.service.ts getUserById`) suma `benchmarkHistory` (WodResult cuyo wod tiene `benchmarkId` no null) para la ficha del alumno. Refactor menor: mover `formatScore`/`computeRank` de `wod.routes.ts` a `wod.service.ts` (exportados) para reusarlos en `users.service.ts` sin duplicar lógica en una route.
+- Permisos: `GET /benchmarks` y `GET /benchmarks/:id` pasan de `requireCoachOrAdmin` a `authenticate` (catálogo de lectura, mismo patrón que `GET /movements`); leaderboard/board de benchmarks siguen coach/admin-only.
+- **Gaps conocidos, documentados y NO resueltos a propósito** (fuera de alcance de este pedido): el Board/TV de benchmarks sigue sin ver los benchmarks hechos en clase (solo lee `BenchmarkResult`, no `WodResult`); `apps/mobile/src/screens/BenchmarksScreen.tsx` sigue sin registrarse en `AppNavigator.tsx`.
+- Detalle completo (contratos exactos, archivos y líneas, tests) en memoria persistente del architect (`project_wod_benchmark_link.md`) y en el reporte entregado a quien invocó este diseño.
+
+**Siguiente paso**: invocar a `backend-dev` con este diseño (schema y migración ya están aplicados, falta routes/services/schema Zod); luego `web-dev` (editor de WOD + ficha del alumno) y `mobile-dev` (ProgressScreen) en paralelo; `qa-engineer` al final.
+
 ---
 
 ## backend-dev
