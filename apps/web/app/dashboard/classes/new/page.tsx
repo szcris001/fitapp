@@ -3,16 +3,18 @@ import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api from '../../../../lib/api'
-import { gymLocalToIso } from '../../../../lib/gym-timezone'
+import { gymLocalToIso, gymCalendarDate } from '../../../../lib/gym-timezone'
 import { ArrowLeft, Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
+// `d` siempre es medianoche UTC de un día calendario (ver gymCalendarDate) — por eso
+// todo acá usa los accesores getUTC*/setUTC*, nunca los locales: así la zona horaria
+// del navegador de quien crea la clase no corre la semana un día (hallazgo QA).
 const getMonday = (d: Date) => {
   const date = new Date(d)
-  const day = date.getDay()
-  date.setDate(date.getDate() - (day === 0 ? 6 : day - 1))
-  date.setHours(0, 0, 0, 0)
+  const day = date.getUTCDay()
+  date.setUTCDate(date.getUTCDate() - (day === 0 ? 6 : day - 1))
   return date
 }
 
@@ -31,33 +33,33 @@ export default function NewClassPage() {
   const [now] = useState(() => Date.now())
   const inTwoMonths = new Date(now + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
+  const [weekStart, setWeekStart] = useState(() => getMonday(gymCalendarDate()))
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart)
-    d.setDate(weekStart.getDate() + i)
+    d.setUTCDate(weekStart.getUTCDate() + i)
     return d
   })
-  const weekDayIndex = (i: number) => weekDays[i].getDay()
+  const weekDayIndex = (i: number) => weekDays[i].getUTCDay()
 
   const navigateWeek = (dir: 1 | -1) => {
     const next = new Date(weekStart)
-    next.setDate(weekStart.getDate() + dir * 7)
-    if (dir === -1 && next < getMonday(new Date())) return
+    next.setUTCDate(weekStart.getUTCDate() + dir * 7)
+    if (dir === -1 && next < getMonday(gymCalendarDate())) return
     setWeekStart(next)
     setForm(f => ({ ...f, startDate: next.toISOString().split('T')[0], recurringDays: [] }))
   }
 
   const weekLabel = () => {
     const end = weekDays[6]
-    return `${weekDays[0].getDate()} – ${end.getDate()} ${end.toLocaleString('es-CL', { month: 'short' })} ${end.getFullYear()}`
+    return `${weekDays[0].getUTCDate()} – ${end.getUTCDate()} ${end.toLocaleString('es-CL', { month: 'short', timeZone: 'UTC' })} ${end.getUTCFullYear()}`
   }
 
   const [form, setForm] = useState({
     classTypeId: '',
     coachId: '',
     capacity: 15,
-    startDate: getMonday(new Date()).toISOString().split('T')[0],
+    startDate: getMonday(gymCalendarDate()).toISOString().split('T')[0],
     recurringDays: [] as number[],
     recurringUntil: inTwoMonths,
     timeBlocks: [{ start: '06:00', end: '07:00' }],
@@ -270,7 +272,7 @@ export default function NewClassPage() {
               {weekDays.map((date, i) => {
                 const dow = weekDayIndex(i)
                 const selected = form.recurringDays.includes(dow)
-                const isPast = date < new Date(new Date().toDateString())
+                const isPast = date < gymCalendarDate()
                 return (
                   <button key={i} type="button" onClick={() => !isPast && toggleDay(dow)}
                     className="flex-1 flex flex-col items-center py-2 rounded-xl font-medium transition-colors"
@@ -280,14 +282,14 @@ export default function NewClassPage() {
                         ? { backgroundColor: 'transparent', color: 'var(--text-4)', border: '1px solid var(--border-1)', opacity: 0.4, cursor: 'not-allowed' }
                         : { backgroundColor: 'var(--surface-hover)', color: 'var(--text-3)', border: '1px solid var(--border-2)' }}>
                     <span className="text-xs">{DAYS[dow]}</span>
-                    <span className="text-base font-bold leading-tight">{date.getDate()}</span>
+                    <span className="text-base font-bold leading-tight">{date.getUTCDate()}</span>
                   </button>
                 )
               })}
             </div>
             {form.recurringDays.length > 0 && (
               <p className="text-xs" style={{ color: 'var(--text-4)' }}>
-                Desde {weekDays[0].toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })} · repite los: {form.recurringDays.sort((a, b) => a - b).map(d => DAYS[d]).join(', ')}
+                Desde {weekDays[0].toLocaleDateString('es-CL', { day: 'numeric', month: 'short', timeZone: 'UTC' })} · repite los: {form.recurringDays.sort((a, b) => a - b).map(d => DAYS[d]).join(', ')}
               </p>
             )}
           </div>
