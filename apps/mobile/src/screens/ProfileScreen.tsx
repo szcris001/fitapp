@@ -47,8 +47,6 @@ export default function ProfileScreen({ navigation }: any) {
   const [pwConfirm, setPwConfirm] = useState('')
   const [pwSaving, setPwSaving] = useState(false)
   const [attendanceMode, setAttendanceMode] = useState<string>('manual')
-  const [pendingBookings, setPendingBookings] = useState<any[]>([])
-  const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [activeMembership, setActiveMembership] = useState<any>(null)
   const [togglingAutoRenew, setTogglingAutoRenew] = useState(false)
   const [topRms, setTopRms] = useState<RmRecord[]>([])
@@ -77,7 +75,6 @@ export default function ProfileScreen({ navigation }: any) {
       setProfile(userRes.data)
 
       const meBookings: any[] = bookingsRes.data || []
-      setPendingBookings(meBookings.filter((b: any) => b.status === 'PENDING_CONFIRM'))
 
       const membershipsRes = await api.get('/payments/my-memberships').catch(() => ({ data: [] }))
       const list: any[] = membershipsRes.data || []
@@ -126,17 +123,6 @@ export default function ProfileScreen({ navigation }: any) {
         Alert.alert('Error', err.response?.data?.error || 'No se pudo desactivar')
       } finally { setTogglingAutoRenew(false) }
     }
-  }
-
-  const handleConfirmBooking = async (bookingId: string) => {
-    setConfirmingId(bookingId)
-    try {
-      await api.post(`/bookings/${bookingId}/confirm`)
-      Alert.alert('✅ Confirmado', '¡Tu lugar está asegurado!')
-      fetchData()
-    } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.error || 'No se pudo confirmar')
-    } finally { setConfirmingId(null) }
   }
 
   const handleChangePassword = async () => {
@@ -236,38 +222,6 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
         </View>
       </View>
-
-      {/* ─── CONFIRMACIONES PENDIENTES ─── */}
-      {pendingBookings.length > 0 && (
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: '#f97316' }]}>⏱ CONFIRMACIÓN PENDIENTE</Text>
-          {pendingBookings.map(b => {
-            const deadline = b.confirmDeadline ? new Date(b.confirmDeadline) : null
-            const minsLeft = deadline ? Math.max(0, Math.round((deadline.getTime() - Date.now()) / 60000)) : null
-            return (
-              <View key={b.id} style={styles.pendingCard}>
-                <Text style={styles.pendingTitle}>{b.classType?.name || 'Clase'}</Text>
-                <Text style={styles.pendingSub}>
-                  {new Date(b.startsAt).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
-                  {' · '}
-                  {new Date(b.startsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
-                  {minsLeft !== null && `  —  quedan ${minsLeft} min`}
-                </Text>
-                <TouchableOpacity
-                  style={styles.pendingBtn}
-                  onPress={() => handleConfirmBooking(b.id)}
-                  disabled={confirmingId === b.id}
-                >
-                  {confirmingId === b.id
-                    ? <ActivityIndicator color="#fff" size={16} />
-                    : <Text style={styles.pendingBtnText}>Confirmar mi lugar</Text>
-                  }
-                </TouchableOpacity>
-              </View>
-            )
-          })}
-        </View>
-      )}
 
       {/* ─── MEMBRESÍA Y PAGOS ─── */}
       <View style={styles.section}>
@@ -603,13 +557,6 @@ const styles = StyleSheet.create({
   // Card base
   card: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, padding: 16, borderWidth: 1 },
   divider: { height: 1, marginVertical: 12 },
-
-  // Pending bookings
-  pendingCard: { backgroundColor: '#1c1209', borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#f9730640' },
-  pendingTitle: { color: '#fff', fontWeight: '700', fontSize: 15, marginBottom: 2 },
-  pendingSub: { color: '#9ca3af', fontSize: 12, marginBottom: 8 },
-  pendingBtn: { backgroundColor: '#f97316', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
-  pendingBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
   // Membership
   membershipHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
