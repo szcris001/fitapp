@@ -1214,6 +1214,39 @@ async function main() {
   }
 
   console.log(`Done: ${movCreated} created, ${movUpdated} updated`)
+
+  // Los gyms creados DESPUÉS de esta feature ya nacen con sus 5 pilares default
+  // (ver seedDefaultPillarsForGym, llamado al crear un gym) — este paso es el
+  // backfill único para los gyms que ya existían antes y nunca los recibieron.
+  // seedDefaultPillarsForGym ya es idempotente (no hace nada si el gym ya tiene
+  // algún pilar), así que repetir esto en cada deploy es gratis.
+  console.log('Backfill de pilares para gyms existentes...')
+  const gyms = await prisma.gym.findMany({ select: { id: true } })
+  let pillarsBackfilled = 0
+  for (const gym of gyms) {
+    try {
+      const existingPillars = await prisma.pillar.count({ where: { gymId: gym.id } })
+      if (existingPillars > 0) continue
+      await prisma.pillar.createMany({
+        data: [
+          { gymId: gym.id, type: 'STRENGTH', name: 'Fuerza', icon: '💪', order: 0, config: { minMovements: 3, minImprovementPct: 10 } },
+          { gymId: gym.id, type: 'ATTENDANCE', name: 'Asistencia', icon: '📅', order: 1, config: { minClassesAttended: 60 } },
+          { gymId: gym.id, type: 'TENURE', name: 'Antigüedad', icon: '🎖️', order: 2, config: { milestonesMonths: [6, 12, 24, 36, 60] } },
+          { gymId: gym.id, type: 'GYMNASTICS', name: 'Gimnasia', icon: '🤸', order: 3, config: { minMilestonesUnlocked: 3 } },
+          { gymId: gym.id, type: 'MANUAL', name: 'Mejor compañero', icon: '🤝', order: 4, config: {} },
+        ],
+      })
+      pillarsBackfilled++
+    } catch (err: any) {
+      // P2003/P2025: el gym se borró entre el findMany y este punto (carrera real
+      // en test suites que crean/borran gyms QA en paralelo; en producción sería
+      // un gym borrado durante el deploy) — no es motivo para abortar el resto del
+      // backfill de los demás gyms.
+      if (err?.code !== 'P2003' && err?.code !== 'P2025') throw err
+      console.warn(`[Seed] Gym ${gym.id} ya no existe, se omite del backfill de pilares`)
+    }
+  }
+  console.log(`Done: ${pillarsBackfilled} gym(s) con pilares sembrados`)
 }
 
 main()
