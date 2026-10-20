@@ -8,3 +8,4 @@
 - [project_gym_cascade_delete.md](project_gym_cascade_delete.md) — Borrado permanente de Gym aprobado 2026-10-04: 19 FKs a Cascade, razonamiento diamante, shadow DB rota desde RLS (workaround con migrate diff + deploy)
 - [project_wod_benchmark_link.md](project_wod_benchmark_link.md) — Diseño Benchmark↔Wod aprobado 2026-10-19: Wod.benchmarkId SetNull, progreso vía join (sin duplicar BenchmarkResult), permisos de catálogo abiertos a authenticate
 - [project_benchmark_history_unified.md](project_benchmark_history_unified.md) — Historial unificado benchmarks (clase+personal) implementado 2026-10-19: getBenchmarkHistory merge sin esquema nuevo, GET /benchmarks/history/me complementa (no reemplaza) /wod-results/me
+- [project_wod_block_type.md](project_wod_block_type.md) — WodBlockType implementado 2026-10-20: enum WARMUP/SKILL_STRENGTH/WOD/COOLDOWN/OTHER, default OTHER, resuelve bug de applyBenchmark() pisando todos los bloques

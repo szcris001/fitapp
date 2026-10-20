@@ -5,7 +5,7 @@ import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { includeBlocks, getMyLoads, formatScore, computeRank } from './wod.service'
 import { gymDayRange, gymDayStart, getGymTimezone } from '../../lib/gym-day'
-import { WodScoreType } from '../../generated/prisma'
+import { WodScoreType, WodBlockType } from '../../generated/prisma'
 
 // Payload del JWT: { userId, gymId, role }
 interface AuthUser {
@@ -54,6 +54,7 @@ function sanitizeBlocks(blocks: any[]) {
     scheme:   b.scheme  ?? null,
     timecap:  b.timecap ?? null,
     notes:    b.notes   ?? null,
+    type:     b.type    ?? 'OTHER',
     order:    bi,
     movements: {
       create: (b.movements as any[]).map((m: any, mi: number) => sanitizeMovement(m, mi)),
@@ -61,11 +62,16 @@ function sanitizeBlocks(blocks: any[]) {
   }))
 }
 
+// Fase de la clase (ver WodBlockType en el schema): calentamiento, habilidad
+// o fuerza combinado, WOD (acá se aplican los benchmarks), vuelta a la calma.
+// Opcional con default OTHER: los bloques son libres, el coach no está
+// obligado a clasificarlos.
 const wodBlockSchema = z.object({
   title:     z.string().max(200).nullish(),
   scheme:    z.string().max(200).nullish(),
   timecap:   z.union([z.string().max(50), z.number()]).transform(String).nullish(),
   notes:     z.string().max(2000).nullish(),
+  type:      z.enum(WodBlockType).default('OTHER'),
   movements: z.array(z.record(z.string(), z.unknown())).max(50).default([]),
 })
 
