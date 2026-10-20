@@ -119,6 +119,20 @@ function MovementPicker({ value, onChange, movements }: { value: string; onChang
 const CAT_LABELS: Record<string, string> = { all: 'Todas', GIRL: 'Girl', HERO: 'Hero', OPEN: 'Open', GAMES: 'Games' }
 const BENCH_CATS = ['all', 'GIRL', 'HERO', 'OPEN', 'GAMES'] as const
 
+// Cómo se puntúa cada formato de benchmark — ver skill crossfit-knowledge para el
+// porqué de cada mapeo. "For Time" compara tiempo (menor mejor), "AMRAP" compara
+// rondas+reps normalizadas (mayor mejor), "Max Reps"/"Tabata" comparan reps (mayor
+// mejor), "EMOM" es pass/fail por minuto — no hay un número comparable, va como texto
+// libre (CUSTOM). Sin esto, aplicar un benchmark dejaba el tipo de puntuación que
+// hubiera antes (ej. "Fran" quedaba como REPS en vez de TIME, invirtiendo el ranking).
+const SCORE_TYPE_BY_FORMATO: Record<string, string> = {
+  'For Time': 'TIME',
+  'AMRAP': 'ROUNDS',
+  'Max Reps': 'REPS',
+  'Tabata': 'REPS',
+  'EMOM': 'CUSTOM',
+}
+
 function WodEditorModal({
   cls, wod, onClose, onSaved, onDeleted,
 }: {
@@ -360,7 +374,13 @@ function WodEditorModal({
       weightRookieM: '', weightRookieF: '', weightScaleM: '', weightScaleF: '', percentage: '',
     }))
     const timecap = b.duracionMins ? `${b.duracionMins}min` : ''
-    setForm(f => ({ ...f, title: b.nombre, benchmarkId: b.id, blocks: [{ title: b.formato || '', scheme: '', timecap, notes: '', movements: movements.length ? movements : [emptyMov()] }] }))
+    setForm(f => ({
+      ...f,
+      title: b.nombre,
+      benchmarkId: b.id,
+      scoreType: SCORE_TYPE_BY_FORMATO[b.formato] ?? f.scoreType,
+      blocks: [{ title: b.formato || '', scheme: '', timecap, notes: '', movements: movements.length ? movements : [emptyMov()] }],
+    }))
   }
 
   const save = async () => {
