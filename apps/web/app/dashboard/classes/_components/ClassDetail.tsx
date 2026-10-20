@@ -520,9 +520,17 @@ function WodEditorModal({
   return (
     <>
       {/* Toma la pantalla completa salvo el sidebar (ver --sidebar-width en dashboard/layout.tsx)
-          — no es un diálogo flotante, por eso no hay fondo oscuro ni click-afuera-para-cerrar. */}
+          — no es un diálogo flotante, por eso no hay fondo oscuro ni click-afuera-para-cerrar.
+          Semi-transparente + blur (no opaco): se alcanza a ver el fondo de la página por debajo
+          en vez de un bloque plano — --surface-base es el tono más oscuro de la paleta y a
+          pantalla completa se sentía pesado. Mismo recurso que ya usa el sidebar (layout.tsx). */}
       <div className="fixed top-0 right-0 bottom-0 z-[60] flex flex-col fade-up"
-        style={{ left: 'var(--sidebar-width, 17rem)', backgroundColor: 'var(--surface-base)' }}>
+        style={{
+          left: 'var(--sidebar-width, 17rem)',
+          backgroundColor: 'color-mix(in srgb, var(--surface-base) 88%, transparent)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+        }}>
 
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 shrink-0 border-b" style={{ borderColor: 'var(--border-1)' }}>
