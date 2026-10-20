@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon src/index.ts",
-    "build": "tsc && node -e \"require('fs').cpSync('src/generated', 'dist/generated', { recursive: true })\"",
+    "build": "tsc && node -e \"require('fs').cpSync('src/generated', 'dist/generated', { recursive: true })\" && tsc -p tsconfig.seed.json",
     "start": "node dist/index.js",
     "seed": "ts-node prisma/seed.ts",
     "seed:qa": "ts-node src/scripts/seed-qa.ts",
