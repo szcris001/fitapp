@@ -24,7 +24,7 @@ export interface ClassDetail {
   classType: { id: string; name: string; color: string | null }
   coach: { id: string; name: string; email: string; avatarUrl: string | null } | null
   bookings: { id: string; status: string; user: { name: string; email: string; avatarUrl: string | null } }[]
-  wods: { id: string; title: string | null; benchmarkId: string | null; blocks: { id: string; title: string | null; timecap: string | null; order: number; movements: { id: string; movementName: string; repScheme: string | null; weightRookieM: number | null; weightRookieF: number | null; weightScaleM: number | null; weightScaleF: number | null; weightRxM: number | null; weightRxF: number | null; scaledMovement: string | null; notes: string | null; sets: number | null; reps: number | null; roundWeights: any[] | null }[] }[] }[]
+  wods: { id: string; title: string | null; benchmarkId: string | null; blocks: { id: string; title: string | null; timecap: string | null; type: string; order: number; movements: { id: string; movementName: string; repScheme: string | null; weightRookieM: number | null; weightRookieF: number | null; weightScaleM: number | null; weightScaleF: number | null; weightRxM: number | null; weightRxF: number | null; scaledMovement: string | null; notes: string | null; sets: number | null; reps: number | null; roundWeights: any[] | null }[] }[] }[]
 }
 
 /* ─── Helpers ────────────────────────────────────── */
@@ -133,6 +133,18 @@ const SCORE_TYPE_BY_FORMATO: Record<string, string> = {
   'EMOM': 'CUSTOM',
 }
 
+// Fase de la clase (estructura oficial CrossFit: calentamiento → habilidad/fuerza →
+// WOD → vuelta a la calma — la pizarra/briefing no se guarda, no es un bloque). Los
+// bloques son libres/opcionales: el tipo clasifica, no obliga a usar los 4.
+const BLOCK_TYPE_LABELS: Record<string, string> = {
+  WARMUP: '🔥 Calentamiento',
+  SKILL_STRENGTH: '🏋️ Habilidad/Fuerza',
+  WOD: '⚡ WOD',
+  COOLDOWN: '🧘 Vuelta a la calma',
+  OTHER: 'Otro',
+}
+const BLOCK_TYPES = ['WARMUP', 'SKILL_STRENGTH', 'WOD', 'COOLDOWN', 'OTHER'] as const
+
 function WodEditorModal({
   cls, wod, onClose, onSaved, onDeleted,
 }: {
@@ -144,10 +156,10 @@ function WodEditorModal({
 }) {
   type RoundWeight = { reps: number; rookieM: string; rookieF: string; scaleM: string; scaleF: string; rxM: string; rxF: string }
   type MovRow = { movementName: string; repScheme: string; percentage: string; weightRookieM: string; weightRookieF: string; weightScaleM: string; weightScaleF: string; weightRxM: string; weightRxF: string; scaledMovement: string; notes: string; roundWeights: RoundWeight[]; showWeights: boolean; sets: number | null; reps: number | null }
-  type BlockRow = { title: string; scheme: string; timecap: string; notes: string; movements: MovRow[] }
+  type BlockRow = { title: string; scheme: string; timecap: string; notes: string; type: string; movements: MovRow[] }
 
   const emptyMov = (): MovRow => ({ movementName: '', repScheme: '', percentage: '', weightRookieM: '', weightRookieF: '', weightScaleM: '', weightScaleF: '', weightRxM: '', weightRxF: '', scaledMovement: '', notes: '', roundWeights: [], showWeights: false, sets: null, reps: null })
-  const emptyBlock = (): BlockRow => ({ title: '', scheme: '', timecap: '', notes: '', movements: [emptyMov()] })
+  const emptyBlock = (): BlockRow => ({ title: '', scheme: '', timecap: '', notes: '', type: 'OTHER', movements: [emptyMov()] })
 
   const mapMov = (m: any): MovRow => ({
     movementName:   m.movementName ?? '',
@@ -183,6 +195,7 @@ function WodEditorModal({
           scheme:    b.scheme ?? '',
           timecap:   b.timecap ?? '',
           notes:     b.notes ?? '',
+          type:      b.type ?? 'OTHER',
           movements: b.movements?.length ? b.movements.map(mapMov) : [emptyMov()],
         }))
       : [emptyBlock()],
@@ -349,6 +362,7 @@ function WodEditorModal({
         scheme:   b.scheme,
         timecap:  '',
         notes:    b.notes,
+        type:     'OTHER',
         movements: movements.length ? movements : [emptyMov()],
       }
     })
@@ -373,13 +387,26 @@ function WodEditorModal({
       weightRookieM: '', weightRookieF: '', weightScaleM: '', weightScaleF: '', percentage: '',
     }))
     const timecap = b.duracionMins ? `${b.duracionMins}min` : ''
-    setForm(f => ({
-      ...f,
-      title: b.nombre,
-      benchmarkId: b.id,
-      scoreType: SCORE_TYPE_BY_FORMATO[b.formato] ?? f.scoreType,
-      blocks: [{ title: b.formato || '', scheme: '', timecap, notes: '', movements: movements.length ? movements : [emptyMov()] }],
-    }))
+    const wodBlock: BlockRow = { title: b.formato || '', scheme: '', timecap, notes: '', type: 'WOD', movements: movements.length ? movements : [emptyMov()] }
+    setForm(f => {
+      // Reemplaza solo el bloque de tipo WOD (lo crea si no hay uno) — nunca pisa
+      // calentamiento/habilidad-fuerza/vuelta a la calma que el coach ya haya armado.
+      const isPristine = (bl: BlockRow) => bl.type === 'OTHER' && !bl.title && !bl.scheme && !bl.notes
+        && bl.movements.every(m => !m.movementName.trim())
+      const wodIdx = f.blocks.findIndex(bl => bl.type === 'WOD')
+      const blocks = wodIdx !== -1
+        ? f.blocks.map((bl, i) => i === wodIdx ? wodBlock : bl)
+        : f.blocks.length === 1 && isPristine(f.blocks[0])
+          ? [wodBlock]
+          : [...f.blocks, wodBlock]
+      return {
+        ...f,
+        title: b.nombre,
+        benchmarkId: b.id,
+        scoreType: SCORE_TYPE_BY_FORMATO[b.formato] ?? f.scoreType,
+        blocks,
+      }
+    })
   }
 
   const save = async () => {
@@ -391,6 +418,7 @@ function WodEditorModal({
         scheme:   b.scheme   || null,
         timecap:  b.timecap  || null,
         notes:    b.notes    || null,
+        type:     b.type,
         movements: b.movements.filter(m => m.movementName.trim()).map(m => ({
           movementName:   m.movementName.trim(),
           repScheme:      m.repScheme      || null,
@@ -703,6 +731,11 @@ function WodEditorModal({
                     {/* Cabecera del bloque */}
                     <div className="border-b rounded-t-xl overflow-hidden" style={{ backgroundColor: 'var(--brand-accent)' + '10', borderColor: 'var(--border-1)' }}>
                       <div className="flex items-center gap-2 px-3 py-2">
+                        <select value={block.type} onChange={e => setBlock(bi, 'type', e.target.value)}
+                          className="text-xs font-semibold shrink-0 rounded-lg px-1.5 py-1"
+                          style={{ color: 'var(--brand-accent)', backgroundColor: 'var(--surface-base)', border: '1px solid var(--border-2)' }}>
+                          {BLOCK_TYPES.map(t => <option key={t} value={t}>{BLOCK_TYPE_LABELS[t]}</option>)}
+                        </select>
                         <input value={block.title} onChange={e => setBlock(bi, 'title', e.target.value)}
                           placeholder="A) WOD / B) STRENGTH / Warmup..."
                           className="input text-xs flex-1 font-semibold"
