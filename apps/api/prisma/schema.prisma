@@ -288,6 +288,10 @@ model WodBlock {
   timecap   String?
   notes     String?
   order     Int           @default(0)
+  // Fase de la clase (ver WodBlockType). Default OTHER: cubre los bloques
+  // históricos (todos sin tipo hoy) y los nuevos que el coach deje sin elegir
+  // (los bloques son opcionales/libres, el tipo no es obligatorio).
+  type      WodBlockType  @default(OTHER)
   wod       Wod           @relation(fields: [wodId], references: [id], onDelete: Cascade)
   movements WodMovement[]
 }
@@ -689,6 +693,20 @@ enum WodScoreType {
   WEIGHT
   ROUNDS
   CUSTOM
+}
+
+// Fase de la clase a la que corresponde el bloque. Estructura oficial CrossFit
+// (CrossFit.com / CrossFit Journal): calentamiento → habilidad/fuerza → WOD →
+// vuelta a la calma (la pizarra/briefing no se guarda, no es un bloque). Los
+// bloques son opcionales y libres: el coach arma los que quiera ese día, el
+// tipo clasifica, no obliga. OTHER es el default y cubre tanto los bloques
+// históricos (todos sin tipo) como los nuevos que el coach deje sin elegir.
+enum WodBlockType {
+  WARMUP
+  SKILL_STRENGTH
+  WOD
+  COOLDOWN
+  OTHER
 }
 
 enum BenchmarkCategory {
