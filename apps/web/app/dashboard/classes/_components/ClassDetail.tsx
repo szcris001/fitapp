@@ -211,7 +211,6 @@ function WodEditorModal({
   const [benchmarks, setBenchmarks] = useState<any[]>([])
   const [benchSearch, setBenchSearch] = useState('')
   const [benchCat, setBenchCat] = useState<string>('all')
-  const [gender, setGender] = useState<'H' | 'M'>('H')
   const [showBench, setShowBench] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -537,18 +536,7 @@ function WodEditorModal({
           {/* Benchmark picker */}
           {showBench && <div className="flex flex-col shrink-0 border-r" style={{ width: 280, borderColor: 'var(--border-1)' }}>
             <div className="px-4 py-3 shrink-0 border-b space-y-2" style={{ borderColor: 'var(--border-1)' }}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-4)' }}>Benchmarks CrossFit</span>
-                <div className="flex rounded-lg overflow-hidden border text-xs" style={{ borderColor: 'var(--border-2)' }}>
-                  {(['H', 'M'] as const).map(g => (
-                    <button key={g} onClick={() => setGender(g)}
-                      className="px-2 py-1 font-medium transition-colors"
-                      style={gender === g ? { backgroundColor: 'var(--brand-accent)', color: '#fff' } : { color: 'var(--text-3)' }}>
-                      {g === 'H' ? '♂' : '♀'}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-4)' }}>Benchmarks CrossFit</span>
               <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border" style={{ borderColor: 'var(--border-1)', backgroundColor: 'var(--surface-base)' }}>
                 <Search className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-4)' }} />
                 <input value={benchSearch} onChange={e => setBenchSearch(e.target.value)}
@@ -594,7 +582,8 @@ function WodEditorModal({
                       {b.movimientos?.length > 0 && (
                         <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-4)' }}>
                           {b.movimientos.map((m: any) => {
-                            const kg = gender === 'H' ? m.cargaRxKgHombre : m.cargaRxKgMujer
+                            if (m.cargaRxKgHombre && m.cargaRxKgMujer) return `${m.nombre} ${m.cargaRxKgHombre}/${m.cargaRxKgMujer}kg`
+                            const kg = m.cargaRxKgHombre || m.cargaRxKgMujer
                             return kg ? `${m.nombre} ${kg}kg` : m.nombre
                           }).join(', ')}
                         </p>
