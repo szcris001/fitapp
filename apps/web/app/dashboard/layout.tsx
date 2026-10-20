@@ -361,7 +361,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     : '?'
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen" style={{ '--sidebar-width': collapsed ? '5rem' : '17rem' } as React.CSSProperties}>
       {/* Sidebar */}
       <aside
         className="flex flex-col h-screen sticky top-0 shrink-0 border-r transition-all duration-200"

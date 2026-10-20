@@ -519,12 +519,10 @@ function WodEditorModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[59]" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}
-        onClick={onClose} />
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full flex flex-col rounded-2xl shadow-2xl overflow-hidden modal-animate card"
-        style={{ maxWidth: showBench ? 1100 : 820, maxHeight: '92vh' }}
-        onClick={e => e.stopPropagation()}>
+      {/* Toma la pantalla completa salvo el sidebar (ver --sidebar-width en dashboard/layout.tsx)
+          — no es un diálogo flotante, por eso no hay fondo oscuro ni click-afuera-para-cerrar. */}
+      <div className="fixed top-0 right-0 bottom-0 z-[60] flex flex-col fade-up"
+        style={{ left: 'var(--sidebar-width, 17rem)', backgroundColor: 'var(--surface-base)' }}>
 
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 shrink-0 border-b" style={{ borderColor: 'var(--border-1)' }}>
@@ -562,7 +560,7 @@ function WodEditorModal({
         <div className="flex flex-1 min-h-0 overflow-hidden">
 
           {/* Benchmark picker */}
-          {showBench && <div className="flex flex-col shrink-0 border-r" style={{ width: 280, borderColor: 'var(--border-1)' }}>
+          {showBench && <div className="flex flex-col shrink-0 border-r" style={{ width: 340, borderColor: 'var(--border-1)' }}>
             <div className="px-4 py-3 shrink-0 border-b space-y-2" style={{ borderColor: 'var(--border-1)' }}>
               <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-4)' }}>Benchmarks CrossFit</span>
               <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border" style={{ borderColor: 'var(--border-1)', backgroundColor: 'var(--surface-base)' }}>
@@ -720,7 +718,10 @@ function WodEditorModal({
                 </div>
               )}
 
-              <div className="space-y-4">
+              {/* Grilla responsiva: con la pantalla completa entran 2+ columnas de bloques,
+                  cada una se achica a 1 sola si el panel de benchmarks está abierto o la
+                  ventana es angosta — sin forzar ningún tipo de bloque a ocupar más espacio. */}
+              <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' }}>
                 {form.blocks.map((block, bi) => (
                   // Sin overflow-hidden aquí: el autocompletado de movimientos es un dropdown
                   // absoluto y un ancestro con overflow-hidden lo recorta pese al z-index.
@@ -1017,7 +1018,6 @@ function WodEditorModal({
             </button>
           </div>
         </div>
-      </div>
       </div>
     </>
   )
