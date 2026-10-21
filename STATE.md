@@ -4,7 +4,7 @@
 > Los agentes principales (qa-engineer, payments-specialist, architect, backend-dev) tienen sección fija.
 > Los excepcionales (web-dev, mobile-dev, product-owner, devops) solo agregan entrada cuando actúan.
 
-**Última actualización**: 2026-10-19 · Claude Code (modo directo) — ver backfill abajo
+**Última actualización**: 2026-10-21 · Claude Code (modo directo) — tono translúcido del editor de WOD (#138)
 
 ---
 
@@ -23,6 +23,8 @@ Producto rebrandeado **FitApp → Tribu-Box** (PR #94). Deploy en Railway, auto-
 - **Benchmarks ↔ WOD** (#128–131, 2026-10-19/20): `Wod.benchmarkId` conecta el WOD de una clase con el benchmark del catálogo del que se originó; historial unificado de progreso de benchmarks del alumno (`benchmark.service.ts getBenchmarkHistory`, junta `WodResult` "en clase" + `BenchmarkResult` "por tu cuenta", cada entrada con `source`); `GET /benchmarks` abierto a cualquier autenticado (antes solo coach/admin). **Bug de producción encontrado y arreglado por separado** (#130): el seed de benchmarks/movimientos nunca corría en producción desde el deploy del PR #118 (Dockerfile no copiaba `src/generated/prisma`, y aun arreglado eso `ts-node` chocaba con el cliente ESM/CJS de Prisma 7 — se resolvió compilando `seed.ts` en el build en vez de correrlo con `ts-node` en runtime). Verificado con un deploy real: 113 benchmarks + 114 movimientos sembrados. **Bug de puntaje encontrado y arreglado** (#131): aplicar un benchmark no ajustaba `Wod.scoreType` según su formato real (For Time/AMRAP/Max Reps/Tabata/EMOM tienen convenciones de puntaje distintas, ver skill `crossfit-knowledge`) — el ranking quedaba invertido para benchmarks "For Time".
 
 **Pendiente, explícitamente para el final (pedido de Cristian, no implementar sin que lo pida)**: hacer más amigable la creación semanal/mensual/diaria de WODs — hoy solo por el editor web; evaluar un documento (Excel/similar) que el coach suba y el sistema entienda, en vez de cargar cada WOD a mano.
+
+**Tono del panel full-screen del editor de WOD** (#134–138, 2026-10-20/21, modo directo): tras el rediseño a pantalla completa (#134), el tono de fondo en modo oscuro pasó por 3 intentos — blur+transparencia sobre `--surface-base` (#135, no se notó: quedaba apilado sobre un negro casi idéntico al overlay de `<main>`), tono sólido con 7% de tinte de marca (#136, mejor pero no convenció), y mockup de 3 opciones en Artifact (gris neutro / tinte más fuerte / cards elevadas) para que Cristian eligiera antes de tocar código. Eligió la opción de tinte violeta (20%) pero pidió transparencia para que se note la foto deportiva de fondo del dashboard — el panel ya no la hereda a través de `<main>` (el 88% de `--bg-overlay` la dejaba invisible, la misma causa del fallo de #135), ahora la pinta de nuevo con su propio overlay más liviano vía un nuevo var `--dashboard-bg-url` expuesto en `dashboard/layout.tsx` (#138). Verificado visualmente con Playwright contra el dev server real, claro y oscuro.
 
 ---
 
