@@ -4,7 +4,7 @@
 > Los agentes principales (qa-engineer, payments-specialist, architect, backend-dev) tienen sección fija.
 > Los excepcionales (web-dev, mobile-dev, product-owner, devops) solo agregan entrada cuando actúan.
 
-**Última actualización**: 2026-10-21 · Claude Code (modo directo) — tono translúcido del editor de WOD (#138)
+**Última actualización**: 2026-10-21 · Claude Code (modo directo) — fondo del editor de WOD y detalle de clase alineado al resto del dashboard (#139)
 
 ---
 
@@ -24,7 +24,7 @@ Producto rebrandeado **FitApp → Tribu-Box** (PR #94). Deploy en Railway, auto-
 
 **Pendiente, explícitamente para el final (pedido de Cristian, no implementar sin que lo pida)**: hacer más amigable la creación semanal/mensual/diaria de WODs — hoy solo por el editor web; evaluar un documento (Excel/similar) que el coach suba y el sistema entienda, en vez de cargar cada WOD a mano.
 
-**Tono del panel full-screen del editor de WOD** (#134–138, 2026-10-20/21, modo directo): tras el rediseño a pantalla completa (#134), el tono de fondo en modo oscuro pasó por 3 intentos — blur+transparencia sobre `--surface-base` (#135, no se notó: quedaba apilado sobre un negro casi idéntico al overlay de `<main>`), tono sólido con 7% de tinte de marca (#136, mejor pero no convenció), y mockup de 3 opciones en Artifact (gris neutro / tinte más fuerte / cards elevadas) para que Cristian eligiera antes de tocar código. Eligió la opción de tinte violeta (20%) pero pidió transparencia para que se note la foto deportiva de fondo del dashboard — el panel ya no la hereda a través de `<main>` (el 88% de `--bg-overlay` la dejaba invisible, la misma causa del fallo de #135), ahora la pinta de nuevo con su propio overlay más liviano vía un nuevo var `--dashboard-bg-url` expuesto en `dashboard/layout.tsx` (#138). Verificado visualmente con Playwright contra el dev server real, claro y oscuro.
+**Tono del panel full-screen del editor de WOD** (#134–139, 2026-10-20/21, modo directo): tras el rediseño a pantalla completa (#134), el tono de fondo en modo oscuro pasó por varios intentos — blur+transparencia sobre `--surface-base` (#135, no se notó: quedaba apilado sobre un negro casi idéntico al overlay de `<main>`), tono sólido con 7% de tinte de marca (#136, mejor pero no convenció), mockup de 3 opciones en Artifact para que Cristian eligiera antes de tocar código (eligió tinte violeta 20% + transparencia para que se note la foto deportiva de fondo, #138, vía nuevo var `--dashboard-bg-url` expuesto en `dashboard/layout.tsx`). Al verlo desplegado, Cristian notó que ese tinte propio + blur no calzaba con el resto del dashboard (Inicio/Alumnos/Pizarra, que dejan ver la foto con el mismo `--bg-overlay` plano de `<main>`, sin blur ni color propio) — **#139 corrige esto en ambos lugares**: el editor de WOD y el detalle de clase (`ClassPanel`, que tenía fondo sólido `--surface-base` y no dejaba ver nada) ahora usan exactamente la misma receta que el resto del dashboard. Verificado visualmente con Playwright contra el dev server real, comparando con las capturas que compartió Cristian.
 
 ---
 
