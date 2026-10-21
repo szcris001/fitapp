@@ -522,16 +522,22 @@ function WodEditorModal({
       {/* Toma la pantalla completa salvo el sidebar (ver --sidebar-width en dashboard/layout.tsx)
           — no es un diálogo flotante, por eso no hay fondo oscuro ni click-afuera-para-cerrar.
           El fondo del dashboard en modo oscuro ya tiene su propia capa de --bg-overlay casi
-          negra al 88% (layout.tsx, para que el texto se lea sobre la imagen de fondo) — un
-          panel semi-transparente con --surface-base (el tono más oscuro de la paleta) quedaba
-          apilado sobre un negro casi idéntico, sin nada distinto que dejar ver detrás (probado,
-          no se notaba ningún cambio). Por eso acá no hay transparencia ni blur: un tono
-          deliberadamente más claro que --surface-base, con un toque del color de marca, para
-          que no se sienta un bloque plano sin depender de que se vea el fondo de la página. */}
+          negra al 88% (layout.tsx, para que el texto se lea sobre la imagen de fondo) — un panel
+          semi-transparente con --surface-base apilado SOBRE ese overlay de <main> quedaba sobre
+          un negro casi idéntico, sin nada distinto que dejar ver detrás (probado, no se notaba
+          ningún cambio). Por eso el panel no hereda la foto a través de <main>: la pinta de
+          nuevo con su propio overlay (más liviano que el 88% de layout.tsx) usando
+          --dashboard-bg-url (mismo var que layout.tsx, puesto en el wrapper raíz), con tinte de
+          marca más fuerte (20% vs. el 7% original) y blur para que no distraiga del contenido. */}
       <div className="fixed top-0 right-0 bottom-0 z-[60] flex flex-col fade-up"
         style={{
           left: 'var(--sidebar-width, 17rem)',
-          backgroundColor: 'color-mix(in srgb, var(--surface-card) 93%, var(--brand-accent) 7%)',
+          backgroundImage:
+            'linear-gradient(color-mix(in srgb, color-mix(in srgb, var(--surface-card) 80%, var(--brand-accent) 20%) 78%, transparent), color-mix(in srgb, color-mix(in srgb, var(--surface-card) 80%, var(--brand-accent) 20%) 78%, transparent)), var(--dashboard-bg-url)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backdropFilter: 'blur(20px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(140%)',
         }}>
 
         {/* Header */}
