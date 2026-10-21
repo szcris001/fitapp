@@ -641,7 +641,7 @@ function WodEditorModal({
 
           {/* WOD form */}
           <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 gap-5">
-            <div>
+            <div className="card rounded-xl p-4">
               <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>Título del WOD</label>
               <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
                 placeholder="Ej. Fran, AMRAP 20, For Time, Día de fuerza..."
@@ -737,8 +737,7 @@ function WodEditorModal({
                   // Sin overflow-hidden aquí: el autocompletado de movimientos es un dropdown
                   // absoluto y un ancestro con overflow-hidden lo recorta pese al z-index.
                   // El redondeo lo aporta el borde del contenedor y, en la cabecera, su propio clip.
-                  <div key={bi} className="rounded-xl border"
-                    style={{ borderColor: 'var(--border-1)' }}>
+                  <div key={bi} className="card rounded-xl">
 
                     {/* Cabecera del bloque */}
                     <div className="border-b rounded-t-xl overflow-hidden" style={{ backgroundColor: 'var(--brand-accent)' + '10', borderColor: 'var(--border-1)' }}>
@@ -790,7 +789,7 @@ function WodEditorModal({
                         const expanded = expandedMovs.has(`${bi}-${mi}`)
                         const hasWeights = !!(m.weightRxM || m.weightScaleM || m.weightRookieM || m.roundWeights.length)
                         return (
-                          <div key={mi} style={{ backgroundColor: 'var(--surface-base)' }}>
+                          <div key={mi}>
 
                             {/* Fila compacta */}
                             <div className="flex items-center gap-2 px-3 py-2">
