@@ -521,15 +521,17 @@ function WodEditorModal({
     <>
       {/* Toma la pantalla completa salvo el sidebar (ver --sidebar-width en dashboard/layout.tsx)
           — no es un diálogo flotante, por eso no hay fondo oscuro ni click-afuera-para-cerrar.
-          Semi-transparente + blur (no opaco): se alcanza a ver el fondo de la página por debajo
-          en vez de un bloque plano — --surface-base es el tono más oscuro de la paleta y a
-          pantalla completa se sentía pesado. Mismo recurso que ya usa el sidebar (layout.tsx). */}
+          El fondo del dashboard en modo oscuro ya tiene su propia capa de --bg-overlay casi
+          negra al 88% (layout.tsx, para que el texto se lea sobre la imagen de fondo) — un
+          panel semi-transparente con --surface-base (el tono más oscuro de la paleta) quedaba
+          apilado sobre un negro casi idéntico, sin nada distinto que dejar ver detrás (probado,
+          no se notaba ningún cambio). Por eso acá no hay transparencia ni blur: un tono
+          deliberadamente más claro que --surface-base, con un toque del color de marca, para
+          que no se sienta un bloque plano sin depender de que se vea el fondo de la página. */}
       <div className="fixed top-0 right-0 bottom-0 z-[60] flex flex-col fade-up"
         style={{
           left: 'var(--sidebar-width, 17rem)',
-          backgroundColor: 'color-mix(in srgb, var(--surface-base) 88%, transparent)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          backgroundColor: 'color-mix(in srgb, var(--surface-card) 93%, var(--brand-accent) 7%)',
         }}>
 
         {/* Header */}
