@@ -521,23 +521,18 @@ function WodEditorModal({
     <>
       {/* Toma la pantalla completa salvo el sidebar (ver --sidebar-width en dashboard/layout.tsx)
           — no es un diálogo flotante, por eso no hay fondo oscuro ni click-afuera-para-cerrar.
-          El fondo del dashboard en modo oscuro ya tiene su propia capa de --bg-overlay casi
-          negra al 88% (layout.tsx, para que el texto se lea sobre la imagen de fondo) — un panel
-          semi-transparente con --surface-base apilado SOBRE ese overlay de <main> quedaba sobre
-          un negro casi idéntico, sin nada distinto que dejar ver detrás (probado, no se notaba
-          ningún cambio). Por eso el panel no hereda la foto a través de <main>: la pinta de
-          nuevo con su propio overlay (más liviano que el 88% de layout.tsx) usando
-          --dashboard-bg-url (mismo var que layout.tsx, puesto en el wrapper raíz), con tinte de
-          marca más fuerte (20% vs. el 7% original) y blur para que no distraiga del contenido. */}
+          Incluido tras feedback de Cristian (2026-10-21): el blur + tinte de marca propio que
+          tuvo este panel no calzaba con el resto del dashboard (Inicio, Alumnos, Pizarra), que
+          muestran la foto de fondo del gym con el mismo --bg-overlay plano que ya pinta <main>
+          (layout.tsx) — sin blur ni colores propios. Este panel ahora usa exactamente esa misma
+          receta (mismo --dashboard-bg-url del wrapper raíz) para que se vea como una página más
+          del dashboard, no como un componente aparte. */}
       <div className="fixed top-0 right-0 bottom-0 z-[60] flex flex-col fade-up"
         style={{
           left: 'var(--sidebar-width, 17rem)',
-          backgroundImage:
-            'linear-gradient(color-mix(in srgb, color-mix(in srgb, var(--surface-card) 80%, var(--brand-accent) 20%) 78%, transparent), color-mix(in srgb, color-mix(in srgb, var(--surface-card) 80%, var(--brand-accent) 20%) 78%, transparent)), var(--dashboard-bg-url)',
+          backgroundImage: 'linear-gradient(var(--bg-overlay), var(--bg-overlay)), var(--dashboard-bg-url)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          backdropFilter: 'blur(20px) saturate(140%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(140%)',
         }}>
 
         {/* Header */}
@@ -1206,7 +1201,8 @@ export function ClassPanel({
   const nextId = currentIdx < classIds.length - 1 ? classIds[currentIdx + 1] : null
 
   return (
-    <div className="flex flex-col h-full" style={{ backgroundColor: 'var(--surface-base)' }}>
+    <div className="flex flex-col h-full"
+      style={{ backgroundImage: 'linear-gradient(var(--bg-overlay), var(--bg-overlay)), var(--dashboard-bg-url)', backgroundSize: 'cover', backgroundPosition: 'center' }}>
 
       {/* Header de página */}
       <div className="flex items-center gap-3 px-5 py-4 border-b shrink-0"
