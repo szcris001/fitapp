@@ -40,6 +40,28 @@ const selfCheckoutSchema = z.object({
 })
 
 export async function paymentRoutes(app: FastifyInstance) {
+  // Flow (y potencialmente otras pasarelas chilenas/LATAM que confirman por POST clásico
+  // de formulario) llaman a nuestra urlConfirmation/notify_url con
+  // Content-Type: application/x-www-form-urlencoded (no JSON). Fastify no trae un parser
+  // para ese content-type por defecto y responde 415 antes de llegar a la ruta — el
+  // callback de Flow nunca se procesaría en producción. Este parser queda encapsulado a
+  // este plugin (confirmado: no afecta a otros módulos) y no reemplaza el parser JSON
+  // usado por Stripe/tests, que se registra aparte en index.ts.
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body: string, done) => {
+      try {
+        const params = new URLSearchParams(body)
+        const parsed: Record<string, string> = {}
+        for (const [key, value] of params) parsed[key] = value
+        done(null, parsed)
+      } catch (err) {
+        done(err as Error, undefined)
+      }
+    },
+  )
+
   // Admin: create Stripe checkout for a user
   app.post('/payments/checkout', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any

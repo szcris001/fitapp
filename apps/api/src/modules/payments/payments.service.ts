@@ -539,7 +539,10 @@ export async function createFlowCheckout(gymId: string, planId: string, userId: 
   const [gym, plan, user] = await Promise.all([getGym(gymId), getPlan(planId, gymId), getUser(userId, gymId)])
   const cfg = gatewayConfig(gym, 'flow')
 
-  const commerceOrder = `${gymId.slice(0, 8)}-${Date.now()}`
+  // Flow exige commerceOrder único por comercio (apiKey). Date.now() solo no alcanza:
+  // dos checkouts del mismo gym en el mismo milisegundo (doble click, retry de red)
+  // colisionarían y Flow rechazaría el segundo con un error confuso para el alumno.
+  const commerceOrder = `${gymId.slice(0, 8)}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`
   const baseUrl = cfg.sandbox
     ? 'https://sandbox.flow.cl/api'
     : 'https://www.flow.cl/api'
