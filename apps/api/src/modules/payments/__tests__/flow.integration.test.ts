@@ -352,6 +352,36 @@ describe('Flow: POST /api/payments/checkout/flow', () => {
     expect(typeof body.commerceOrder).toBe('string')
   })
 
+  // Flow exige commerceOrder único por comercio. Antes del fix, Date.now() solo
+  // colisionaba si dos checkouts del mismo gym se creaban en el mismo milisegundo
+  // (doble click, retry de red) — Flow rechazaría el segundo con un error confuso.
+  it('dos checkouts del mismo gym en paralelo generan commerceOrder distintos', async () => {
+    let call = 0
+    vi.spyOn(global, 'fetch').mockImplementation(async () => {
+      call += 1
+      return {
+        ok: true,
+        json: async () => ({ token: `tok_parallel_${call}`, url: 'https://sandbox.flow.cl/flow/app', flowOrder: call }),
+        text: async () => '',
+      } as Response
+    })
+
+    const [res1, res2] = await Promise.all([
+      app.inject({
+        method: 'POST', url: '/api/payments/checkout/flow',
+        headers: { authorization: `Bearer ${memberAToken}` }, payload: { planId: planAId },
+      }),
+      app.inject({
+        method: 'POST', url: '/api/payments/checkout/flow',
+        headers: { authorization: `Bearer ${memberAToken}` }, payload: { planId: planAId },
+      }),
+    ])
+
+    expect(res1.statusCode).toBe(200)
+    expect(res2.statusCode).toBe(200)
+    expect(res1.json().commerceOrder).not.toBe(res2.json().commerceOrder)
+  })
+
   it('firma HMAC-SHA256 en checkout es correcta (verificar campo s del body enviado a Flow)', async () => {
     const flowToken = 'tok_sig_verify_456'
     await createFlowCheckoutRecord(flowToken)
@@ -615,5 +645,56 @@ describe('Flow: POST /api/payments/callback/flow', () => {
     const res = await app.inject({ method: 'POST', url: '/api/payments/callback/flow', payload: { token: 'tok_amount_005' } })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/monto pagado no coincide/i)
+  })
+
+  // Flow llama a urlConfirmation con un POST clásico de formulario
+  // (Content-Type: application/x-www-form-urlencoded, body "token=..."), no JSON.
+  // Sin un parser para ese content-type, Fastify responde 415 ANTES de llegar a la
+  // ruta y el pago nunca se confirma en producción — bug real encontrado en auditoría
+  // 2026-10-22, corregido en payments.routes.ts (parser scoped al plugin de pagos).
+  it('callback real de Flow: POST application/x-www-form-urlencoded con body "token=..." → 200 y activa membresía', async () => {
+    const flowToken = 'tok_form_urlencoded_006'
+    await createFlowCheckoutRecord(flowToken)
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 2, commerceOrder: 'test-form-urlencoded', amount: 5000 }),
+    } as Response)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/payments/callback/flow',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `token=${flowToken}`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().ok).toBe(true)
+
+    const membership = await prisma.membership.findFirst({
+      where: { userId: memberAId, paymentNotes: `flow:${flowToken}` },
+    })
+    expect(membership).not.toBeNull()
+    expect(membership!.status).toBe('ACTIVE')
+    createdMembershipIds.push(membership!.id)
+  })
+
+  // El parser de application/x-www-form-urlencoded está encapsulado en el plugin de
+  // pagos (Fastify no lo propaga a otros módulos) — lo comprobamos contra una ruta
+  // fuera de paymentRoutes, que debe seguir respondiendo 415 como antes del fix.
+  it('el parser form-urlencoded de pagos no se filtra a otras rutas de la app', async () => {
+    const isolatedApp = Fastify({ logger: false })
+    isolatedApp.post('/outside-payments', async (req) => ({ body: req.body }))
+    await isolatedApp.ready()
+
+    const res = await isolatedApp.inject({
+      method: 'POST',
+      url: '/outside-payments',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'foo=bar',
+    })
+
+    expect(res.statusCode).toBe(415)
+    await isolatedApp.close()
   })
 })
