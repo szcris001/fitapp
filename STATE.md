@@ -4,7 +4,7 @@
 > Los agentes principales (qa-engineer, payments-specialist, architect, backend-dev) tienen sección fija.
 > Los excepcionales (web-dev, mobile-dev, product-owner, devops) solo agregan entrada cuando actúan.
 
-**Última actualización**: 2026-10-25 · Claude Code (modo directo) — rotación de credenciales de producción tras el incidente de Railway, resuelta
+**Última actualización**: 2026-10-25 · Claude Code (modo directo) — rotación de credenciales de producción tras el incidente de Railway (resuelta) + zod/undici high en pnpm audit (#143)
 
 ---
 
