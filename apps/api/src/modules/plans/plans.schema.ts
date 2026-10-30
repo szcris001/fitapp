@@ -28,15 +28,14 @@ export const createPlanSchema = z.object({
   autoRenewEnabled: z.boolean().default(false),
   autoRenewDaysBefore: z.number().int().min(1).max(30).default(3),
   // Tipos de clase que incluye el plan — vacío/omitido = sin restricción (accede a
-  // todos los tipos), para no romper gyms existentes que no configuren nada. La
-  // restricción puntual de una clase individual (Class.allowedPlans) sigue mandando
-  // por encima de esto cuando está seteada (ver classes.service.ts, canAccessClass).
+  // todos los tipos), para no romper gyms existentes que no configuren nada. Única
+  // fuente de verdad del acceso por plan (ver classes.service.ts, canAccessClass).
   classTypeIds: z.array(z.string().uuid()).optional(),
 }).transform(data => (data.isTrial ? { ...data, priceCents: 0 } : data))
 
 export const updatePlanSchema = z.object({
   name: z.string().min(2).max(100).optional(),
-  description: z.string().optional(),
+  description: z.string().nullish(),
   priceCents: z.number().int().min(0).max(MAX_PRICE_CENTS).optional(),
   currency: z.enum(PLAN_CURRENCIES).optional(),
   durationDays: z.number().int().min(1).max(730).optional(),

@@ -14,8 +14,7 @@ export async function listPlans(gymId: string, includeInactive = false) {
   })
 }
 
-// Los tipos de clase llegan como IDs en el body: verificar que TODOS sean del gym del
-// token, mismo criterio que assertPlansBelongToGym en classes.service.ts.
+// Los tipos de clase llegan como IDs en el body: verificar que TODOS sean del gym del token.
 async function assertClassTypesBelongToGym(gymId: string, classTypeIds: string[]) {
   const uniqueIds = [...new Set(classTypeIds)]
   if (!uniqueIds.length) return
@@ -79,6 +78,7 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
 
   const plan = await prisma.plan.findFirst({ where: { id: data.planId, gymId } })
   if (!plan) throw new Error('Plan no encontrado')
+  if (!plan.isActive) throw new Error('El plan está pausado — no se puede asignar')
 
   // El form web manda una fecha sola ("YYYY-MM-DD", el día elegido por el admin en la zona
   // del gym). new Date("2026-10-02") la interpreta como medianoche UTC, no medianoche Chile

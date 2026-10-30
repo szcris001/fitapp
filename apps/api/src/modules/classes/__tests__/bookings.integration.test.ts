@@ -466,35 +466,6 @@ describe('bookClass: membresía inválida', () => {
   })
 })
 
-// ─── Suite 3b: bookClass — restricción por plan (allowedPlans) ────────────────
-//
-// Gap encontrado en la auditoría de reglas de negocio (2026-10-15): la validación
-// de allowedPlans existía en bookClass (líneas ~270-278 de classes.service.ts)
-// desde antes, pero nunca tuvo test — assignUserToClass sí lo tiene (Suite 12c).
-
-describe('bookClass: restricción por plan (allowedPlans)', () => {
-  it('clase restringida a un plan distinto del alumno → bloqueado', async () => {
-    const classId = await createClass({ startsAt: tomorrowAtGymHour(6) })
-    createdClassIds.push(classId)
-    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: trialPlanAId }] } } })
-
-    await expect(
-      bookClass(gymAId, memberAId, { classId })
-    ).rejects.toThrow('Tu plan no tiene acceso a esta clase')
-  })
-
-  it('clase restringida al plan del alumno → permitido', async () => {
-    const classId = await createClass({ startsAt: tomorrowAtGymHour(7) })
-    createdClassIds.push(classId)
-    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: planAId }] } } })
-
-    const booking = await bookClass(gymAId, memberAId, { classId })
-    expect(BOOKED_STATUSES).toContain(booking.status)
-
-    await prisma.booking.deleteMany({ where: { classId } })
-  })
-})
-
 // ─── Suite 4: bookClass — membresía TRIAL con límite de clases ────────────────
 
 describe('bookClass: membresía TRIAL con maxClasses', () => {
@@ -1370,34 +1341,6 @@ describe('assignUserToClass: coach incorpora alumnos', () => {
   })
 })
 
-// ─── Suite 12c: assignUserToClass — restricción por plan (allowedPlans) ──────
-//
-// Mismo hueco que bookClass (classes.service.ts:270-278): si la clase restringe
-// por plan, el coach no debería poder esquivarlo inscribiendo al alumno a mano.
-
-describe('assignUserToClass: restricción por plan (allowedPlans)', () => {
-  it('clase restringida a un plan distinto del alumno → bloqueado también cuando asigna el coach', async () => {
-    const classId = await createClass({ startsAt: tomorrowAtGymHour(9) })
-    createdClassIds.push(classId)
-    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: trialPlanAId }] } } })
-
-    await expect(
-      assignUserToClass(gymAId, member2AId, classId)
-    ).rejects.toThrow('El plan del alumno no tiene acceso a esta clase')
-  })
-
-  it('clase restringida al plan del alumno → permitido', async () => {
-    const classId = await createClass({ startsAt: tomorrowAtGymHour(10) })
-    createdClassIds.push(classId)
-    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: planAId }] } } })
-
-    const booking = await assignUserToClass(gymAId, member2AId, classId)
-    expect(booking.status).toBe('CONFIRMED')
-
-    await prisma.booking.deleteMany({ where: { classId } })
-  })
-})
-
 // ─── Suite 12d: assignUserToClass — límite de maxClasses ──────────────────────
 //
 // Mismo hueco que bookClass (classes.service.ts:326-346): sin este chequeo el
@@ -1470,9 +1413,8 @@ describe('assignUserToClass: membresía TRIAL con maxClasses', () => {
 // ─── Suite 12e: Plan.classTypes ("plan incluye tipos de clase") ───────────────
 //
 // Nueva relación activada 2026-10-15: Plan.classTypes decide qué tipos de clase
-// puede reservar el alumno cuando la clase NO tiene allowedPlans puntual seteado
-// (canAccessClass, classes.service.ts). Cubre bookClass y assignUserToClass, y el
-// caso donde la restricción puntual de la clase manda por encima de esto.
+// puede reservar el alumno (canAccessClass, classes.service.ts). Cubre bookClass
+// y assignUserToClass.
 
 describe('canAccessClass: Plan.classTypes', () => {
   let limitedPlanId: string
@@ -1546,18 +1488,6 @@ describe('canAccessClass: Plan.classTypes', () => {
     ).rejects.toThrow('El plan del alumno no tiene acceso a esta clase')
   })
 
-  it('la restricción puntual de la clase (allowedPlans) manda por encima de classTypes', async () => {
-    // La clase es de un tipo que el plan NO incluye, pero tiene allowedPlans
-    // puntual seteado incluyendo justo a este plan — la restricción puntual gana.
-    const classId = await createClass({ startsAt: tomorrowAtGymHour(9), classTypeId: otherTypeId })
-    createdClassIds.push(classId)
-    await prisma.class.update({ where: { id: classId }, data: { allowedPlans: { connect: [{ id: limitedPlanId }] } } })
-
-    const booking = await bookClass(gymAId, limitedUserId, { classId })
-    expect(BOOKED_STATUSES).toContain(booking.status)
-
-    await prisma.booking.deleteMany({ where: { classId } })
-  })
 })
 
 // ─── Suite 12f: bookClass — confirmación previa a la clase (preClassConfirmHours) ──
