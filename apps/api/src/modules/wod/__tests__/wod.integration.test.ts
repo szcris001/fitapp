@@ -1010,6 +1010,34 @@ describe('WOD: PUT /api/wods/:id — actualizar WOD', () => {
     const blocks = await prisma.wodBlock.findMany({ where: { wodId: wodToUpdateId } })
     expect(blocks).toHaveLength(0)
   })
+
+  it('cambiar la fecha a un día con otro WOD del mismo tipo de clase → 400, no lo oculta', async () => {
+    // Mismo chequeo que POST, pero disparado por PUT cambiando `date` — antes no
+    // existía y permitía 2 WODs activos el mismo día/tipo (uno quedaba oculto en
+    // ClassDetail.tsx sin ningún aviso, aunque seguía en la base) (QA 2026-10-30).
+    const otherDate = dateString(52)
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, title: 'WOD del otro día', date: otherDate, blocks: [] },
+    })
+    expect(createRes.statusCode).toBe(201)
+    createdWodIds.push(createRes.json().id)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/wods/${wodToUpdateId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { title: 'Intento de colisión', date: otherDate, blocks: [] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/ya existe una planificación/i)
+
+    // El WOD original no debe haber cambiado — ni fecha ni título
+    const unchanged = await prisma.wod.findUnique({ where: { id: wodToUpdateId } })
+    expect(unchanged!.title).not.toBe('Intento de colisión')
+  })
 })
 
 // =============================================================================

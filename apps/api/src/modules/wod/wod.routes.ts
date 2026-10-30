@@ -254,6 +254,20 @@ export async function wodRoutes(app: FastifyInstance) {
     const resolvedBenchmarkId = await resolveBenchmarkId(user.gymId, benchmarkId)
     if (resolvedBenchmarkId === 'INVALID') return reply.status(404).send({ error: 'Benchmark no encontrado' })
 
+    // Mismo chequeo de "un WOD por tipo de clase por día" que POST — PUT nunca lo
+    // repetía al cambiar la fecha, permitiendo 2 WODs activos el mismo día/tipo: uno
+    // de ellos quedaba oculto en ClassDetail.tsx (que solo renderiza el primero que
+    // encuentra) sin ningún aviso, aunque siguiera existiendo en la base (QA 2026-10-30).
+    if (date !== undefined) {
+      const tz = await getGymTimezone(user.gymId)
+      const duplicate = await prisma.wod.findFirst({
+        where: { gymId: user.gymId, classTypeId: wod.classTypeId, date: gymDayRange(date, tz), id: { not: id } },
+      })
+      if (duplicate) {
+        return reply.status(400).send({ error: 'Ya existe una planificación para este tipo de clase en esa fecha' })
+      }
+    }
+
     try {
       const dateValue = date !== undefined ? gymDayStart(date, await getGymTimezone(user.gymId)) : undefined
       const updated = await prisma.$transaction(async (tx) => {
