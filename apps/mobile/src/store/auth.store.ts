@@ -98,10 +98,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
-    // Notificar al backend (best effort — no bloquea el logout local)
-    const currentRefreshToken = get().refreshToken
+    // Notificar al backend (best effort — no bloquea el logout local). El interceptor
+    // de request de api.ts lee el token desde AsyncStorage de forma async — si no le
+    // pasamos el header acá explícito, puede perder la carrera contra el
+    // AsyncStorage.multiRemove de abajo (que borra el token antes de que el
+    // interceptor llegue a leerlo) y el endpoint responde 401 (QA mobile-web,
+    // 2026-10-30). Usamos el token que ya tenemos en memoria, sin depender de esa carrera.
+    const { refreshToken: currentRefreshToken, token } = get()
     if (currentRefreshToken) {
-      api.post('/auth/logout', { refreshToken: currentRefreshToken }).catch(() => {
+      api.post('/auth/logout', { refreshToken: currentRefreshToken }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      }).catch(() => {
         // Ignorar errores de red; el token local se limpia de todas formas
       })
     }

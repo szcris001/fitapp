@@ -6,6 +6,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native'
 import api from '../../lib/api'
 import { localDateStr } from '../../lib/date'
+import { alertButtons } from '../../lib/alert'
 
 const STATUS_LABEL: Record<string, string> = {
   CONFIRMED: 'Confirmado',
@@ -62,7 +63,7 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
   }
 
   const removeStudent = (bookingId: string, studentName: string) => {
-    Alert.alert('Quitar alumno', `¿Quitar a ${studentName} de esta clase?`, [
+    alertButtons('Quitar alumno', `¿Quitar a ${studentName} de esta clase?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Quitar', style: 'destructive',
@@ -72,7 +73,7 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
             await api.delete(`/bookings/${bookingId}/admin`)
             await fetchClass()
           } catch (err: any) {
-            Alert.alert('Error', err.response?.data?.error || 'No se pudo quitar al alumno')
+            alertButtons('Error', err.response?.data?.error || 'No se pudo quitar al alumno')
           } finally {
             setRemoving(null)
           }
@@ -82,7 +83,7 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
   }
 
   const handleDelete = () => {
-    Alert.alert('Eliminar clase', '¿Estás seguro? Se cancelarán todas las reservas.', [
+    alertButtons('Eliminar clase', '¿Estás seguro? Se cancelarán todas las reservas.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Eliminar', style: 'destructive',
@@ -91,7 +92,7 @@ export default function ClassDetailAdminScreen({ route, navigation }: any) {
             await api.delete(`/classes/${classId}`)
             navigation.goBack()
           } catch (err: any) {
-            Alert.alert('Error', err.response?.data?.error || 'No se pudo eliminar')
+            alertButtons('Error', err.response?.data?.error || 'No se pudo eliminar')
           }
         }
       }

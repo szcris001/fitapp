@@ -4,6 +4,7 @@ import {
   TextInput, ActivityIndicator, Alert
 } from 'react-native'
 import api from '../../lib/api'
+import { alertButtons } from '../../lib/alert'
 
 export default function CreateMemberScreen({ navigation }: any) {
   const [form, setForm] = useState({
@@ -28,7 +29,7 @@ export default function CreateMemberScreen({ navigation }: any) {
         birthDate: form.birthDate || undefined,
         role: 'MEMBER',
       })
-      Alert.alert('✅ Alumno creado', 'Ahora asignale un plan para activar su membresía.', [{
+      alertButtons('✅ Alumno creado', 'Ahora asignale un plan para activar su membresía.', [{
         text: 'OK',
         onPress: () => navigation.replace('AssignMembership', { memberId: newMember.id, memberName: newMember.name }),
       }])

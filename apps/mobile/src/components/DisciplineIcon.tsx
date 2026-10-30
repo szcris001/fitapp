@@ -3,7 +3,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons'
 // Mapeo disciplina → ícono de MaterialCommunityIcons
 const DISCIPLINE_ICON: Record<string, string> = {
   crossfit:      'weight-lifter',     // persona levantando barra sobre cabeza
-  weightlifting: 'barbell',           // barra olímpica horizontal
+  weightlifting: 'weight',            // 'barbell' no existe en MaterialCommunityIcons (hallazgo QA 2026-10-30)
   powerlifting:  'dumbbell',          // mancuerna
   gymnastics:    'gymnastics',        // persona en paralelas/anillos
   endurance:     'run',               // persona corriendo

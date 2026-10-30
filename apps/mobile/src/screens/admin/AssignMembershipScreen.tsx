@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import api from '../../lib/api'
 import { toMajorUnits } from '../../lib/money'
+import { alertButtons } from '../../lib/alert'
 
 const PAYMENT_METHODS = [
   { id: 'cash', label: '💵 Efectivo' },
@@ -36,11 +37,11 @@ export default function AssignMembershipScreen({ route, navigation }: any) {
         paymentMethod,
         paymentNotes: notes || undefined,
       })
-      Alert.alert('✅ Plan asignado', `Membresía de ${memberName} actualizada`, [
+      alertButtons('✅ Plan asignado', `Membresía de ${memberName} actualizada`, [
         { text: 'OK', onPress: () => navigation.goBack() }
       ])
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.error || 'No se pudo asignar el plan')
+      alertButtons('Error', err.response?.data?.error || 'No se pudo asignar el plan')
     } finally { setSaving(false) }
   }
 

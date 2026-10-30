@@ -2,9 +2,10 @@ import React from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { DisciplineIcon } from './DisciplineIcon'
+import { getGymTimezone } from '../lib/gym-timezone'
 
 function fmt(iso: string, opts: Intl.DateTimeFormatOptions) {
-  return new Date(iso).toLocaleTimeString('es-CL', opts)
+  return new Date(iso).toLocaleTimeString('es-CL', { ...opts, timeZone: getGymTimezone() })
 }
 
 export interface MyBooking { bookingId: string; status: string; confirmDeadline?: string | null }
@@ -158,7 +159,7 @@ export function ClassCard({
           ) : outsideWindow ? (
             <View style={[s.btn, s.btnFull]}>
               <Text style={[s.btnText, { color: c.text3 }]}>
-                Reservas abren {clsStart.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })}
+                Reservas abren {clsStart.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: getGymTimezone() })}
               </Text>
             </View>
           ) : withinCutoff ? (

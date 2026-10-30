@@ -9,6 +9,7 @@ import { BottomSheet } from '../../components/BottomSheet'
 import { useAuthStore } from '../../store/auth.store'
 import { useTheme } from '../../theme/ThemeContext'
 import api from '../../lib/api'
+import { alertButtons } from '../../lib/alert'
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: 'Administrador', COACH: 'Coach', SUPER_ADMIN: 'Super Admin',
@@ -108,7 +109,7 @@ export default function StaffProfileScreen() {
       <View style={[s.section, { marginBottom: 40 }]}>
         <TouchableOpacity
           style={[s.logoutBtn, { borderColor: c.border }]}
-          onPress={() => Alert.alert('Cerrar sesión', '¿Estás seguro?', [
+          onPress={() => alertButtons('Cerrar sesión', '¿Estás seguro?', [
             { text: 'Cancelar', style: 'cancel' },
             { text: 'Salir', style: 'destructive', onPress: logout },
           ])}

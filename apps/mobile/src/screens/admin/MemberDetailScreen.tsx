@@ -7,6 +7,7 @@ import { useFocusEffect } from '@react-navigation/native'
 import { useAuthStore } from '../../store/auth.store'
 import api from '../../lib/api'
 import { daysUntilLocal } from '../../lib/membership-days'
+import { alertButtons } from '../../lib/alert'
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: '#22c55e', TRIAL: '#f59e0b', EXPIRED: '#ef4444', INACTIVE: '#6b7280',
@@ -41,17 +42,17 @@ export default function MemberDetailScreen({ route, navigation }: any) {
   useFocusEffect(useCallback(() => { fetchData() }, [memberId]))
 
   const handleRenew = async () => {
-    Alert.alert('Renovar membresía', '¿Renovar con el mismo plan?', [
+    alertButtons('Renovar membresía', '¿Renovar con el mismo plan?', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Renovar', onPress: async () => {
           setRenewing(true)
           try {
             await api.post(`/memberships/${memberId}/renew`)
-            Alert.alert('✅ Membresía renovada')
+            alertButtons('✅ Membresía renovada')
             fetchData()
           } catch (err: any) {
-            Alert.alert('Error', err.response?.data?.error || 'No se pudo renovar')
+            alertButtons('Error', err.response?.data?.error || 'No se pudo renovar')
           } finally { setRenewing(false) }
         }
       }

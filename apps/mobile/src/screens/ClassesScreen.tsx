@@ -1,17 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, Alert, RefreshControl, Animated,
 } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 import api from '../lib/api'
 import { BottomSheet } from '../components/BottomSheet'
 import { DisciplineIcon } from '../components/DisciplineIcon'
+import { alertButtons } from '../lib/alert'
 import { ClassCard, MyBooking, isClassSelectable } from '../components/ClassCard'
 import { WeekDayStrip, isSameDay } from '../components/WeekDayStrip'
+import { getGymTimezone, setGymTimezone } from '../lib/gym-timezone'
 
 function buildWeekDays(numDays = 14): Date[] {
   return Array.from({ length: numDays }, (_, i) => {
@@ -23,7 +26,7 @@ function buildWeekDays(numDays = 14): Date[] {
 }
 
 function fmt(iso: string, opts: Intl.DateTimeFormatOptions) {
-  return new Date(iso).toLocaleTimeString('es-CL', opts)
+  return new Date(iso).toLocaleTimeString('es-CL', { ...opts, timeZone: getGymTimezone() })
 }
 
 // Una sola pantalla — mismo patrón que usan Wodify/ClassPass: franja de días
@@ -77,14 +80,34 @@ export default function ClassesScreen() {
 
   const closeSheet = () => { setSheetClass(null); setSheetDetails(null); setRepeatSelected(new Set()) }
 
-  useEffect(() => {
+  // useFocusEffect (no useEffect[]) — las políticas de reserva/cancelación se
+  // configuran desde la web y esta pantalla se queda montada entre tabs; sin
+  // refetch al volver a foco, un cambio de política hecho mientras la app seguía
+  // abierta nunca se veía reflejado (quedaba con el valor de cuando se abrió la
+  // app, sin importar qué se configurara después — bug reportado por Cristian).
+  useFocusEffect(useCallback(() => {
     fetchAll()
     api.get('/gyms/me').then(r => {
       setBookingWindowDays(r.data.bookingWindowDays ?? 1)
       setBookingCutoffMins(r.data.bookingCutoffMins ?? 60)
       setCancelCutoffMins(r.data.cancelCutoffMins ?? 30)
+      setGymTimezone(r.data.timezone)
     }).catch(() => {})
-  }, [])
+  }, []))
+
+  // Si queda algo en WAITLIST/PENDING_CONFIRM, el cron del servidor puede cambiarlo
+  // de estado en cualquier momento (expiración, promoción) sin que el alumno haga
+  // nada — sin este polling, alguien que se queda mirando esta pantalla nunca se
+  // entera de que ya quedó confirmado hasta que navega a otra pestaña y vuelve
+  // (hallazgo QA mobile-web, 2026-10-30).
+  const hasPendingOrWaitlist = [...myBookingMap.values()].some(
+    b => b.status === 'WAITLIST' || b.status === 'PENDING_CONFIRM'
+  )
+  useEffect(() => {
+    if (!hasPendingOrWaitlist) return
+    const interval = setInterval(fetchAll, 20000)
+    return () => clearInterval(interval)
+  }, [hasPendingOrWaitlist])
 
   const fetchAll = async () => {
     try {
@@ -130,7 +153,7 @@ export default function ClassesScreen() {
     for (const id of ids) {
       const cl = classes.find(c => c.id === id)
       const date = cl
-        ? new Date(cl.startsAt).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+        ? new Date(cl.startsAt).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: getGymTimezone() })
         : ''
       try {
         const { data } = await api.post('/bookings', { classId: id })
@@ -177,7 +200,7 @@ export default function ClassesScreen() {
   }
 
   const handleCancel = async (classId: string) => {
-    Alert.alert('Cancelar reserva', '¿Estás seguro de cancelar?', [
+    alertButtons('Cancelar reserva', '¿Estás seguro de cancelar?', [
       { text: 'No', style: 'cancel' },
       {
         text: 'Sí, cancelar', style: 'destructive',
@@ -185,7 +208,7 @@ export default function ClassesScreen() {
           try {
             await api.delete(`/bookings/${classId}`)
           } catch (err: any) {
-            Alert.alert('Error', err.response?.data?.error || 'No se pudo cancelar')
+            alertButtons('Error', err.response?.data?.error || 'No se pudo cancelar')
           } finally {
             closeSheet()
             fetchAll()
@@ -406,7 +429,7 @@ export default function ClassesScreen() {
           >
             <View style={{ paddingHorizontal: 24 }}>
               <Text style={{ color: c.text3, fontSize: 13, marginBottom: 12 }}>
-                {clsStart.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
+                {clsStart.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: getGymTimezone() })}
                 {' · '}
                 {fmt(cls.startsAt, { hour: '2-digit', minute: '2-digit' })}
                 {' — '}
@@ -478,7 +501,7 @@ export default function ClassesScreen() {
                       >
                         <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={18} color={checked ? accentColor : c.text3} />
                         <Text style={{ color: checked ? accentColor : c.text2, fontSize: 14, fontWeight: checked ? '700' : '500', textTransform: 'capitalize' }}>
-                          {new Date(cand.startsAt).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })}
+                          {new Date(cand.startsAt).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: getGymTimezone() })}
                         </Text>
                       </TouchableOpacity>
                     )

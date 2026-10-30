@@ -10,10 +10,11 @@ import * as ImagePicker from 'expo-image-picker'
 import { useAuthStore } from '../store/auth.store'
 import api, { API_BASE as API_URL, mediaUrl } from '../lib/api'
 import { toMajorUnits } from '../lib/money'
+import { alertButtons } from '../lib/alert'
 import { useTheme } from '../theme/ThemeContext'
 
 interface RmRecord {
-  movement: string
+  movementName: string
   currentRm: number
   updatedAt: string
 }
@@ -96,7 +97,7 @@ export default function ProfileScreen({ navigation }: any) {
   const handleToggleAutoRenew = async (enabled: boolean) => {
     if (!activeMembership) return
     if (enabled) {
-      Alert.alert(
+      alertButtons(
         'Activar auto-renovación',
         'Se cobrará automáticamente tu tarjeta guardada antes del vencimiento.',
         [
@@ -108,7 +109,7 @@ export default function ProfileScreen({ navigation }: any) {
                 await api.put(`/payments/my-memberships/${activeMembership.id}/auto-renew`, { enabled: true })
                 setActiveMembership((m: any) => ({ ...m, autoRenew: true }))
               } catch (err: any) {
-                Alert.alert('Error', err.response?.data?.error || 'No se pudo activar')
+                alertButtons('Error', err.response?.data?.error || 'No se pudo activar')
               } finally { setTogglingAutoRenew(false) }
             },
           },
@@ -376,8 +377,8 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
           <View style={styles.rmRow}>
             {topRms.map(rm => (
-              <View key={rm.movement} style={[styles.rmCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-                <Text style={[styles.rmName, { color: c.text3 }]} numberOfLines={1}>{rm.movement}</Text>
+              <View key={rm.movementName} style={[styles.rmCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+                <Text style={[styles.rmName, { color: c.text3 }]} numberOfLines={1}>{rm.movementName}</Text>
                 <Text style={[styles.rmValue, { color: c.primary }]}>{Math.round(rm.currentRm * 2.20462)} lb</Text>
                 <Text style={[styles.rmKg, { color: c.text3 }]}>{rm.currentRm} kg</Text>
               </View>
@@ -477,7 +478,7 @@ export default function ProfileScreen({ navigation }: any) {
       <View style={styles.section}>
         <TouchableOpacity
           style={[styles.logoutBtn, { borderColor: c.border }]}
-          onPress={() => Alert.alert('Cerrar sesión', '¿Estás seguro?', [
+          onPress={() => alertButtons('Cerrar sesión', '¿Estás seguro?', [
             { text: 'Cancelar', style: 'cancel' },
             { text: 'Salir', style: 'destructive', onPress: logout },
           ])}
