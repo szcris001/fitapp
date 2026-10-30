@@ -30,6 +30,7 @@ interface LeaderboardEntry {
   scoreFormatted: string
   rx: boolean
   notes?: string | null
+  createdAt?: string
 }
 
 interface LeaderboardData {
@@ -39,12 +40,42 @@ interface LeaderboardData {
   entries: LeaderboardEntry[]
 }
 
+interface MovementResultEntry {
+  movementId: string
+  movementName: string
+  value: string
+}
+
 interface MyResult {
   score: number
   scoreText?: string
   rx: boolean
   scoreFormatted: string
   notes?: string
+  movementResults?: MovementResultEntry[] | null
+}
+
+interface WodMovementLite {
+  id: string
+  movementName: string
+  repScheme?: string | null
+}
+
+interface WodBlockLite {
+  type: string
+  movements: WodMovementLite[]
+}
+
+// Movimientos "relevantes" para el desglose: los del bloque de tipo WOD (el
+// trabajo puntuado). Si el WOD no tiene ningún bloque WOD (dato legacy, todo
+// quedó en OTHER por default antes de que existiera el tipo de bloque), se
+// usan los OTHER como fallback. WARMUP/SKILL_STRENGTH/COOLDOWN nunca cuentan
+// — no son parte del resultado que el alumno registra.
+function relevantMovements(blocks: WodBlockLite[] | undefined): WodMovementLite[] {
+  if (!blocks || blocks.length === 0) return []
+  const wodBlocks = blocks.filter(b => b.type === 'WOD')
+  const source = wodBlocks.length > 0 ? wodBlocks : blocks.filter(b => b.type === 'OTHER')
+  return source.flatMap(b => b.movements)
 }
 
 // ─── Score type metadata ────────────────────────────────────────────────────────
@@ -106,34 +137,18 @@ const badgeStyles = StyleSheet.create({
 // ─── Leaderboard category section ──────────────────────────────────────────────
 
 function CategorySection({
-  title,
   entries,
   currentUserId,
-  accentColor,
   c,
 }: {
-  title: string
   entries: LeaderboardEntry[]
   currentUserId?: string
-  accentColor: string
   c: any
 }) {
   if (entries.length === 0) return null
 
-  const badgeColor = title === 'RX' ? accentColor : '#f59e0b'
-
   return (
     <View style={catStyles.wrapper}>
-      {/* Category header */}
-      <View style={catStyles.header}>
-        <View style={[catStyles.badge, { backgroundColor: badgeColor + '20', borderColor: badgeColor + '50' }]}>
-          <Text style={[catStyles.badgeText, { color: badgeColor }]}>{title}</Text>
-        </View>
-        <Text style={[catStyles.count, { color: c.text3 }]}>
-          {entries.length} atleta{entries.length !== 1 ? 's' : ''}
-        </Text>
-      </View>
-
       {/* Entries */}
       {entries.map((entry) => {
         const isMe =
@@ -220,6 +235,7 @@ interface LogResultModalProps {
   wodId: string
   scoreType: string
   myResult: MyResult | null
+  movements: WodMovementLite[]
   c: any
   insets: { bottom: number }
 }
@@ -231,23 +247,28 @@ function LogResultModal({
   wodId,
   scoreType,
   myResult,
+  movements,
   c,
   insets,
 }: LogResultModalProps) {
   // ── Form state ──────────────────────────────────────────────────────────────
-  const [rx, setRx] = useState(true)
+  // RX/Scaled ya no se le pide al alumno (no aporta al foco de registrar el
+  // resultado) — se guarda siempre como RX; el coach puede corregirlo después
+  // desde el panel si hizo la versión scaled.
   const [scoreValue, setScoreValue] = useState('')
   const [mins, setMins] = useState('')
   const [secs, setSecs] = useState('')
   const [scoreText, setScoreText] = useState('')
   const [notes, setNotes] = useState('')
+  const [movementValues, setMovementValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+
+  const showMovementBreakdown = movements.length > 1
 
   // Precargar valores cuando hay resultado existente o cuando se abre el modal
   useEffect(() => {
     if (!visible) return
     if (myResult) {
-      setRx(myResult.rx)
       setNotes(myResult.notes ?? '')
       if (scoreType === 'TIME') {
         const totalSecs = myResult.score
@@ -259,14 +280,19 @@ function LogResultModal({
       } else {
         setScoreValue(String(myResult.score))
       }
+      const prevByMovement: Record<string, string> = {}
+      for (const entry of myResult.movementResults ?? []) {
+        prevByMovement[entry.movementId] = entry.value
+      }
+      setMovementValues(prevByMovement)
     } else {
       // Reset al abrir sin resultado previo
-      setRx(true)
       setScoreValue('')
       setMins('')
       setSecs('')
       setScoreText('')
       setNotes('')
+      setMovementValues({})
     }
   }, [visible, myResult, scoreType])
 
@@ -297,11 +323,17 @@ function LogResultModal({
 
     const body: Record<string, any> = {
       score: parsed.score,
-      rx,
+      rx: true,
       notes: notes.trim() || null,
     }
     if (scoreType === 'CUSTOM') {
       body.scoreText = parsed.scoreText ?? null
+    }
+    if (showMovementBreakdown) {
+      const entries = movements
+        .map(m => ({ movementId: m.id, movementName: m.movementName, value: (movementValues[m.id] ?? '').trim() }))
+        .filter(e => e.value.length > 0)
+      if (entries.length > 0) body.movementResults = entries
     }
 
     setSaving(true)
@@ -433,47 +465,35 @@ function LogResultModal({
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* ── RX / Scaled toggle ── */}
-          <View style={modalStyles.inputGroup}>
-            <Text style={[modalStyles.label, { color: c.text2 }]}>Categoria</Text>
-            <View style={modalStyles.toggleRow}>
-              <TouchableOpacity
-                style={[
-                  modalStyles.toggleBtn,
-                  { borderColor: c.primary },
-                  rx && { backgroundColor: c.primary },
-                ]}
-                onPress={() => setRx(true)}
-                activeOpacity={0.8}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: rx }}
-                accessibilityLabel="RX"
-              >
-                <Text style={[modalStyles.toggleText, rx ? { color: '#fff' } : { color: c.primary }]}>
-                  RX
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  modalStyles.toggleBtn,
-                  { borderColor: '#f59e0b' },
-                  !rx && { backgroundColor: '#f59e0b' },
-                ]}
-                onPress={() => setRx(false)}
-                activeOpacity={0.8}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: !rx }}
-                accessibilityLabel="Scaled"
-              >
-                <Text style={[modalStyles.toggleText, !rx ? { color: '#fff' } : { color: '#f59e0b' }]}>
-                  Scaled
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* ── Score inputs (dinámicos por scoreType) ── */}
+          {/* ── Score inputs (dinámicos por scoreType) — el total que define el ranking ── */}
           {renderScoreInputs()}
+
+          {/* ── Desglose por movimiento (solo informativo, no afecta el ranking) ── */}
+          {showMovementBreakdown && (
+            <View style={modalStyles.inputGroup}>
+              <Text style={[modalStyles.label, { color: c.text2 }]}>Detalle por movimiento</Text>
+              {movements.map((m) => (
+                <View key={m.id} style={modalStyles.movementRow}>
+                  <Text style={[modalStyles.movementName, { color: c.text1 }]} numberOfLines={1}>
+                    {m.movementName}
+                  </Text>
+                  <TextInput
+                    style={[
+                      modalStyles.input,
+                      modalStyles.movementInput,
+                      { backgroundColor: c.background, borderColor: c.border, color: c.text1 },
+                    ]}
+                    placeholder={m.repScheme ?? 'ej: 20x5'}
+                    placeholderTextColor={c.text3}
+                    value={movementValues[m.id] ?? ''}
+                    onChangeText={(v) => setMovementValues(prev => ({ ...prev, [m.id]: v }))}
+                    returnKeyType="next"
+                    accessibilityLabel={`Resultado de ${m.movementName}`}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
 
           {/* ── Notas ── */}
           <View style={modalStyles.inputGroup}>
@@ -565,16 +585,10 @@ const modalStyles = StyleSheet.create({
   },
   charCount: { fontSize: 11, textAlign: 'right', marginTop: 4 },
 
-  // RX / Scaled toggle
-  toggleRow: { flexDirection: 'row', gap: 12 },
-  toggleBtn: {
-    flex: 1,
-    borderWidth: 2,
-    borderRadius: 12,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  toggleText: { fontSize: 15, fontWeight: '800', letterSpacing: 0.5 },
+  // Desglose por movimiento
+  movementRow: { marginBottom: 10 },
+  movementName: { fontSize: 13, fontWeight: '600', marginBottom: 6 },
+  movementInput: { paddingVertical: 11 },
 
   // Time input
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -618,18 +632,22 @@ export default function MemberWodScreen() {
 
   // ── My result state ─────────────────────────────────────────────────────────
   const [myResult, setMyResult] = useState<MyResult | null>(null)
+  const [canRegister, setCanRegister] = useState(true)
+  const [blockedReason, setBlockedReason] = useState<'not_booked' | 'not_started' | null>(null)
   const [logModalVisible, setLogModalVisible] = useState(false)
+  const [movements, setMovements] = useState<WodMovementLite[]>([])
 
   const isMember = user?.role === 'MEMBER'
 
-  // ── Fetch leaderboard + my result ───────────────────────────────────────────
+  // ── Fetch leaderboard + my result + detalle del WOD (bloques/movimientos) ──
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [leaderboardRes, myResultRes] = await Promise.allSettled([
+      const [leaderboardRes, myResultRes, wodRes] = await Promise.allSettled([
         api.get(`/wods/${wodId}/leaderboard`),
         isMember ? api.get(`/wods/${wodId}/results/me`) : Promise.resolve(null),
+        isMember ? api.get(`/wods/${wodId}`) : Promise.resolve(null),
       ])
 
       if (leaderboardRes.status === 'fulfilled') {
@@ -639,9 +657,16 @@ export default function MemberWodScreen() {
       }
 
       if (myResultRes.status === 'fulfilled' && myResultRes.value !== null) {
-        setMyResult((myResultRes.value as any)?.data ?? null)
+        const data = (myResultRes.value as any)?.data
+        setMyResult(data?.result ?? null)
+        setCanRegister(data?.canRegister ?? true)
+        setBlockedReason(data?.blockedReason ?? null)
       }
       // Si es 404 o el usuario no es MEMBER, myResult queda null (no hace nada)
+
+      if (wodRes.status === 'fulfilled' && wodRes.value !== null) {
+        setMovements(relevantMovements((wodRes.value as any)?.data?.blocks))
+      }
     } catch {
       setError('No se pudo cargar la pizarra. Verifica tu conexion.')
     } finally {
@@ -653,12 +678,18 @@ export default function MemberWodScreen() {
     fetchLeaderboard()
   }, [fetchLeaderboard])
 
-  const rxEntries = leaderboard?.entries.filter(e => e.rx) ?? []
-  const scaledEntries = leaderboard?.entries.filter(e => !e.rx) ?? []
-
   const scoreType = leaderboard?.scoreType ?? initialScoreType ?? 'REPS'
-  const accentColor = c.primary
 
+  // Pizarra unificada: sin distinción RX/Scaled (no le aporta al alumno, el foco
+  // es el resultado) — se re-ordena todo junto por score real, no por el orden
+  // rx-primero-scaled-después que trae el leaderboard del backend.
+  const rankedEntries = (() => {
+    const all = leaderboard?.entries ?? []
+    const sorted = scoreType === 'CUSTOM'
+      ? [...all].sort((a, b) => new Date(a.createdAt as any).getTime() - new Date(b.createdAt as any).getTime())
+      : [...all].sort((a, b) => scoreType === 'TIME' ? a.score - b.score : b.score - a.score)
+    return sorted.map((entry, i) => ({ ...entry, rank: i + 1 }))
+  })()
   // ── Handle result saved ─────────────────────────────────────────────────────
   const handleResultSaved = useCallback((result: MyResult) => {
     setMyResult(result)
@@ -716,16 +747,6 @@ export default function MemberWodScreen() {
               <Text style={[s.statValue, { color: c.primary }]}>{leaderboard?.total ?? 0}</Text>
               <Text style={[s.statLabel, { color: c.text3 }]}>Resultados</Text>
             </View>
-            <View style={[s.statDivider, { backgroundColor: c.border }]} />
-            <View style={s.statItem}>
-              <Text style={[s.statValue, { color: c.primary }]}>{rxEntries.length}</Text>
-              <Text style={[s.statLabel, { color: c.text3 }]}>RX</Text>
-            </View>
-            <View style={[s.statDivider, { backgroundColor: c.border }]} />
-            <View style={s.statItem}>
-              <Text style={[s.statValue, { color: '#f59e0b' }]}>{scaledEntries.length}</Text>
-              <Text style={[s.statLabel, { color: c.text3 }]}>Scaled</Text>
-            </View>
           </View>
 
           {/* Leaderboard content */}
@@ -744,18 +765,8 @@ export default function MemberWodScreen() {
               </View>
 
               <CategorySection
-                title="RX"
-                entries={rxEntries}
+                entries={rankedEntries}
                 currentUserId={user?.userId}
-                accentColor={accentColor}
-                c={c}
-              />
-
-              <CategorySection
-                title="SCALED"
-                entries={scaledEntries}
-                currentUserId={user?.userId}
-                accentColor={accentColor}
                 c={c}
               />
             </View>
@@ -766,6 +777,7 @@ export default function MemberWodScreen() {
             <TouchableOpacity
               onPress={() => setLogModalVisible(true)}
               activeOpacity={0.85}
+              disabled={!myResult && !canRegister}
               style={[
                 s.logResultBtn,
                 myResult
@@ -773,6 +785,11 @@ export default function MemberWodScreen() {
                       backgroundColor: 'rgba(124,58,237,0.15)',
                       borderWidth: 1,
                       borderColor: c.primary,
+                    }
+                  : !canRegister
+                  ? {
+                      backgroundColor: c.border,
+                      borderWidth: 0,
                     }
                   : {
                       backgroundColor: c.primary,
@@ -785,18 +802,22 @@ export default function MemberWodScreen() {
               <Text
                 style={[
                   s.logResultBtnText,
-                  { color: myResult ? c.primary : '#fff' },
+                  { color: myResult ? c.primary : !canRegister ? c.text3 : '#fff' },
                 ]}
               >
-                {myResult
-                  ? `Mi resultado: ${myResult.scoreFormatted} ${myResult.rx ? '(RX)' : '(Scaled)'}`
-                  : 'Registrar mi resultado'}
+                {myResult ? `Mi resultado: ${myResult.scoreFormatted}` : 'Registrar mi resultado'}
               </Text>
-              {myResult && (
+              {myResult ? (
                 <Text style={[s.logResultBtnSub, { color: c.text3 }]}>
                   Toca para actualizar
                 </Text>
-              )}
+              ) : !canRegister ? (
+                <Text style={[s.logResultBtnSub, { color: c.text3 }]}>
+                  {blockedReason === 'not_started'
+                    ? 'Todavía no empieza tu clase'
+                    : 'Necesitás una reserva confirmada en una clase de este WOD'}
+                </Text>
+              ) : null}
             </TouchableOpacity>
           )}
         </ScrollView>
@@ -811,6 +832,7 @@ export default function MemberWodScreen() {
           wodId={wodId}
           scoreType={scoreType}
           myResult={myResult}
+          movements={movements}
           c={c}
           insets={{ bottom: insets.bottom }}
         />

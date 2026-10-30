@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { View, Text, ActivityIndicator, TouchableOpacity, Image, StyleSheet, Platform, Animated, PanResponder, Modal } from 'react-native'
+import type { ViewInstance } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../store/auth.store'
 import { ThemeProvider, useTheme } from '../theme/ThemeContext'
@@ -79,7 +80,7 @@ function SparkleGymLogo({ uri, gymName, primaryColor, logoStyle, borderColor, pl
   placeholderBg: string
   placeholderBorder: string
 }) {
-  const containerRef = useRef<View>(null)
+  const containerRef = useRef<ViewInstance>(null)
   const centerRef    = useRef({ cx: 0, cy: 0 })
   const [overlayVisible, setOverlayVisible] = useState(false)
 

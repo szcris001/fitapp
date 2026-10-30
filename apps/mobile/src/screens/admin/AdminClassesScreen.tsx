@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet,
   TouchableOpacity, ActivityIndicator, RefreshControl, Alert
 } from 'react-native'
+import type { ScrollViewInstance } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useFocusEffect } from '@react-navigation/native'
 import api from '../../lib/api'
@@ -30,7 +31,7 @@ function isSameDay(a: Date, b: Date) {
 export default function AdminClassesScreen({ navigation }: any) {
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
-  const calendarRef = useRef<ScrollView>(null)
+  const calendarRef = useRef<ScrollViewInstance>(null)
 
   const [days] = useState(buildWeekDays(14))
   const [selectedDay, setSelectedDay] = useState(days[0])

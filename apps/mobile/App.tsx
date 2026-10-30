@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { StatusBar } from 'react-native'
+import { StatusBar } from 'expo-status-bar'
 import { isRunningInExpoGo } from 'expo'
 import type * as NotificationsType from 'expo-notifications'
 import { NavigationContainerRef } from '@react-navigation/native'
@@ -79,7 +79,7 @@ export default function App() {
 
   return (
     <>
-      <StatusBar barStyle="light-content" backgroundColor="#030712" />
+      <StatusBar style="light" />
       <AppNavigator />
     </>
   )

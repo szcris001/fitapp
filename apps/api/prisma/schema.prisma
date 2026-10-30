@@ -91,37 +91,37 @@ model Gym {
 }
 
 model User {
-  id                 String               @id @default(uuid())
-  gymId              String?
-  role               UserRole             @default(MEMBER)
-  name               String
-  email              String
-  passwordHash       String
-  phone              String?
-  avatarUrl          String?
-  birthDate          DateTime?
-  gender             String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  source             String?
-  pushToken          String?
-  mustChangePassword Boolean              @default(false)
-  stripeCustomerId   String?
-  rut                String?
-  bookings           Booking[]
-  coachClasses       Class[]              @relation("CoachClasses")
-  consistencyBadges  ConsistencyBadge[]
-  gymnasticProgress  GymnasticProgress[]
-  memberships        Membership[]
-  passwordResets     PasswordResetToken[]
-  refreshTokens      RefreshToken[]
-  rmRecords          RmRecord[]
-  benchmarkResults   BenchmarkResult[]
-  gym                Gym?                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
-  wodResultsRecorded WodResult[]          @relation("WodResultRecordedBy")
-  wodResults         WodResult[]
-  pillarAwardsReceived PillarAward[]      @relation("PillarAwardUser")
-  pillarAwardsGiven   PillarAward[]       @relation("PillarAwardedBy")
+  id                   String               @id @default(uuid())
+  gymId                String?
+  role                 UserRole             @default(MEMBER)
+  name                 String
+  email                String
+  passwordHash         String
+  phone                String?
+  avatarUrl            String?
+  birthDate            DateTime?
+  gender               String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  source               String?
+  pushToken            String?
+  mustChangePassword   Boolean              @default(false)
+  stripeCustomerId     String?
+  rut                  String?
+  bookings             Booking[]
+  coachClasses         Class[]              @relation("CoachClasses")
+  consistencyBadges    ConsistencyBadge[]
+  gymnasticProgress    GymnasticProgress[]
+  memberships          Membership[]
+  passwordResets       PasswordResetToken[]
+  refreshTokens        RefreshToken[]
+  rmRecords            RmRecord[]
+  benchmarkResults     BenchmarkResult[]
+  gym                  Gym?                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  wodResultsRecorded   WodResult[]          @relation("WodResultRecordedBy")
+  wodResults           WodResult[]
+  pillarAwardsReceived PillarAward[]        @relation("PillarAwardUser")
+  pillarAwardsGiven    PillarAward[]        @relation("PillarAwardedBy")
 
   paymentCheckouts PaymentCheckout[]
 
@@ -147,7 +147,6 @@ model Plan {
   isTrial             Boolean           @default(false)
   memberships         Membership[]
   gym                 Gym               @relation(fields: [gymId], references: [id], onDelete: Cascade)
-  allowedClasses      Class[]           @relation("ClassAllowedPlans")
   classTypes          ClassType[]       @relation("PlanClassTypes")
   paymentCheckouts    PaymentCheckout[]
 }
@@ -226,7 +225,6 @@ model Class {
   classType    ClassType      @relation(fields: [classTypeId], references: [id])
   coach        User           @relation("CoachClasses", fields: [coachId], references: [id])
   gym          Gym            @relation(fields: [gymId], references: [id], onDelete: Cascade)
-  allowedPlans Plan[]         @relation("ClassAllowedPlans")
 
   @@index([gymId, startsAt])
   @@index([gymId, classTypeId, startsAt])
@@ -581,21 +579,29 @@ model BankMovement {
 }
 
 model WodResult {
-  id             String   @id @default(uuid())
-  gymId          String
-  wodId          String
-  userId         String
-  score          Float    @default(0)
-  scoreText      String?
-  rx             Boolean  @default(true)
-  notes          String?
-  recordedBy     String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  gym            Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
-  recordedByUser User     @relation("WodResultRecordedBy", fields: [recordedBy], references: [id])
-  user           User     @relation(fields: [userId], references: [id])
-  wod            Wod      @relation(fields: [wodId], references: [id], onDelete: Cascade)
+  id              String   @id @default(uuid())
+  gymId           String
+  wodId           String
+  userId          String
+  score           Float    @default(0)
+  scoreText       String?
+  rx              Boolean  @default(true)
+  notes           String?
+  recordedBy      String
+  // Desglose informativo por movimiento (snapshot libre, sin FK real a
+  // WodMovement): [{ movementId, movementName, value }]. No alimenta el
+  // ranking ni formatScore() — el score/scoreText manual sigue siendo la
+  // única fuente del leaderboard. Se guarda el nombre y el id tal como
+  // existían al momento de cargar el resultado para no atar el historial del
+  // alumno a un WodMovement que el coach puede editar o borrar después
+  // (mismo patrón "snapshot, no referencia viva" ya usado en este módulo).
+  movementResults Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  gym             Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  recordedByUser  User     @relation("WodResultRecordedBy", fields: [recordedBy], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
+  wod             Wod      @relation(fields: [wodId], references: [id], onDelete: Cascade)
 
   @@unique([wodId, userId])
   @@index([gymId, wodId])
@@ -609,8 +615,8 @@ model ConsistencyBadge {
   userId        String
   periodStart   DateTime // gymDayStart del 1 ene / 1 jul
   periodEnd     DateTime // exclusivo
-  eligibleCount Int      // clases asistidas con WOD planificado en el período
-  loggedCount   Int      // de esas, con WodResult cargado (== eligibleCount si se otorgó)
+  eligibleCount Int // clases asistidas con WOD planificado en el período
+  loggedCount   Int // de esas, con WodResult cargado (== eligibleCount si se otorgó)
   awardedAt     DateTime @default(now())
   gym           Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)

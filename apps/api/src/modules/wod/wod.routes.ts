@@ -5,7 +5,7 @@ import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { includeBlocks, getMyLoads, formatScore, computeRank } from './wod.service'
 import { gymDayRange, gymDayStart, getGymTimezone } from '../../lib/gym-day'
-import { WodScoreType, WodBlockType } from '../../generated/prisma'
+import { WodScoreType, WodBlockType, Prisma } from '../../generated/prisma'
 
 // Payload del JWT: { userId, gymId, role }
 interface AuthUser {
@@ -27,6 +27,35 @@ async function resolveBenchmarkId(gymId: string, benchmarkId: string | null | un
 }
 
 function toFloat(v: any) { return v != null && v !== '' ? Number(v) : null }
+
+// El alumno solo puede registrar su resultado si tiene una reserva confirmada
+// (o ya marcada como asistida) en una clase de este WOD (mismo classType, mismo
+// día local del gym) que ya haya empezado — evita cargar el resultado de una
+// clase que todavía no pasó o a la que nunca se anotó. Un WOD puede compartirse
+// entre varios horarios del mismo tipo de clase ese día, por eso se revisan
+// todas las reservas del alumno para ese día/tipo, no una sola.
+async function checkCanRegisterResult(
+  wod: { gymId: string; classTypeId: string; date: Date },
+  userId: string,
+): Promise<{ canRegister: boolean; blockedReason: 'not_booked' | 'not_started' | null }> {
+  const tz = await getGymTimezone(wod.gymId)
+  const { gte, lt } = gymDayRange(wod.date, tz)
+
+  const bookedClasses = await prisma.class.findMany({
+    where: {
+      gymId: wod.gymId,
+      classTypeId: wod.classTypeId,
+      startsAt: { gte, lt },
+      bookings: { some: { userId, status: { in: ['CONFIRMED', 'ATTENDED'] } } },
+    },
+    select: { startsAt: true },
+  })
+
+  if (bookedClasses.length === 0) return { canRegister: false, blockedReason: 'not_booked' }
+  const started = bookedClasses.some(c => c.startsAt <= new Date())
+  if (!started) return { canRegister: false, blockedReason: 'not_started' }
+  return { canRegister: true, blockedReason: null }
+}
 
 function sanitizeMovement(m: any, order: number) {
   return {
@@ -193,7 +222,12 @@ export async function wodRoutes(app: FastifyInstance) {
   })
 
   // ─── GET ONE ──────────────────────────────────────────────────────────────────
-  app.get('/wods/:id', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
+  // authenticate (no requireCoachOrAdmin): mismo nivel que '/wods' y
+  // '/wods/class/:classId', que ya exponen estos mismos campos (blocks,
+  // movements, type) a cualquier rol del gym. El alumno lo necesita para
+  // armar el formulario de desglose por movimiento (ver movementResults en
+  // WodResult) cuando llega a la pantalla sin pasar por esos otros endpoints.
+  app.get('/wods/:id', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as any
     const wod = await prisma.wod.findFirst({
@@ -419,19 +453,24 @@ export async function wodRoutes(app: FastifyInstance) {
     const result = await prisma.wodResult.findUnique({
       where: { wodId_userId: { wodId, userId: user.userId } },
     })
+    const { canRegister, blockedReason } = await checkCanRegisterResult(wod, user.userId)
 
-    if (!result) return reply.status(200).send(null)
+    if (!result) return reply.status(200).send({ result: null, canRegister, blockedReason })
 
     const scoreFormatted = formatScore(result.score, result.scoreText, wod.scoreType)
     const { rank, totalInCategory } = await computeRank(wodId, wod.scoreType, result.rx, result.score)
     return reply.send({
-      ...result,
-      scoreFormatted,
-      rank,
-      totalInCategory,
-      benchmarkId: wod.benchmark?.id ?? null,
-      benchmarkName: wod.benchmark?.nombre ?? null,
-      benchmarkCategory: wod.benchmark?.categoria ?? null,
+      result: {
+        ...result,
+        scoreFormatted,
+        rank,
+        totalInCategory,
+        benchmarkId: wod.benchmark?.id ?? null,
+        benchmarkName: wod.benchmark?.nombre ?? null,
+        benchmarkCategory: wod.benchmark?.categoria ?? null,
+      },
+      canRegister,
+      blockedReason,
     })
   })
 
@@ -442,9 +481,17 @@ export async function wodRoutes(app: FastifyInstance) {
 
     const memberResultSchema = z.object({
       score: z.number().min(0),
-      scoreText: z.string().optional(),
+      scoreText: z.string().nullish(),
       rx: z.boolean().default(false),
-      notes: z.string().max(500).optional(),
+      notes: z.string().max(500).nullish(),
+      // Desglose informativo por movimiento (ver comentario en WodResult del
+      // schema de Prisma). No alimenta el ranking: el score/scoreText de
+      // arriba sigue siendo lo único que usa el leaderboard.
+      movementResults: z.array(z.object({
+        movementId:   z.string().min(1).max(100),
+        movementName: z.string().min(1).max(200),
+        value:        z.string().min(1).max(500),
+      })).max(50).optional(),
     })
 
     const parseResult = memberResultSchema.safeParse(request.body)
@@ -456,6 +503,14 @@ export async function wodRoutes(app: FastifyInstance) {
     const wod = await prisma.wod.findFirst({ where: { id: wodId, gymId: user.gymId } })
     if (!wod) return reply.status(404).send({ error: 'WOD no encontrado' })
 
+    const { canRegister, blockedReason } = await checkCanRegisterResult(wod, user.userId)
+    if (!canRegister) {
+      const error = blockedReason === 'not_started'
+        ? 'Todavía no empieza tu clase — podés registrar el resultado una vez que arranque.'
+        : 'Necesitás una reserva confirmada en una clase de este WOD para registrar tu resultado.'
+      return reply.status(403).send({ error, blockedReason })
+    }
+
     const result = await prisma.wodResult.upsert({
       where: { wodId_userId: { wodId, userId: user.userId } },
       create: {
@@ -466,6 +521,7 @@ export async function wodRoutes(app: FastifyInstance) {
         scoreText: body.scoreText ?? null,
         rx: body.rx,
         notes: body.notes ?? null,
+        movementResults: body.movementResults ?? Prisma.DbNull,
         recordedBy: user.userId,
       },
       update: {
@@ -473,6 +529,7 @@ export async function wodRoutes(app: FastifyInstance) {
         scoreText: body.scoreText ?? null,
         rx: body.rx,
         notes: body.notes ?? null,
+        movementResults: body.movementResults ?? Prisma.DbNull,
       },
       include: {
         user: { select: { id: true, name: true } },
