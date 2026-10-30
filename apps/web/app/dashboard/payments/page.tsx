@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api, { mediaUrl } from '../../../lib/api'
 import { formatMoney, toMajorUnits } from '../../../lib/money'
+import { GYM_TIMEZONE } from '../../../lib/gym-timezone'
 import { Wallet, TrendingUp, CreditCard, CheckCircle, Clock, X, ExternalLink } from 'lucide-react'
 
 const METHOD_LABEL: Record<string, string> = {
@@ -27,6 +28,8 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<string | null>(null)
   const [tab, setTab] = useState<'history' | 'pending'>('pending')
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
   const router = useRouter()
 
   const fetchAll = useCallback(async () => {
@@ -64,12 +67,18 @@ export default function PaymentsPage() {
     } finally { setActionId(null) }
   }
 
-  const handleReject = async (id: string) => {
-    const reason = window.prompt('Motivo del rechazo (opcional):')
-    if (reason === null) return  // cancelled
+  const handleReject = (id: string) => {
+    setRejectReason('')
+    setRejectingId(id)
+  }
+
+  const submitReject = async () => {
+    if (!rejectingId) return
+    const id = rejectingId
     setActionId(id)
     try {
-      await api.patch(`/payments/transfer/${id}/reject`, { reason })
+      await api.patch(`/payments/transfer/${id}/reject`, { reason: rejectReason.trim() || null })
+      setRejectingId(null)
       await fetchAll()
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error al rechazar')
@@ -87,6 +96,7 @@ export default function PaymentsPage() {
   ] : []
 
   return (
+    <>
     <div className="max-w-5xl mx-auto px-6 py-10 space-y-6">
       {/* Header */}
       <div className="page-header">
@@ -198,7 +208,7 @@ export default function PaymentsPage() {
                       {m.plan?.name} · {fmt(m.pricePaid, m.currency)} · {m.plan?.durationDays} días
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-4)' }}>
-                      Enviado {new Date(m.createdAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      Enviado {new Date(m.createdAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: GYM_TIMEZONE })}
                     </p>
                   </div>
 
@@ -303,7 +313,7 @@ export default function PaymentsPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-sm" style={{ color: 'var(--text-3)' }}>
-                        {m.paidAt ? new Date(m.paidAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                        {m.paidAt ? new Date(m.paidAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric', timeZone: GYM_TIMEZONE }) : '—'}
                       </td>
                       <td className="px-5 py-3.5">
                         <span className={`badge-${m.status === 'ACTIVE' ? 'green' : m.status === 'TRIAL' ? 'yellow' : 'gray'}`}>
@@ -319,5 +329,53 @@ export default function PaymentsPage() {
         </div>
       )}
     </div>
+
+    {rejectingId && (
+      <>
+        <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}
+          onClick={() => setRejectingId(null)} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setRejectingId(null)}>
+          <div className="w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden modal-animate card" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border-1)' }}>
+              <div className="flex items-center gap-2">
+                <X className="w-5 h-5" style={{ color: '#ef4444' }} />
+                <h2 className="font-semibold" style={{ color: 'var(--text-1)' }}>Rechazar transferencia</h2>
+              </div>
+              <button onClick={() => setRejectingId(null)} className="w-7 h-7 flex items-center justify-center rounded-lg"
+                style={{ color: 'var(--text-3)' }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--surface-hover)')}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-2)' }}>Motivo del rechazo (opcional)</label>
+              <textarea
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                rows={3}
+                maxLength={500}
+                className="input w-full resize-none"
+                placeholder="Ej: el comprobante no coincide con el monto del plan"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 px-5 pb-5">
+              <button onClick={() => setRejectingId(null)}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium border"
+                style={{ borderColor: 'var(--border-1)', color: 'var(--text-2)' }}>
+                Cancelar
+              </button>
+              <button onClick={submitReject} disabled={actionId === rejectingId}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: '#ef4444' }}>
+                Rechazar
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    )}
+    </>
   )
 }
