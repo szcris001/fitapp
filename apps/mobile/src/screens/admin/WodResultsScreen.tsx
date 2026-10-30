@@ -65,7 +65,7 @@ function ResultForm({
 
   const getScore = (): { score: number; scoreText?: string } | null => {
     const input = scoreType === 'TIME' ? { mins, secs }
-      : scoreType === 'CUSTOM' ? { text: scoreText }
+      : scoreType === 'CUSTOM' ? { text: scoreText, value: customValue }
       : { value: scoreValue }
     const result = parseScoreInput(scoreType, input)
     if ('error' in result) return null

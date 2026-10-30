@@ -13,6 +13,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation, useRoute } from '@react-navigation/native'
+import { getGymTimezone } from '../lib/gym-timezone'
 import { useTheme } from '../theme/ThemeContext'
 import { useAuthStore } from '../store/auth.store'
 import { BottomSheet } from '../components/BottomSheet'
@@ -103,6 +104,7 @@ function formatDate(dateStr: string): string {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
+      timeZone: getGymTimezone(),
     })
   } catch {
     return dateStr
@@ -299,7 +301,7 @@ function LogResultModal({
   // ── Submit ──────────────────────────────────────────────────────────────────
   const submit = async () => {
     const input = scoreType === 'TIME' ? { mins, secs }
-      : scoreType === 'CUSTOM' ? { text: scoreText }
+      : scoreType === 'CUSTOM' ? { text: scoreText, value: scoreValue }
       : { value: scoreValue }
     const parsed = parseScoreInput(scoreType, input)
     if ('error' in parsed) {

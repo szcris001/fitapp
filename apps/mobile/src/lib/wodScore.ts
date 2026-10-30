@@ -20,7 +20,14 @@ export function parseScoreInput(
   }
   if (scoreType === 'CUSTOM') {
     const text = input.text ?? ''
-    return { score: parseFloat(text) || 0, scoreText: text.trim() || null }
+    // "Valor numérico (opcional, para ordenar)" es un campo separado del texto
+    // libre — antes se ignoraba por completo y el score real salía de parsear el
+    // número inicial del TEXTO (ej. "7 rondas..." → 7, o 0 si no arrancaba con un
+    // número), descartando en silencio lo que el coach/alumno tipeaba acá
+    // (hallazgo QA mobile, 2026-10-30).
+    const n = parseFloat(input.value ?? '')
+    const score = !isNaN(n) ? n : (parseFloat(text) || 0)
+    return { score, scoreText: text.trim() || null }
   }
   // REPS / ROUNDS / WEIGHT — acepta 0 (igual que la web y el backend, `score.min(0)`)
   const n = parseFloat(input.value ?? '')
