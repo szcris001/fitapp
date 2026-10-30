@@ -1120,6 +1120,32 @@ describe('Plans: POST /api/memberships/:userId/renew — renewMembership', () =>
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/usuario no encontrado/i)
   })
+
+  it('plan pausado después de la última membresía → 400, no renueva (mismo chequeo que assignMembership)', async () => {
+    // Mismo hueco que QA 2026-10-30: assignMembership bloqueaba planes isActive:false,
+    // renewMembership no — pausar un plan no servía de nada mientras algún alumno lo
+    // siguiera renovando indefinidamente.
+    const pausedPlan = await prisma.plan.create({
+      data: { gymId: gymAId, name: 'QA Plan a pausar', priceCents: 10000, currency: 'CLP', durationDays: 30 },
+    })
+    createdPlanIds.push(pausedPlan.id)
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+    const m = await prisma.membership.create({
+      data: { userId: memberAId, planId: pausedPlan.id, status: 'ACTIVE', startsAt: now, endsAt, pricePaid: 10000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(m.id)
+    await prisma.plan.update({ where: { id: pausedPlan.id }, data: { isActive: false } })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/memberships/${memberAId}/renew`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/el plan está pausado/i)
+  })
 })
 
 describe('Plans: PATCH /api/memberships/:id — updateMembership', () => {
@@ -1227,5 +1253,71 @@ describe('Plans: PATCH /api/memberships/:id — updateMembership', () => {
     })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/no encontrada/i)
+  })
+
+  it('status inválido → 400 de validación, sin filtrar detalles internos de Prisma', async () => {
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+    const m = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'INACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(m.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/memberships/${m.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { status: 'ROTO_A_PROPOSITO' },
+    })
+    expect(res.statusCode).toBe(400)
+    const body = res.json()
+    expect(body.error).toMatch(/datos inválidos/i)
+    // Antes el 400 llevaba el mensaje crudo de Prisma (ruta de archivo, línea, el
+    // objeto `data` completo) — fuga de detalles internos (QA 2026-10-30).
+    expect(JSON.stringify(body)).not.toMatch(/plans\.service\.ts/)
+
+    // La membresía no debe haber cambiado
+    const reloaded = await prisma.membership.findUnique({ where: { id: m.id } })
+    expect(reloaded!.status).toBe('INACTIVE')
+  })
+
+  it('extendDays no numérico → 400 de validación, no un no-op silencioso', async () => {
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+    const m = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'INACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(m.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/memberships/${m.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { extendDays: 'no-es-numero' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('extendDays por encima del tope (730) → 400, sin fecha absurda', async () => {
+    const now = new Date()
+    const endsAt = new Date(now)
+    endsAt.setDate(endsAt.getDate() + 30)
+    const m = await prisma.membership.create({
+      data: { userId: memberAId, planId, status: 'INACTIVE', startsAt: now, endsAt, pricePaid: 50000, currency: 'CLP' },
+    })
+    createdMembershipIds.push(m.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/memberships/${m.id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { extendDays: 999999 },
+    })
+    expect(res.statusCode).toBe(400)
+
+    const reloaded = await prisma.membership.findUnique({ where: { id: m.id } })
+    expect(reloaded!.endsAt.getFullYear()).toBeLessThan(2100)
   })
 })
