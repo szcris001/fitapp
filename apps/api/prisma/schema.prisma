@@ -337,6 +337,12 @@ model GymnasticProgress {
   evidenceType String?
   evidenceUrl  String?
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Sin esto, 2 toques rápidos del mismo hito (doble tap en mobile) creaban 2 filas
+  // idénticas — mobile deduplica al mostrar (usa un Set de nombres), pero la ficha
+  // del alumno en el panel web cuenta filas crudas (gymnasticProgress.length), así
+  // que el coach veía un conteo de hitos inflado (QA 2026-10-30).
+  @@unique([userId, skillName, milestone])
 }
 
 model GymSkill {

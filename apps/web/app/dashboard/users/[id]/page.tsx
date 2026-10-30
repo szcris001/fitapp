@@ -503,6 +503,19 @@ function getBestRms(rmRecords: any[]): Record<string, any> {
   }, {})
 }
 
+// Un doble tap en mobile podía crear 2 filas idénticas antes de que existiera la
+// constraint única en la base (QA 2026-10-30) — de-duplicar por skillName+milestone
+// acá es defensa adicional para datos viejos que ya hayan quedado duplicados.
+function dedupeGymnasticProgress(rows: any[]): any[] {
+  const seen = new Map<string, any>()
+  for (const p of rows) {
+    const key = `${p.skillName}::${p.milestone}`
+    const existing = seen.get(key)
+    if (!existing || new Date(p.achievedAt) < new Date(existing.achievedAt)) seen.set(key, p)
+  }
+  return [...seen.values()]
+}
+
 /* ─── Main Page ─────────────────────────────────── */
 export default function UserDetailPage() {
   const { user, loadFromStorage } = useAuthStore()
@@ -709,6 +722,7 @@ export default function UserDetailPage() {
   const daysMember = calcDaysMember(member.createdAt)
   const bestRms = getBestRms(member.rmRecords ?? [])
   const rmCount = Object.keys(bestRms).length
+  const gymnasticProgress = dedupeGymnasticProgress(member.gymnasticProgress ?? [])
   const attendedCount = member._count?.bookings ?? member.bookings?.length ?? 0
 
   const genderLabel: Record<string, string> = { M: 'Masculino', F: 'Femenino', OTHER: 'Otro' }
@@ -936,7 +950,7 @@ export default function UserDetailPage() {
         <QuickStatCard
           icon={TrendingUp}
           label="Hitos gimnásticos"
-          value={member.gymnasticProgress?.length ?? 0}
+          value={gymnasticProgress.length}
           colorVar="#22c55e"
         />
         <QuickStatCard
@@ -1089,16 +1103,16 @@ export default function UserDetailPage() {
               )}
 
               {/* Progresión gimnástica */}
-              {member.gymnasticProgress?.length > 0 && (
+              {gymnasticProgress.length > 0 && (
                 <div className="p-6">
                   <div className="flex items-center gap-2 mb-4">
                     <TrendingUp className="w-4 h-4" style={{ color: '#22c55e' }} />
                     <h4 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Progresión gimnástica</h4>
-                    <span className="badge-green ml-auto">{member.gymnasticProgress.length} hitos</span>
+                    <span className="badge-green ml-auto">{gymnasticProgress.length} hitos</span>
                   </div>
                   <div className="space-y-3">
                     {Object.entries(
-                      member.gymnasticProgress.reduce((acc: any, p: any) => {
+                      gymnasticProgress.reduce((acc: any, p: any) => {
                         if (!acc[p.skillName]) acc[p.skillName] = []
                         acc[p.skillName].push(p)
                         return acc
