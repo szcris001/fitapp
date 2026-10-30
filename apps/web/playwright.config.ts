@@ -60,10 +60,17 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'pnpm dev',
+    // En CI, `next dev` (Turbopack) vuelve a resolver next/font/google en caliente
+    // en cada arranque del dev server — en el runner de GitHub Actions eso fallaba
+    // intermitentemente ("Module not found: @vercel/turbopack-next/.../font", el
+    // job "E2E Web" nunca llegaba a levantar) mientras que "Build Web" (next build,
+    // mismo runner) siempre pasaba. Usar build+start en CI reutiliza ese mismo
+    // camino ya probado, en vez de la resolución de fuentes en caliente de dev
+    // (hallazgo QA 2026-10-30). En local seguimos con `pnpm dev` para iterar rápido.
+    command: process.env.CI ? 'pnpm build && pnpm start' : 'pnpm dev',
     url: `${BASE_URL}/login`,
     reuseExistingServer: true,
-    timeout: 120_000,
+    timeout: process.env.CI ? 180_000 : 120_000,
     stdout: 'ignore',
     stderr: 'pipe',
   },
