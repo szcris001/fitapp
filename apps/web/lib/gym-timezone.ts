@@ -45,6 +45,20 @@ export function gymCalendarDate(d: Date | string = new Date(), timezone: string 
 }
 
 /**
+ * Convierte un instante UTC a su hora de pared en la zona del gym, como string
+ * "flotante" sin offset ("2026-10-26T07:00:00"). FullCalendar, sin el plugin de
+ * moment-timezone/luxon, no sabe convertir a una zona IANA nombrada — pasarle
+ * `timeZone="America/Santiago"` directamente no hace nada y termina mostrando el
+ * instante crudo en UTC (hallazgo QA 2026-10-30, qa/reports/2026-10-30-0046/clases.md).
+ * La forma que sí funciona sin plugin extra: convertir nosotros a hora de Chile y
+ * entregarle a FullCalendar un string sin zona — lo muestra tal cual, sea cual sea
+ * la del navegador (su comportamiento default, `timeZone="local"`, para fechas sin offset).
+ */
+export function toGymFloatingIso(iso: string, timezone: string = GYM_TIMEZONE): string {
+  return new Date(iso).toLocaleString('sv', { timeZone: timezone }).replace(' ', 'T')
+}
+
+/**
  * Días calendario que faltan hasta `target`, contados en la zona del gym (no la del
  * navegador). Restar milisegundos y dividir por 86 400 000 (como antes) se corre 1 día
  * cada vez que el período cruza un cambio de horario — real en Chile, o el de la TZ

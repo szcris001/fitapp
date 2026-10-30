@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../lib/api'
 import { GYM_TIMEZONE } from '../../../../lib/gym-timezone'
+import { TimeInput24 } from './TimeInput24'
 import {
   ChevronLeft, ChevronRight,
   Clock, Users, Dumbbell, CheckCircle, Circle, Pencil, Trash2, Save,
@@ -1193,6 +1194,10 @@ export function ClassPanel({
   const accent = cls?.classType.color || 'var(--brand-accent)'
   const confirmed = cls?.bookings.filter(b => b.status === 'CONFIRMED') ?? []
   const attended  = cls?.bookings.filter(b => b.status === 'ATTENDED')  ?? []
+  // Mismo criterio de cupo que el backend (CONFIRMED+ATTENDED+PENDING_CONFIRM) — contar
+  // cls.bookings.length a secas incluye CANCELLED/WAITLIST, mostrando "Llena" de más
+  // (QA H01, qa/reports/2026-10-30-reservas).
+  const activeCount = cls?.bookings.filter(b => b.status === 'CONFIRMED' || b.status === 'ATTENDED' || b.status === 'PENDING_CONFIRM').length ?? 0
   const wod       = cls?.wods?.[0]
 
   const currentIdx = classIds.indexOf(classId)
@@ -1336,15 +1341,13 @@ export function ClassPanel({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-3)' }}>Hora inicio</label>
-                <input type="time" lang="es-CL" value={editForm.startTime}
-                  onChange={e => setEditForm(f => ({ ...f, startTime: e.target.value }))}
-                  className="input text-sm w-full" />
+                <TimeInput24 value={editForm.startTime}
+                  onChange={v => setEditForm(f => ({ ...f, startTime: v }))} />
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-3)' }}>Hora fin</label>
-                <input type="time" lang="es-CL" value={editForm.endTime}
-                  onChange={e => setEditForm(f => ({ ...f, endTime: e.target.value }))}
-                  className="input text-sm w-full" />
+                <TimeInput24 value={editForm.endTime}
+                  onChange={v => setEditForm(f => ({ ...f, endTime: v }))} />
               </div>
             </div>
             <div>
@@ -1375,8 +1378,8 @@ export function ClassPanel({
               <div className="w-px self-stretch shrink-0" style={{ backgroundColor: 'var(--border-1)' }} />
               <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-2)' }}>
                 <Users className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-4)' }} />
-                {cls.bookings.length}/{cls.capacity}
-                {cls.bookings.length >= cls.capacity && (
+                {activeCount}/{cls.capacity}
+                {activeCount >= cls.capacity && (
                   <span className="badge-red ml-1">Llena</span>
                 )}
               </div>

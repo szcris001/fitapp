@@ -3,13 +3,25 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
-import { toMajorUnits, toMinorUnits } from '../../../lib/money'
+import { toMajorUnits, toMinorUnits, currencyExponent } from '../../../lib/money'
 import {
   CreditCard, Plus, Clock, Edit2, Check, X, Trash2,
   Search, FlaskConical, Infinity, Calendar, Layers, RotateCcw,
 } from 'lucide-react'
 
 const currencies = ['CLP', 'ARS', 'COP', 'MXN', 'PEN', 'BRL', 'USD']
+
+// "Datos inválidos" por sí solo no dice qué campo falló — si el backend manda
+// `details` (zod flatten), se agrega el primer error de campo al mensaje.
+function extractApiError(err: any, fallback: string): string {
+  const data = err.response?.data
+  const fieldErrors = data?.details?.fieldErrors as Record<string, string[]> | undefined
+  if (fieldErrors) {
+    const first = Object.entries(fieldErrors).find(([, msgs]) => msgs?.length)
+    if (first) return `${data.error}: ${first[0]} — ${first[1][0]}`
+  }
+  return data?.error || fallback
+}
 
 // ─── Types ───────────────────────────────────────────────────────
 type ClassType = { id: string; name: string }
@@ -213,6 +225,13 @@ function PlanCard({
           <FeatureRow
             icon={<FlaskConical style={{ width: 14, height: 14 }} />}
             text="Plan de prueba"
+          />
+        )}
+        {!plan.isTrial && (
+          <FeatureRow
+            icon={<RotateCcw style={{ width: 14, height: 14 }} />}
+            text={plan.autoRenewEnabled ? 'Auto-renovación activa' : 'Sin auto-renovación'}
+            faded={!plan.autoRenewEnabled}
           />
         )}
         {!plan.isActive && (
@@ -443,6 +462,7 @@ function PlanFormFields({
             </label>
             <input
               type="number" min={0}
+              step={currencyExponent(form.currency) === 0 ? 1 : 0.01}
               value={form.priceCents}
               onChange={e => setForm(f => ({ ...f, priceCents: e.target.value }))}
               required
@@ -654,7 +674,7 @@ export default function PlansPage() {
       setCreateForm(emptyForm())
       fetchPlans()
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al crear el plan')
+      setError(extractApiError(err, 'Error al crear el plan'))
     } finally {
       setSaving(false)
     }
@@ -680,7 +700,7 @@ export default function PlansPage() {
       setEditingId(null)
       fetchPlans()
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al actualizar el plan')
+      setError(extractApiError(err, 'Error al actualizar el plan'))
     } finally {
       setSavingEdit(false)
     }
