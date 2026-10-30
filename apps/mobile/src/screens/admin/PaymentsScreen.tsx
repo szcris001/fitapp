@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import api from '../../lib/api'
+import { formatMoney } from '../../lib/money'
 
 const METHOD_LABEL: Record<string, string> = {
   cash: '💵 Efectivo', transfer: '🏦 Transferencia', card: '💳 Tarjeta',
@@ -28,8 +29,11 @@ export default function PaymentsScreen({ navigation }: any) {
 
   useFocusEffect(useCallback(() => { fetchData() }, []))
 
-  const fmt = (cents: number, currency = 'CLP') =>
-    `${currency} ${(cents / 100).toLocaleString('es-CL')}`
+  // pricePaid viene en la unidad mínima ISO de cada moneda (CLP: entero, sin
+  // decimales — no "centavos"). Dividir por 100 a mano daba "CLP NaN" (el campo
+  // real es pricePaid, no amountCents) y, aun leyendo el campo correcto, hubiera
+  // escalado mal cualquier monto en CLP (hallazgo QA 2026-10-30).
+  const fmt = (minor: number, currency = 'CLP') => formatMoney(minor, currency)
 
   if (loading) return <View style={s.center}><ActivityIndicator color="#6366f1" size={36} /></View>
 
@@ -77,7 +81,7 @@ export default function PaymentsScreen({ navigation }: any) {
               <Text style={s.payMethod}>{METHOD_LABEL[p.paymentMethod] || p.paymentMethod}</Text>
             </View>
             <View style={s.payRight}>
-              <Text style={s.payAmount}>{fmt(p.amountCents, p.currency)}</Text>
+              <Text style={s.payAmount}>{fmt(p.pricePaid, p.currency)}</Text>
               <Text style={s.payDate}>{new Date(p.createdAt).toLocaleDateString('es-CL')}</Text>
             </View>
           </View>

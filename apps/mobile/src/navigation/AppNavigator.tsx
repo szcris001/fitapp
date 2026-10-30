@@ -36,6 +36,14 @@ import CreateWodScreen from '../screens/admin/CreateWodScreen'
 import WodResultsScreen from '../screens/admin/WodResultsScreen'
 import StaffProfileScreen from '../screens/admin/StaffProfileScreen'
 import AIAlertsScreen from '../screens/admin/AIAlertsScreen'
+import MoreScreen from '../screens/admin/MoreScreen'
+import PlansScreen from '../screens/admin/PlansScreen'
+import PaymentsScreen from '../screens/admin/PaymentsScreen'
+import StaffScreen from '../screens/admin/StaffScreen'
+import ReportsScreen from '../screens/admin/ReportsScreen'
+import CommunicationsScreen from '../screens/admin/CommunicationsScreen'
+import SettingsScreen from '../screens/admin/SettingsScreen'
+import ThemeDemoScreen from '../screens/ThemeDemoScreen'
 import QRScannerScreen from '../screens/admin/QRScannerScreen'
 
 const Stack = createNativeStackNavigator()
@@ -697,14 +705,23 @@ function WodStack() {
   )
 }
 
-// Planes/Pagos/Personal/Reportes/Alertas IA/Comunicación/Configuración dejaron de
-// ser accesibles desde el móvil (quedan solo en la web) al sacar el tab "Más" a
-// pedido de Cristian — salvo Alertas IA, que el home del admin sigue enlazando.
+// El tab "Más" se había sacado del home del admin (quedaban Planes/Pagos/Personal/
+// Reportes/Comunicación/Configuración/Temas sin ningún punto de entrada en mobile,
+// salvo Alertas IA, enlazada aparte desde AdminHomeScreen) — reconectado acá como un
+// ítem "Más" dentro del tab Perfil de staff (QA 2026-10-30).
 function StaffProfileStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="StaffProfileMain" component={StaffProfileScreen} />
       <Stack.Screen name="AIAlerts" component={AIAlertsScreen} />
+      <Stack.Screen name="More" component={MoreScreen} />
+      <Stack.Screen name="Plans" component={PlansScreen} />
+      <Stack.Screen name="Payments" component={PaymentsScreen} />
+      <Stack.Screen name="Staff" component={StaffScreen} />
+      <Stack.Screen name="Reports" component={ReportsScreen} />
+      <Stack.Screen name="Communications" component={CommunicationsScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen name="ThemeDemo" component={ThemeDemoScreen} />
     </Stack.Navigator>
   )
 }

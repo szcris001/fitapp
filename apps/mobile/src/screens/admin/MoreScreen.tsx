@@ -2,6 +2,8 @@ import React from 'react'
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native'
 import { useAuthStore } from '../../store/auth.store'
 
+// Se llega acá desde el tab Perfil de staff ("Más" en MI CUENTA) — "Mi perfil" sería
+// un ítem que apunta a donde el usuario ya está, por eso no está en esta lista.
 const ADMIN_ITEMS = [
   { icon: '💰', label: 'Planes', route: 'Plans', color: '#22c55e' },
   { icon: '💵', label: 'Pagos', route: 'Payments', color: '#f59e0b' },
@@ -11,20 +13,22 @@ const ADMIN_ITEMS = [
   { icon: '📣', label: 'Comunicación', route: 'Communications', color: '#06b6d4' },
   { icon: '⚙️', label: 'Configuración', route: 'Settings', color: '#6b7280' },
   { icon: '🎨', label: 'Temas', route: 'ThemeDemo', color: '#8b5cf6' },
-  { icon: '👤', label: 'Mi perfil', route: 'Profile', color: '#9ca3af' },
-]
-
-const COACH_ITEMS = [
-  { icon: '👤', label: 'Mi perfil', route: 'Profile', color: '#9ca3af' },
 ]
 
 export default function MoreScreen({ navigation }: any) {
   const { user, logout } = useAuthStore()
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
-  const items = isAdmin ? ADMIN_ITEMS : COACH_ITEMS
+  const items = ADMIN_ITEMS
 
   return (
     <ScrollView style={s.container}>
+      <View style={s.header}>
+        {/* navigate() explícito en vez de goBack() — confirmado que goBack() queda
+            trabado en "Más" sin navegar en Expo web (QA 2026-10-30); se llega a
+            "Más" con el mismo patrón (navigate('More') desde StaffProfileScreen). */}
+        <TouchableOpacity onPress={() => navigation.navigate('StaffProfileMain')}>
+          <Text style={s.back}>← Volver</Text>
+        </TouchableOpacity>
+      </View>
       <Text style={s.title}>Más</Text>
 
       <View style={s.grid}>
@@ -63,7 +67,9 @@ export default function MoreScreen({ navigation }: any) {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#030712' },
-  title: { fontSize: 28, fontWeight: '800', color: '#fff', paddingHorizontal: 24, paddingTop: 60, paddingBottom: 24 },
+  header: { paddingHorizontal: 24, paddingTop: 56 },
+  back: { color: '#6366f1', fontSize: 14, fontWeight: '600' },
+  title: { fontSize: 28, fontWeight: '800', color: '#fff', paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 24, gap: 12 },
   card: { width: '47%', backgroundColor: '#111827', borderRadius: 16, padding: 18, borderWidth: 1, borderColor: '#1f2937', alignItems: 'flex-start', gap: 10 },
   iconWrap: { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
