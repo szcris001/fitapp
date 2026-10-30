@@ -24,16 +24,25 @@ export async function listUsers(gymId: string, status?: string, role?: string) {
       memberships: {
         where: { OR: [{ transferStatus: null }, { transferStatus: { not: 'PENDING_REVIEW' } }] },
         orderBy: { createdAt: 'desc' },
-        take: 1,
         include: { plan: { select: { id: true, name: true } } },
       },
     },
     orderBy: { createdAt: 'desc' },
   })
 
+  // "La membresía actual" es la ACTIVE/TRIAL vigente si existe, no simplemente la más
+  // reciente por createdAt — un alumno con una membresía ACTIVE y, después, una
+  // transferencia RECHAZADA más nueva, quedaba mostrado como "Inactivo" en la lista
+  // (take:1 por createdAt agarraba la rechazada) aunque su ficha sí mostraba "Activo"
+  // (QA 2026-10-30, H01).
+  const withCurrentMembership = users.map(u => {
+    const current = u.memberships.find(m => m.status === 'ACTIVE' || m.status === 'TRIAL') ?? u.memberships[0]
+    return { ...u, memberships: current ? [current] : [] }
+  })
+
   const filtered = status && status !== 'all'
-    ? users.filter(u => u.memberships[0]?.status === status)
-    : users
+    ? withCurrentMembership.filter(u => u.memberships[0]?.status === status)
+    : withCurrentMembership
 
   return filtered // passwordHash lo omite el cliente de Prisma (lib/prisma.ts)
 }

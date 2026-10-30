@@ -314,6 +314,49 @@ describe('Users: GET /api/users — filtros role y status', () => {
     // memberships es un array (puede estar vacío si no tiene membresía)
     expect(Array.isArray(member.memberships)).toBe(true)
   })
+
+  it('una membresía ACTIVE no queda tapada por una transferencia rechazada más nueva', async () => {
+    // Regresión QA 2026-10-30 (H01): listUsers tomaba la membresía más reciente por
+    // createdAt, no la ACTIVE vigente — un alumno activo con una transferencia
+    // rechazada DESPUÉS aparecía como "Inactivo" en la lista.
+    const passwordHash = await bcrypt.hash('x', 10)
+    const user = await prisma.user.create({
+      data: { gymId: gymAId, name: 'QA Membership Order', email: 'qa-users-membership-order@test.local', passwordHash, role: 'MEMBER' },
+    })
+    createdUserIds.push(user.id)
+    const plan = await prisma.plan.create({
+      data: { gymId: gymAId, name: 'QA Plan Order', priceCents: 10000, currency: 'CLP', durationDays: 30 },
+    })
+
+    // Membresía ACTIVE, creada primero
+    await prisma.membership.create({
+      data: {
+        userId: user.id, planId: plan.id, status: 'ACTIVE',
+        startsAt: new Date(), endsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        pricePaid: 10000, currency: 'CLP',
+      },
+    })
+    // Transferencia rechazada, creada DESPUÉS (createdAt más reciente)
+    await prisma.membership.create({
+      data: {
+        userId: user.id, planId: plan.id, status: 'INACTIVE', transferStatus: 'REJECTED',
+        startsAt: new Date(), endsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        pricePaid: 10000, currency: 'CLP',
+      },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/users?role=MEMBER',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const found = res.json().find((u: any) => u.id === user.id)
+    expect(found).toBeDefined()
+    expect(found.memberships[0]?.status).toBe('ACTIVE')
+
+    await prisma.plan.delete({ where: { id: plan.id } })
+  })
 })
 
 // ─── Suite 3: GET /users/:id ──────────────────────────────────────────────────
