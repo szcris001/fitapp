@@ -1261,6 +1261,63 @@ describe('Class: GET /api/classes/attendance — asistencia por horario', () => 
     }
   })
 
+  it('cuenta solo reservas ATTENDED de clases que ya pasaron — no CANCELLED ni clases futuras', async () => {
+    // Clase pasada con 1 reserva ATTENDED y 1 CANCELLED — "asistencia" debe contar
+    // solo la ATTENDED, no las 2 (QA 2026-10-30: antes contaba cls._count.bookings
+    // sin filtrar status).
+    // Hora distintiva (02:00) y bien en el pasado para no chocar con clases que
+    // crean otros tests de este archivo a horas "normales".
+    const pastStart = new Date()
+    pastStart.setDate(pastStart.getDate() - 20)
+    pastStart.setHours(2, 0, 0, 0)
+    const pastClass = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: baseClassTypeAId, coachId: coachAId,
+        startsAt: pastStart, endsAt: new Date(pastStart.getTime() + 60 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    createdClassIds.push(pastClass.id)
+    await prisma.booking.create({ data: { userId: memberAId, classId: pastClass.id, status: 'ATTENDED', attended: true } })
+
+    const passwordHash = await bcrypt.hash(TEST_PASSWORD, 10)
+    const member2 = await prisma.user.create({
+      data: { gymId: gymAId, name: 'QA Attendance Cancelled', email: 'qa-classes-attendance-cancelled@test.local', passwordHash, role: 'MEMBER' },
+    })
+    await prisma.booking.create({ data: { userId: member2.id, classId: pastClass.id, status: 'CANCELLED' } })
+
+    // Clase futura con una reserva ATTENDED "a mano" (no debería poder pasar en la
+    // práctica, pero si pasara, igual no debe contar: todavía no sucedió).
+    const futureStart = new Date(pastStart)
+    futureStart.setDate(futureStart.getDate() + 25)
+    const futureClass = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: baseClassTypeAId, coachId: coachAId,
+        startsAt: futureStart, endsAt: new Date(futureStart.getTime() + 60 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    createdClassIds.push(futureClass.id)
+    await prisma.booking.create({ data: { userId: memberAId, classId: futureClass.id, status: 'ATTENDED', attended: true } })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/classes/attendance',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    const hourKey = `${String(pastStart.getHours()).padStart(2, '0')}:00`
+    const entry = body.find((e: any) => e.hour === hourKey)
+    expect(entry).toBeDefined()
+    // bookings de esta hora deben ser exactamente 1 (la ATTENDED de pastClass) —
+    // ni la CANCELLED de pastClass ni la ATTENDED de futureClass (otra hora, en 25 días)
+    expect(entry.bookings).toBe(1)
+
+    await prisma.booking.deleteMany({ where: { classId: { in: [pastClass.id, futureClass.id] } } })
+    await prisma.user.delete({ where: { id: member2.id } })
+  })
+
   it('Caso 34 — MEMBER intenta ver asistencia → 403', async () => {
     const res = await app.inject({
       method: 'GET',

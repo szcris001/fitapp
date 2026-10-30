@@ -230,7 +230,9 @@ beforeAll(async () => {
   })
   createdMembershipIds.push(msExpiring.id)
 
-  // Miembro inactivo (sin membresía ACTIVE, updatedAt reciente por Prisma @updatedAt)
+  // Miembro inactivo: sin membresía ACTIVE/TRIAL, con una EXPIRED reciente (updatedAt
+  // por Prisma @updatedAt, ya que se crea ahora) — simula lo que deja el cron
+  // runMembershipExpiryStatusJob al vencer una membresía.
   const memberInactive = await prisma.user.create({
     data: {
       gymId: gymAId,
@@ -241,7 +243,17 @@ beforeAll(async () => {
     },
   })
   memberInactiveId = memberInactive.id
-  // No se crea membresía — cumple condición inactive (ninguna ACTIVE, updatedAt gte 14d ago)
+  const msInactive = await prisma.membership.create({
+    data: {
+      userId: memberInactiveId,
+      planId: await getOrCreatePlan(gymAId),
+      status: 'EXPIRED',
+      startsAt: new Date(Date.now() - 37 * 24 * 60 * 60 * 1000),
+      endsAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      pricePaid: 50000,
+    },
+  })
+  createdMembershipIds.push(msInactive.id)
 
   // Admin Gym B
   const adminB = await prisma.user.create({
@@ -425,7 +437,7 @@ describe('AI: GET /api/ai/retention-alerts', () => {
     expect(found.endsAt).toBeDefined()
   })
 
-  it('usuario sin membresía ACTIVE y con updatedAt reciente → aparece en inactive', async () => {
+  it('usuario sin membresía ACTIVE con una EXPIRED reciente → aparece en inactive', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/ai/retention-alerts',
@@ -438,6 +450,22 @@ describe('AI: GET /api/ai/retention-alerts', () => {
     expect(found).toBeDefined()
     expect(found.name).toBe('Member Inactive')
     expect(found.email).toBe('qa-ai-member-inactive@test.local')
+    expect(found.plan).toBeDefined()
+    expect(found.becameInactiveAt).toBeDefined()
+  })
+
+  it('usuario con membresía ACTIVE vigente → no aparece en inactive (aunque User.updatedAt sea reciente)', async () => {
+    // Regresión del bug QA 2026-10-30: antes cualquier User editado recientemente
+    // aparecía acá si no tenía membresía ACTIVE en ese instante — memberAtRisk SÍ
+    // tiene una ACTIVE vigente y fue creado/editado hace instantes, no debe salir.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/ai/retention-alerts',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    const body = res.json()
+    const found = body.inactive.find((m: any) => m.id === memberAtRiskId)
+    expect(found).toBeUndefined()
   })
 
   it('multi-tenancy: atRisk solo incluye miembros del gym del token (no los de gym B)', async () => {

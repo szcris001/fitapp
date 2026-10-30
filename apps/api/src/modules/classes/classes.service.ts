@@ -652,9 +652,16 @@ export async function assignUserToClass(gymId: string, targetUserId: string, cla
 }
 
 export async function getAttendanceBySchedule(gymId: string) {
+  // "Asistencia" tiene que contar asistencia real: reservas ATTENDED de clases que ya
+  // pasaron — antes contaba TODAS las reservas de TODAS las clases sin filtrar status
+  // ni fecha, así que una clase de mañana con una reserva CANCELLED ya sumaba como
+  // "asistencia" (QA 2026-10-30).
   const classes = await prisma.class.findMany({
-    where: { gymId },
-    include: { _count: { select: { bookings: true } }, classType: { select: { name: true } } },
+    where: { gymId, startsAt: { lte: new Date() } },
+    include: {
+      _count: { select: { bookings: { where: { status: 'ATTENDED' } } } },
+      classType: { select: { name: true } },
+    },
   })
 
   const byHour: Record<string, { total: number; bookings: number }> = {}
