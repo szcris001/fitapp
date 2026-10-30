@@ -272,6 +272,44 @@ export async function sendPaymentConfirmation(gymId: string, data: {
   if (ethereal) console.info(`[Email] Payment confirmation preview: ${previewUrl}`)
 }
 
+export async function sendPaymentRejection(gymId: string, data: {
+  memberName: string
+  memberEmail: string
+  planName: string
+  reason?: string | null
+}) {
+  const gym = await prisma.gym.findUnique({
+    where: { id: gymId },
+    select: { name: true, logoUrl: true },
+  })
+  if (!gym) return
+
+  const from = buildFrom(gym.name)
+  const subject = `Tu comprobante de transferencia no fue aprobado — ${data.planName} en ${gym.name}`
+
+  const reasonSection = data.reason ? `
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin-top:16px;">
+      <p style="margin:0 0 4px;color:#991b1b;font-size:13px;font-weight:600;">Motivo</p>
+      <p style="margin:0;color:#7f1d1d;font-size:14px;">${escapeHtml(data.reason)}</p>
+    </div>` : ''
+
+  const htmlBody = wrapInLayout(
+    gym.name, '#ef4444', '⚠️', 'Comprobante no aprobado',
+    `<p style="color:#374151;font-size:16px;margin:0 0 8px;">Hola <strong>${escapeHtml(data.memberName)}</strong>,</p>
+      <p style="color:#6b7280;font-size:15px;margin:0 0 16px;line-height:1.6;">
+        Revisamos el comprobante de transferencia que subiste para el plan <strong>${escapeHtml(data.planName)}</strong> en <strong>${escapeHtml(gym.name)}</strong>, pero no pudimos aprobarlo.
+      </p>
+      <p style="color:#6b7280;font-size:15px;margin:0;line-height:1.6;">
+        Por favor sube un nuevo comprobante o contacta al gimnasio para resolverlo.
+      </p>
+      ${reasonSection}`,
+    gym.logoUrl,
+  )
+
+  const { ethereal, previewUrl } = await sendEmail({ from, to: data.memberEmail, subject, html: htmlBody })
+  if (ethereal) console.info(`[Email] Payment rejection preview: ${previewUrl}`)
+}
+
 export async function sendBulkToGyms(options: {
   subject: string
   body: string

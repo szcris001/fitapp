@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs'
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
-import { createCheckoutSchema } from './payments.schema'
+import { createCheckoutSchema, confirmTransferSchema, rejectTransferSchema } from './payments.schema'
 import {
   createCheckoutSession, createSelfCheckout, registerManualPayment,
   handleStripeWebhook, getPaymentHistory, getMemberMemberships, getRevenueStats,
@@ -408,9 +408,10 @@ export async function paymentRoutes(app: FastifyInstance) {
   app.patch('/payments/transfer/:membershipId/confirm', { preHandler: requireAdmin }, async (request, reply) => {
     const admin = request.user as any
     const { membershipId } = request.params as any
-    const { notes } = (request.body as any) || {}
+    const parsed = confirmTransferSchema.safeParse(request.body || {})
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
-      return reply.send(await confirmTransfer(admin.gymId, membershipId, notes))
+      return reply.send(await confirmTransfer(admin.gymId, membershipId, parsed.data.notes ?? undefined))
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }
@@ -420,9 +421,10 @@ export async function paymentRoutes(app: FastifyInstance) {
   app.patch('/payments/transfer/:membershipId/reject', { preHandler: requireAdmin }, async (request, reply) => {
     const admin = request.user as any
     const { membershipId } = request.params as any
-    const { reason } = (request.body as any) || {}
+    const parsed = rejectTransferSchema.safeParse(request.body || {})
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     try {
-      return reply.send(await rejectTransfer(admin.gymId, membershipId, reason))
+      return reply.send(await rejectTransfer(admin.gymId, membershipId, parsed.data.reason ?? undefined))
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }
