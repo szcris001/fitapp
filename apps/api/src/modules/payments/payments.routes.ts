@@ -369,7 +369,12 @@ export async function paymentRoutes(app: FastifyInstance) {
   // ─── Transferencia bancaria — alumno sube comprobante ─────────────────────
   app.post('/payments/transfer/receipt', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any
-    const data = await (request as any).file()
+    let data: any
+    try {
+      data = await (request as any).file()
+    } catch {
+      return reply.status(400).send({ error: 'No se recibió archivo' })
+    }
     if (!data) return reply.status(400).send({ error: 'No se recibió archivo' })
 
     const planId = (request.query as any).planId
