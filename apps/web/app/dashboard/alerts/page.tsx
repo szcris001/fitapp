@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
 import api from '../../../lib/api'
-import { AlertTriangle, Clock, Sparkles, CheckCircle2, TrendingUp } from 'lucide-react'
+import { AlertTriangle, Clock, Sparkles, CheckCircle2, TrendingUp, UserX } from 'lucide-react'
 
 function AlertsSkeleton() {
   return (
@@ -74,7 +74,8 @@ export default function AlertsPage() {
 
   const atRiskCount     = alerts?.atRisk?.length ?? 0
   const expiringSoonCount = alerts?.expiringSoon?.length ?? 0
-  const allOk           = atRiskCount === 0 && expiringSoonCount === 0
+  const inactiveCount   = alerts?.inactive?.length ?? 0
+  const allOk           = atRiskCount === 0 && expiringSoonCount === 0 && inactiveCount === 0
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10 space-y-10">
@@ -214,6 +215,44 @@ export default function AlertsPage() {
                         className="btn-brand text-xs px-2.5 py-1.5"
                       >Renovar</button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Se fueron hace poco */}
+          {inactiveCount > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <UserX className="w-4 h-4" style={{ color: 'var(--text-4)' }} />
+                <h2 className="text-base font-semibold" style={{ color: 'var(--text-2)' }}>
+                  Se fueron hace poco — {inactiveCount}
+                </h2>
+              </div>
+              <div className="space-y-3">
+                {alerts.inactive.map((m: any) => (
+                  <div
+                    key={m.id}
+                    className="card rounded-xl p-4 border-l-4 border-l-slate-400"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', backgroundColor: 'var(--surface-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, flexShrink: 0, color: 'var(--text-3)' }}>
+                        {m.name[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm" style={{ color: 'var(--text-1)' }}>{m.name}</p>
+                        <p className="text-xs" style={{ color: 'var(--text-4)' }}>
+                          {m.plan ? `${m.plan} — ` : ''}se venció hace poco
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => router.push(`/dashboard/users/${m.id}`)}
+                      className="text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors shrink-0"
+                      style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-2)', border: '1px solid var(--border-1)' }}
+                    >Ver alumno</button>
                   </div>
                 ))}
               </div>
@@ -367,7 +406,11 @@ function AthleteProjection() {
       const { data } = await api.get<Projection>(`/ai/athlete-projection/${userId}`)
       setProjection(data)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'No se pudo generar la proyección')
+      // 4xx son mensajes curados pensados para el usuario (ej. "Usuario no encontrado");
+      // 5xx son errores internos (ej. "Respuesta inesperada de IA") que no deben mostrarse
+      // crudos — mismo criterio que ya usa Insights más arriba (QA 2026-10-30, ia H03).
+      const status = err.response?.status
+      setError(status && status < 500 ? (err.response?.data?.error || 'No se pudo generar la proyección') : 'No se pudo generar la proyección')
     } finally {
       setLoading(false)
     }
