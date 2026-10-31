@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
 import api, { mediaUrl } from '../../lib/api'
-import { Plus, Trash2, RotateCcw, AlertTriangle, Pencil } from 'lucide-react'
+import { Plus, Trash2, RotateCcw, AlertTriangle, Pencil, Search } from 'lucide-react'
+import { normalizeSearch } from '../../lib/search'
 
 export const PLAN_COLOR_PRESETS: Record<string, { bg: string; color: string }> = {
   gray:    { bg: '#1e293b', color: '#94a3b8' },
@@ -92,6 +93,7 @@ export default function SuperAdminPage() {
   const [confirmGym, setConfirmGym] = useState<any>(null)
   const [fitPlans, setFitPlans] = useState<any[]>([])
   const [confirmPermanent, setConfirmPermanent] = useState<any>(null)
+  const [search, setSearch] = useState('')
   const router = useRouter()
 
   useEffect(() => { loadFromStorage() }, [])
@@ -182,7 +184,15 @@ export default function SuperAdminPage() {
     return <div className="flex items-center justify-center py-20 text-slate-500 text-sm">Cargando...</div>
   }
 
-  const activeList = tab === 'active' ? gyms : history
+  const rawList = tab === 'active' ? gyms : history
+  const activeList = search.trim()
+    ? rawList.filter(gym => {
+        const q = normalizeSearch(search)
+        return normalizeSearch(gym.name || '').includes(q)
+          || normalizeSearch(gym.slug || '').includes(q)
+          || normalizeSearch(gym.users?.[0]?.email || '').includes(q)
+      })
+    : rawList
 
   return (
     <>
@@ -238,23 +248,37 @@ export default function SuperAdminPage() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-6 p-1 rounded-xl w-fit"
-          style={{ backgroundColor: '#0f0f1a', border: '1px solid #2d2d4e' }}>
-          {([
-            { key: 'active',  label: `Activos (${gyms.length})` },
-            { key: 'history', label: `Historial (${history.length})` },
-          ] as const).map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+        {/* Tabs + buscador */}
+        <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+          <div className="flex gap-1 p-1 rounded-xl w-fit"
+            style={{ backgroundColor: '#0f0f1a', border: '1px solid #2d2d4e' }}>
+            {([
+              { key: 'active',  label: `Activos (${gyms.length})` },
+              { key: 'history', label: `Historial (${history.length})` },
+            ] as const).map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                style={{
+                  padding: '6px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+                  border: 'none', cursor: 'pointer', transition: 'all 150ms',
+                  backgroundColor: tab === t.key ? '#7c3aed' : 'transparent',
+                  color: tab === t.key ? '#fff' : '#64748b',
+                }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="relative" style={{ minWidth: 240 }}>
+            <Search size={15} className="absolute top-1/2 -translate-y-1/2" style={{ left: 12, color: '#64748b' }} />
+            <input
+              type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar por nombre, slug o admin..."
+              className="w-full text-sm rounded-xl outline-none"
               style={{
-                padding: '6px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600,
-                border: 'none', cursor: 'pointer', transition: 'all 150ms',
-                backgroundColor: tab === t.key ? '#7c3aed' : 'transparent',
-                color: tab === t.key ? '#fff' : '#64748b',
-              }}>
-              {t.label}
-            </button>
-          ))}
+                backgroundColor: '#0f0f1a', border: '1px solid #2d2d4e', color: '#fff',
+                padding: '8px 12px 8px 36px',
+              }}
+            />
+          </div>
         </div>
 
         {/* Table */}
@@ -262,7 +286,9 @@ export default function SuperAdminPage() {
           style={{ backgroundColor: '#13131f', borderColor: '#2d2d4e' }}>
           {activeList.length === 0 ? (
             <div className="py-16 text-center text-slate-500 text-sm">
-              {tab === 'active' ? 'No hay gimnasios activos' : 'El historial está vacío'}
+              {search.trim()
+                ? 'Sin resultados para esa búsqueda'
+                : tab === 'active' ? 'No hay gimnasios activos' : 'El historial está vacío'}
             </div>
           ) : (
             <table className="w-full">

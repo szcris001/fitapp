@@ -115,18 +115,27 @@ function periodFrom(period: OccupancyPeriod): Date {
   }
 }
 
-function groupBuckets(classes: { startsAt: Date; capacity: number; _count: { bookings: number } }[], period: OccupancyPeriod) {
+function groupBuckets(
+  classes: { startsAt: Date; capacity: number; _count: { bookings: number } }[],
+  period: OccupancyPeriod,
+  timezone: string,
+) {
   const isDaily = period === '7d' || period === '30d'
   const buckets = new Map<string, { label: string; bookings: number; capacity: number }>()
 
   for (const cls of classes) {
-    const d = new Date(cls.startsAt)
-    const key = isDaily
-      ? d.toISOString().split('T')[0]
-      : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    // La clave y la etiqueta deben salir del mismo día/mes en la zona del gym — antes
+    // la clave usaba el día UTC (toISOString) y la etiqueta el día de la zona del
+    // servidor (toLocaleDateString sin timeZone), así que una clase entre las 21:00 y
+    // las 23:59 hora Chile caía en la clave de "mañana" pero con la etiqueta de "hoy",
+    // partiendo el mismo día en dos buckets (QA 2026-10-30, hallazgo dashboard H02).
+    const localDate = gymLocalDate(cls.startsAt, timezone) // 'YYYY-MM-DD' en la zona del gym
+    const [y, m] = localDate.split('-').map(Number)
+    const key = isDaily ? localDate : `${y}-${String(m).padStart(2, '0')}`
+    const asUtcMidnight = new Date(Date.UTC(y, m - 1, Number(localDate.split('-')[2])))
     const label = isDaily
-      ? d.toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })
-      : d.toLocaleDateString('es-CL', { month: 'short', ...(period === '1y' ? { year: '2-digit' } : {}) })
+      ? asUtcMidnight.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+      : asUtcMidnight.toLocaleDateString('es-CL', { month: 'short', timeZone: 'UTC', ...(period === '1y' ? { year: '2-digit' } : {}) })
 
     const prev = buckets.get(key) ?? { label, bookings: 0, capacity: 0 }
     prev.bookings  += cls._count.bookings
@@ -159,6 +168,7 @@ function topByKey<T extends { bookings: number; capacity: number }>(
 export async function getClassOccupancy(gymId: string, period: OccupancyPeriod = '7d') {
   const from = periodFrom(period)
   const now  = new Date()
+  const timezone = await getGymTimezone(gymId)
 
   const classes = await prisma.class.findMany({
     where: { gymId, startsAt: { gte: from, lte: now } },
@@ -176,7 +186,7 @@ export async function getClassOccupancy(gymId: string, period: OccupancyPeriod =
   const totalBookings = classes.reduce((s, c) => s + c._count.bookings, 0)
   const totalCapacity = classes.reduce((s, c) => s + c.capacity, 0)
   const avgOccupancy  = totalCapacity > 0 ? Math.round((totalBookings / totalCapacity) * 100) : 0
-  const history       = groupBuckets(classes, period)
+  const history       = groupBuckets(classes, period, timezone)
 
   // Top por tipo de clase
   const byType = new Map<string, { label: string; color: string | null; bookings: number; capacity: number; classes: number }>()

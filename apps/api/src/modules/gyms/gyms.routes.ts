@@ -206,6 +206,12 @@ export async function gymRoutes(app: FastifyInstance) {
 
       return reply.send({ logoUrl })
     } catch (err: any) {
+      // @fastify/multipart lanza RequestFileTooLargeError (413) con mensaje en inglés
+      // ("request file too large") que el toast del admin mostraba tal cual, sin
+      // traducir (QA 2026-10-30, hallazgo configuración H02).
+      if (err.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.status(413).send({ error: 'El archivo supera el tamaño máximo permitido (5MB)' })
+      }
       throw err // lo responde el error handler global (oculta detalles 5xx en producción)
     }
   })

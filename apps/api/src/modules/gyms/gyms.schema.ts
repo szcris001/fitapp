@@ -1,13 +1,16 @@
 import { z } from 'zod'
 
+// name/phone/address sin límite dejaban guardar strings arbitrariamente largos (ej.
+// 5000 caracteres) sin rechazo — React ya escapa el HTML al renderizar (sin riesgo de
+// XSS), pero igual conviene un tope razonable (QA 2026-10-30, hallazgo configuración H04).
 export const updateGymSchema = z.object({
-  name: z.string().min(2).optional(),
-  address: z.string().optional(),
-  phone: z.string().optional(),
+  name: z.string().min(2).max(200).optional(),
+  address: z.string().max(300).optional(),
+  phone: z.string().max(30).optional(),
   email: z.union([z.string().email(), z.literal('')]).optional(),
-  instagram: z.string().optional(),
-  facebook: z.string().optional(),
-  termsAndConditions: z.string().optional(),
+  instagram: z.string().max(100).optional(),
+  facebook: z.string().max(100).optional(),
+  termsAndConditions: z.string().max(20000).optional(),
   bookingWindowDays: z.number().int().min(1).max(7).optional(),
   bookingCutoffMins: z.number().int().min(0).max(1440).optional(),
   cancelCutoffMins: z.number().int().min(0).max(1440).optional(),
@@ -30,20 +33,24 @@ export const updateGymSchema = z.object({
   emailPaymentSubject: z.string().optional(),
   emailPaymentBody: z.string().optional(),
   // Pasarelas de pago
+  // Los campos secretos aceptan `null` explícito como señal de "borrar esta
+  // credencial guardada" — vacío/ausente sigue significando "sin cambios" (ver
+  // keepsStoredSecret en lib/secrets.ts; antes no había forma de borrar una
+  // credencial ya guardada, QA 2026-10-30, hallazgo configuración H03).
   paymentGateways: z.record(z.string(), z.object({
     enabled: z.boolean(),
-    accessToken: z.string().optional(),
-    secretKey: z.string().optional(),
-    apiKey: z.string().optional(),
+    accessToken: z.string().nullable().optional(),
+    secretKey: z.string().nullable().optional(),
+    apiKey: z.string().nullable().optional(),
     publishableKey: z.string().optional(),
-    webhookSecret: z.string().optional(),
+    webhookSecret: z.string().nullable().optional(),
     receiverId: z.string().optional(),
-    secret: z.string().optional(),
+    secret: z.string().nullable().optional(),
     merchantId: z.string().optional(),
     accountId: z.string().optional(),
     privateMerchantId: z.string().optional(),
     apiLogin: z.string().optional(),
-    privateKey: z.string().optional(),
+    privateKey: z.string().nullable().optional(),
     sandbox: z.boolean().optional(),
   })).optional(),
   // Facturación electrónica DTE (Bsale)
