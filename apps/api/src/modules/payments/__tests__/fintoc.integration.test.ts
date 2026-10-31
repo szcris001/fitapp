@@ -989,10 +989,10 @@ describe('Fintoc: GET /api/payments/fintoc/movements — filtros, paginación, c
     expect(res.json().error).toBe('Datos inválidos')
   })
 
-  it('limit fuera de rango (>100) → 400 "Datos inválidos"', async () => {
+  it('limit fuera de rango (>500) → 400 "Datos inválidos"', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: '/api/payments/fintoc/movements?limit=500',
+      url: '/api/payments/fintoc/movements?limit=501',
       headers: { authorization: `Bearer ${adminAToken}` },
     })
 

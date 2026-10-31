@@ -19,7 +19,7 @@ export const rejectTransferSchema = z.object({
 
 export const listBankMovementsSchema = z.object({
   status: z.enum(['PENDING', 'MATCHED', 'CONFIRMED', 'REJECTED', 'MANUAL']).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 })
 
