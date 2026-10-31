@@ -113,7 +113,15 @@ const wodInputSchema = z.object({
   benchmarkId: z.string().uuid().nullish(),
 })
 
-const wodUpdateSchema = wodInputSchema.omit({ classTypeId: true }).partial()
+// No se deriva con un simple `.partial()` de wodInputSchema: `blocks` ahí tiene
+// `.default([])`, y Zod aplica ese default sobre `undefined` aunque `.partial()`
+// lo vuelva "opcional" — un PUT sin `blocks` terminaba con `parsed.data.blocks`
+// en `[]` igual, y el handler borraba todos los bloques existentes sin que el
+// cliente lo haya pedido (QA 2026-10-30, pérdida de datos silenciosa).
+const wodUpdateSchema = wodInputSchema
+  .omit({ classTypeId: true, blocks: true })
+  .partial()
+  .extend({ blocks: z.array(wodBlockSchema).max(20).optional() })
 
 const wodImportSchema = z.array(wodInputSchema).min(1).max(366)
 
@@ -271,13 +279,17 @@ export async function wodRoutes(app: FastifyInstance) {
     try {
       const dateValue = date !== undefined ? gymDayStart(date, await getGymTimezone(user.gymId)) : undefined
       const updated = await prisma.$transaction(async (tx) => {
-        await tx.wodBlock.deleteMany({ where: { wodId: id } })
+        // Solo tocar los bloques si el cliente mandó `blocks` explícitamente —
+        // un PUT parcial (ej. solo `title`) no debe borrar los existentes.
+        if (blocks !== undefined) {
+          await tx.wodBlock.deleteMany({ where: { wodId: id } })
+        }
         return tx.wod.update({
           where: { id },
           data: {
             title,
             ...(dateValue ? { date: dateValue } : {}),
-            blocks: { create: sanitizeBlocks(blocks ?? []) },
+            ...(blocks !== undefined ? { blocks: { create: sanitizeBlocks(blocks) } } : {}),
             ...(scoreType !== undefined ? { scoreType } : {}),
             ...(resolvedBenchmarkId !== undefined ? { benchmarkId: resolvedBenchmarkId } : {}),
           },

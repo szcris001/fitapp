@@ -1038,6 +1038,37 @@ describe('WOD: PUT /api/wods/:id — actualizar WOD', () => {
     const unchanged = await prisma.wod.findUnique({ where: { id: wodToUpdateId } })
     expect(unchanged!.title).not.toBe('Intento de colisión')
   })
+
+  it('PUT parcial sin "blocks" en el body → conserva los bloques existentes (no los borra)', async () => {
+    // Regresión: `wodUpdateSchema` derivaba de `wodInputSchema.partial()`, cuyo
+    // `blocks` tiene `.default([])` — un PUT sin `blocks` terminaba igual con
+    // `parsed.data.blocks === []` y el handler borraba todo sin que el cliente
+    // lo pidiera (QA 2026-10-30, hallazgo S1).
+    const date = dateString(53)
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, title: 'WOD con bloques', date, blocks: sampleBlocks(' parcial') },
+    })
+    expect(createRes.statusCode).toBe(201)
+    const id = createRes.json().id
+    createdWodIds.push(id)
+    expect(createRes.json().blocks).toHaveLength(2)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/wods/${id}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { title: 'Solo cambio el título' }, // sin "blocks", sin "date"
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().title).toBe('Solo cambio el título')
+    expect(res.json().blocks).toHaveLength(2)
+
+    const inDb = await prisma.wodBlock.findMany({ where: { wodId: id } })
+    expect(inDb).toHaveLength(2)
+  })
 })
 
 // =============================================================================

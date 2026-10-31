@@ -611,6 +611,28 @@ describe('AI: GET /api/ai/insights', () => {
     expect(body).not.toHaveProperty('insights')
   })
 
+  it('Anthropic antepone un bloque "thinking" antes del texto → igual funciona (busca el bloque text, no asume content[0])', async () => {
+    // Regresión: el código asumía `message.content[0]` siempre era texto, pero
+    // con extended thinking el primer bloque es `type: 'thinking'` y el real
+    // viene después — esto hacía fallar Insights/Proyección el 100% de las
+    // veces en producción (QA 2026-10-30, hallazgo S2).
+    const jsonPayload = JSON.stringify({ insights: [{ title: 'T', description: 'D', priority: 'high' }], summary: 'S' })
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [
+        { type: 'thinking', thinking: 'analizando datos...', signature: 'abc' },
+        { type: 'text', text: '```json\n' + jsonPayload + '\n```' },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/ai/insights',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().summary).toBe('S')
+  })
+
   it('Anthropic devuelve content[0].type !== "text" → 500', async () => {
     mockMessagesCreate.mockResolvedValueOnce({
       content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } }],

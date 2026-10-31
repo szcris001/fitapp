@@ -742,6 +742,24 @@ describe('Users: POST /api/users — crear usuario', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('RUT sin guion ("99999999") → 400 con validación clara, no 500', async () => {
+    // Regresión: hasValidCheckDigit hacía `verifier.toUpperCase()` sin comprobar
+    // que `verifier` exista — un RUT sin guion llegaba con verifier=undefined
+    // y crasheaba el request con 500 (QA 2026-10-30, hallazgo S2).
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {
+        name: 'RUT Sin Guion',
+        email: 'qa-users-rut-sin-guion@test.local',
+        rut: '99999999',
+      },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).not.toMatch(/toUpperCase|Cannot read properties/i)
+  })
+
   it('RUT con formato libre ("no-es-un-rut") → 400', async () => {
     const res = await app.inject({
       method: 'POST',
