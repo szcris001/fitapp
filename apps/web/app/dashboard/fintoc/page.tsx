@@ -579,6 +579,7 @@ export default function FintocPage() {
 
   const [confirmModal, setConfirmModal] = useState<BankMovement | null>(null)
   const [rejectModal, setRejectModal] = useState<BankMovement | null>(null)
+  const [confirmedToday, setConfirmedToday] = useState(0)
 
   // Cargar status inicial
   const fetchStatus = useCallback(async () => {
@@ -587,6 +588,28 @@ export default function FintocPage() {
       setStatus(data)
     } catch {
       // no-op: status falla silenciosamente; la tabla seguirá cargando
+    }
+  }, [])
+
+  // "Confirmados hoy" independiente de la pestaña activa — antes se calculaba
+  // filtrando `movementsData.movements` (los de la pestaña cargada en memoria), así
+  // que el número cambiaba según qué pestaña tenía abierta el admin en vez de ser un
+  // dato global del gym (QA 2026-10-31, hallazgo conciliación H01).
+  const fetchConfirmedToday = useCallback(async () => {
+    try {
+      const { data } = await api.get<MovementsResponse>('/payments/fintoc/movements', {
+        params: { status: 'CONFIRMED', limit: 100, offset: 0 },
+      })
+      const now = new Date()
+      setConfirmedToday(data.movements.filter(m => {
+        if (!m.reviewedAt) return false
+        const d = new Date(m.reviewedAt)
+        return d.getFullYear() === now.getFullYear() &&
+          d.getMonth() === now.getMonth() &&
+          d.getDate() === now.getDate()
+      }).length)
+    } catch {
+      // no-op: el contador queda en 0, la tabla sigue funcionando igual
     }
   }, [])
 
@@ -610,7 +633,7 @@ export default function FintocPage() {
 
   useEffect(() => {
     if (!user) return  // el layout redirige a /login
-    Promise.all([fetchStatus(), fetchMovements('PENDING', 0)]).finally(() => setLoading(false))
+    Promise.all([fetchStatus(), fetchMovements('PENDING', 0), fetchConfirmedToday()]).finally(() => setLoading(false))
   }, [user])
 
   // Refetch al cambiar tab u offset
@@ -629,7 +652,7 @@ export default function FintocPage() {
     try {
       // La API consulta los movimientos a Fintoc con el link guardado
       await api.post('/payments/fintoc/sync')
-      await Promise.all([fetchStatus(), fetchMovements(tab, offset)])
+      await Promise.all([fetchStatus(), fetchMovements(tab, offset), fetchConfirmedToday()])
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error al sincronizar')
     } finally {
@@ -674,7 +697,7 @@ export default function FintocPage() {
 
   const handleConfirmed = async () => {
     setConfirmModal(null)
-    await Promise.all([fetchStatus(), fetchMovements(tab, offset)])
+    await Promise.all([fetchStatus(), fetchMovements(tab, offset), fetchConfirmedToday()])
   }
 
   const handleRejected = async () => {
@@ -683,16 +706,6 @@ export default function FintocPage() {
   }
 
   // ── Stat cards ─────────────────────────────────────────────────────────────
-
-  const confirmedToday = movementsData?.movements.filter(m => {
-    if (m.reconciliationStatus !== 'CONFIRMED') return false
-    if (!m.reviewedAt) return false
-    const d = new Date(m.reviewedAt)
-    const now = new Date()
-    return d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth() &&
-      d.getDate() === now.getDate()
-  }).length ?? 0
 
   const statCards = [
     {
