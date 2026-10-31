@@ -19,6 +19,9 @@ export function formatScore(score: number, scoreText: string | null, scoreType: 
   if (scoreType === 'CUSTOM') {
     return scoreText ?? ''
   }
+  if (scoreType === 'WEIGHT') {
+    return `${score} kg`
+  }
   return String(score)
 }
 
