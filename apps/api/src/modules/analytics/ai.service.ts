@@ -11,6 +11,16 @@ const anthropic = new Anthropic({
 // Sobrescribible por entorno para cambiar de modelo sin redeploy de código.
 const AI_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5'
 
+// El modelo puede anteponer un bloque `thinking` (extended thinking) antes del
+// texto — `message.content[0]` ya no es siempre el bloque de texto. Buscar el
+// primer bloque `text` en vez de asumir la posición (QA 2026-10-30, hallazgo S2:
+// Insights/Proyección fallaban el 100% de las veces con "Respuesta inesperada de IA").
+function findTextBlock(content: Anthropic.ContentBlock[]) {
+  const block = content.find((b): b is Anthropic.TextBlock => b.type === 'text')
+  if (!block) throw new Error('Respuesta inesperada de IA')
+  return block
+}
+
 export async function getRetentionAlerts(gymId: string) {
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
   const timezone = await getGymTimezone(gymId)
@@ -152,8 +162,7 @@ Responde en formato JSON con esta estructura exacta:
     messages: [{ role: 'user', content: prompt }],
   })
 
-  const content = message.content[0]
-  if (content.type !== 'text') throw new Error('Respuesta inesperada de IA')
+  const content = findTextBlock(message.content)
 
   try {
     const clean = content.text.replace(/```json|```/g, '').trim()
@@ -224,8 +233,7 @@ Responde en JSON con esta estructura exacta:
     messages: [{ role: 'user', content: prompt }],
   })
 
-  const content = message.content[0]
-  if (content.type !== 'text') throw new Error('Respuesta inesperada de IA')
+  const content = findTextBlock(message.content)
 
   try {
     const clean = content.text.replace(/```json|```/g, '').trim()

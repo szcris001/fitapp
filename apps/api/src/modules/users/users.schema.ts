@@ -5,6 +5,12 @@ const RUT_FORMAT = /^\d{7,8}-[0-9kK]$/
 // Algoritmo estándar del dígito verificador del RUT chileno (módulo 11).
 function hasValidCheckDigit(rut: string): boolean {
   const [numStr, verifier] = rut.split('-')
+  // El refine de RUT_FORMAT ya debería haber rechazado esto antes, pero zod
+  // corre todos los `.refine()` encadenados aunque uno ya haya fallado — un
+  // RUT sin guion (ej. "99999999") llega acá con `verifier` undefined y
+  // crasheaba el request con un 500 en vez de solo acumular el error de
+  // formato (QA 2026-10-30, hallazgo S2).
+  if (!numStr || !verifier) return false
   let sum = 0
   let mul = 2
   for (let i = numStr.length - 1; i >= 0; i--) {

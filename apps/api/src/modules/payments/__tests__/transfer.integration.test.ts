@@ -198,6 +198,22 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
+// ─── Helper: aislar cada fixture del lock de "una PENDING_REVIEW por user+plan" ───
+//
+// Desde el fix de doble-submit (Bug 4, ver Suite 11), submitTransferReceipt rechaza
+// crear una nueva membresía PENDING_REVIEW si memberA ya tiene una pendiente para
+// este plan. Varios tests de este archivo dejan membresías PENDING_REVIEW colgadas
+// a propósito (ej: un admin de otro gym o un MEMBER intentando confirmar/rechazar,
+// que fallan por autorización sin resolver el registro) — antes del fix convivían
+// sin problema porque no había ningún chequeo. Cada test que necesita partir de un
+// comprobante "nuevo" para memberA+planId debe llamar esto primero para no pisar
+// contra un leftover de un test anterior.
+async function clearPendingTransfersForMemberA() {
+  await prisma.membership.deleteMany({
+    where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' },
+  })
+}
+
 // ─── Suite 1: Flujo feliz — alumno sube comprobante ──────────────────────────
 
 describe('Transfer: POST /api/payments/transfer/receipt (multipart upload)', () => {
@@ -340,6 +356,7 @@ describe('Transfer: Admin confirma comprobante → membresía ACTIVE', () => {
     app = await buildApp()
 
     // Crear comprobante pendiente directamente en DB
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/confirm-test-${Date.now()}.jpg`
@@ -458,6 +475,7 @@ describe('Transfer: Admin rechaza comprobante → membresía NO queda activa', (
 
   it('MEMBER intenta rechazar → 403', async () => {
     // Crear otra membresía para este test
+    await clearPendingTransfersForMemberA()
     const other = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/reject-perm-test-${Date.now()}.jpg`
@@ -474,6 +492,7 @@ describe('Transfer: Admin rechaza comprobante → membresía NO queda activa', (
   })
 
   it('admin de Gym B no puede rechazar comprobante de Gym A → 400', async () => {
+    await clearPendingTransfersForMemberA()
     const other = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/reject-cross-test-${Date.now()}.jpg`
@@ -505,6 +524,7 @@ describe('Transfer: Idempotencia — no se puede confirmar/rechazar dos veces', 
   })
 
   it('confirmar un comprobante ya confirmado → 400 "ya fue procesada"', async () => {
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/idempotent-confirm-${Date.now()}.jpg`
@@ -532,6 +552,7 @@ describe('Transfer: Idempotencia — no se puede confirmar/rechazar dos veces', 
   })
 
   it('rechazar un comprobante ya rechazado → 400 "ya fue procesada"', async () => {
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/idempotent-reject-${Date.now()}.jpg`
@@ -559,6 +580,7 @@ describe('Transfer: Idempotencia — no se puede confirmar/rechazar dos veces', 
   })
 
   it('confirmar un comprobante ya rechazado → 400 "ya fue procesada"', async () => {
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/idempotent-confirm-after-reject-${Date.now()}.jpg`
@@ -595,6 +617,7 @@ describe('Transfer: GET /api/payments/transfer/pending', () => {
   beforeAll(async () => {
     app = await buildApp()
 
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/pending-list-${Date.now()}.jpg`
@@ -703,6 +726,7 @@ describe('Transfer: submit desactiva membresía activa previa', () => {
     createdMembershipIds.push(existingMembershipId)
 
     // Subir comprobante de transferencia → la activa debe quedar INACTIVE
+    await clearPendingTransfersForMemberA()
     const newMembership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/deactivate-test-${Date.now()}.jpg`
@@ -736,6 +760,7 @@ describe('Transfer: submit desactiva membresía activa previa', () => {
     })
     createdMembershipIds.push(existing.id)
 
+    await clearPendingTransfersForMemberA()
     const pending = await submitTransferReceipt(
       gymAId, memberAId, planId, `/uploads/receipts/confirm-test-${Date.now()}.jpg`,
     )
@@ -771,6 +796,7 @@ describe('Transfer: Bug 1 — confirmar/rechazar dos veces en paralelo no es at�
   })
 
   it('2 PATCH /confirm concurrentes sobre la misma transferencia → solo uno tiene efecto real', async () => {
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/race-confirm-${Date.now()}.jpg`
@@ -811,6 +837,7 @@ describe('Transfer: Bug 1 — confirmar/rechazar dos veces en paralelo no es at�
   })
 
   it('2 PATCH /reject concurrentes sobre la misma transferencia → solo uno tiene efecto real', async () => {
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/race-reject-${Date.now()}.jpg`
@@ -863,6 +890,7 @@ describe('Transfer: Bug 2 — email de rechazo al alumno', () => {
   })
 
   it('al rechazar, se llama a sendPaymentRejection con el motivo informado', async () => {
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/reject-email-${Date.now()}.jpg`
@@ -889,6 +917,7 @@ describe('Transfer: Bug 2 — email de rechazo al alumno', () => {
   })
 
   it('si sendPaymentRejection falla, el rechazo igual responde 200 (no rompe el flujo)', async () => {
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/reject-email-fail-${Date.now()}.jpg`
@@ -918,6 +947,7 @@ describe('Transfer: Bug 3 — validación de body y sin fuga de stack trace de P
   beforeAll(async () => {
     app = await buildApp()
 
+    await clearPendingTransfersForMemberA()
     const membership = await submitTransferReceipt(
       gymAId, memberAId, planId,
       `/uploads/receipts/zod-validation-${Date.now()}.jpg`
@@ -975,5 +1005,120 @@ describe('Transfer: Bug 3 — validación de body y sin fuga de stack trace de P
     })
 
     expect(res.statusCode).toBe(200)
+  })
+})
+
+// ─── Suite 11: Bug 4 (race condition) — doble submit de comprobante ─────────
+//
+// Hallazgo QA H01 (qa/reports/2026-10-30-2300/alumno-api.md): doble tap del botón
+// o un retry de red mandaban dos POST /transfer/receipt concurrentes para el mismo
+// alumno+plan. submitTransferReceipt no tenía ningún chequeo previo a la creación,
+// así que los dos pasaban y quedaban dos membresías PENDING_REVIEW duplicadas con
+// las mismas fechas — si el admin confirmaba ambas, el alumno quedaba con dos
+// períodos pagados/registrados encimados. El fix usa un advisory lock por
+// userId+planId (mismo patrón que bookClass/confirmPendingBooking en
+// classes.service.ts) y un chequeo de "ya hay una PENDING_REVIEW" dentro de la
+// misma transacción serializada por el lock.
+
+describe('Transfer: Bug 4 — doble submit concurrente no duplica PENDING_REVIEW', () => {
+  afterAll(async () => {
+    // Aislar al resto del archivo: no dejar PENDING_REVIEW colgando para memberA+plan
+    await prisma.membership.deleteMany({ where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' } })
+  })
+
+  it('2 submitTransferReceipt() concurrentes para el mismo userId+planId → solo una membresía PENDING_REVIEW', async () => {
+    // Limpiar cualquier PENDING_REVIEW dejado por fixtures de otros suites (ej: el
+    // intento fallido de admin B rechazando una transferencia de gym A deja la
+    // membresía de memberA sin resolver) para aislar el conteo de esta prueba.
+    await prisma.membership.deleteMany({ where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' } })
+
+    const receiptA = `/uploads/receipts/race-submit-a-${Date.now()}.jpg`
+    const receiptB = `/uploads/receipts/race-submit-b-${Date.now()}.jpg`
+
+    const results = await Promise.allSettled([
+      submitTransferReceipt(gymAId, memberAId, planId, receiptA),
+      submitTransferReceipt(gymAId, memberAId, planId, receiptB),
+    ])
+
+    for (const r of results) {
+      if (r.status === 'fulfilled') createdMembershipIds.push(r.value.id)
+    }
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled')
+    const rejected = results.filter((r) => r.status === 'rejected')
+
+    // Una de las dos gana y crea la membresía; la otra pierde la carrera con un error claro
+    expect(fulfilled.length).toBe(1)
+    expect(rejected.length).toBe(1)
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/pendiente de revisión/i)
+
+    const pendingCount = await prisma.membership.count({
+      where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' },
+    })
+    expect(pendingCount).toBe(1)
+  })
+
+  it('tras una transferencia pendiente, un segundo intento secuencial (no solo concurrente) también falla', async () => {
+    // Confirma que el chequeo bloquea aunque no haya carrera real: ya existe una
+    // PENDING_REVIEW de la prueba anterior para memberA+planId.
+    const receiptC = `/uploads/receipts/sequential-dup-${Date.now()}.jpg`
+    await expect(
+      submitTransferReceipt(gymAId, memberAId, planId, receiptC)
+    ).rejects.toThrow(/pendiente de revisión/i)
+
+    const pendingCount = await prisma.membership.count({
+      where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' },
+    })
+    expect(pendingCount).toBe(1)
+  })
+})
+
+describe('Transfer: Bug 4 (HTTP) — 2 POST /transfer/receipt concurrentes, mismo alumno+plan', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => {
+    app = await buildApp()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    await prisma.membership.deleteMany({ where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' } })
+  })
+
+  it('2 POST concurrentes (mismo token, mismo plan) → solo uno responde 201, el otro 400', async () => {
+    await prisma.membership.deleteMany({ where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' } })
+
+    const boundary1 = 'test-boundary-race-submit-1'
+    const boundary2 = 'test-boundary-race-submit-2'
+    const body1 = buildMultipartBody(boundary1, 'comprobante1.jpg', Buffer.from('fake-image-bytes-1'))
+    const body2 = buildMultipartBody(boundary2, 'comprobante2.jpg', Buffer.from('fake-image-bytes-2'))
+
+    const [res1, res2] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: `/api/payments/transfer/receipt?planId=${planId}`,
+        headers: { authorization: `Bearer ${memberAToken}`, 'content-type': `multipart/form-data; boundary=${boundary1}` },
+        payload: body1,
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/payments/transfer/receipt?planId=${planId}`,
+        headers: { authorization: `Bearer ${memberAToken}`, 'content-type': `multipart/form-data; boundary=${boundary2}` },
+        payload: body2,
+      }),
+    ])
+
+    const statusCodes = [res1.statusCode, res2.statusCode].sort()
+    expect(statusCodes).toEqual([201, 400])
+
+    const winner = res1.statusCode === 201 ? res1 : res2
+    const loser = res1.statusCode === 400 ? res1 : res2
+    expect(loser.json().error).toMatch(/pendiente de revisión/i)
+    createdMembershipIds.push(winner.json().id)
+
+    const pendingCount = await prisma.membership.count({
+      where: { userId: memberAId, planId, transferStatus: 'PENDING_REVIEW' },
+    })
+    expect(pendingCount).toBe(1)
   })
 })

@@ -1170,18 +1170,37 @@ export async function submitTransferReceipt(gymId: string, userId: string, planI
   // rechaza, el alumno no pierde su plan. El período real se calcula al confirmar.
   const { startsAt, endsAt } = await nextMembershipPeriod(gymId, userId, plan.durationDays)
 
-  return prisma.membership.create({
-    data: {
-      userId, planId,
-      status: 'INACTIVE',           // queda inactivo hasta que admin confirme
-      startsAt, endsAt,
-      pricePaid: plan.priceCents,
-      currency: plan.currency,
-      paymentMethod: 'transfer',
-      transferReceiptUrl: receiptUrl,
-      transferStatus: 'PENDING_REVIEW',
-    },
-    include: { plan: { select: { name: true, durationDays: true } } },
+  // Lock advisory por userId+planId: un doble tap del botón o un retry de red del mismo
+  // comprobante no debe poder crear dos membresías PENDING_REVIEW para el mismo
+  // alumno+plan (mismo patrón que bookClass/confirmPendingBooking en
+  // classes.service.ts — QA H01, qa/reports/2026-10-30-2300/alumno-api.md: dos POST
+  // .../transfer/receipt en paralelo devolvían 201 con dos membresías distintas, mismas
+  // fechas, sin ninguna señal de duplicado para el admin). El chequeo de "ya hay una
+  // pendiente" y el create van dentro de la misma transacción serializada por el lock,
+  // así la segunda request concurrente ve la de la primera antes de intentar crear la suya.
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId + ':' + planId}))`
+
+    const existingPending = await tx.membership.findFirst({
+      where: { userId, planId, transferStatus: 'PENDING_REVIEW' },
+    })
+    if (existingPending) {
+      throw new Error('Ya tienes una transferencia pendiente de revisión para este plan')
+    }
+
+    return tx.membership.create({
+      data: {
+        userId, planId,
+        status: 'INACTIVE',           // queda inactivo hasta que admin confirme
+        startsAt, endsAt,
+        pricePaid: plan.priceCents,
+        currency: plan.currency,
+        paymentMethod: 'transfer',
+        transferReceiptUrl: receiptUrl,
+        transferStatus: 'PENDING_REVIEW',
+      },
+      include: { plan: { select: { name: true, durationDays: true } } },
+    })
   })
 }
 
