@@ -7,3 +7,6 @@
 - [email_rejection_pattern.md](email_rejection_pattern.md) — sendPaymentRejection existe en lib/email.ts desde 2026-10-30; no asumir simetría confirmar/rechazar sin grepear
 - [zod_validation_leak_pattern.md](zod_validation_leak_pattern.md) — endpoints de payments.routes.ts sin Zod filtran stack trace de Prisma; copiar el wrapper de error exacto más cercano, no uno genérico
 - [create_side_duplicate_lock_pattern.md](create_side_duplicate_lock_pattern.md) — advisory lock (no updateMany) para evitar duplicar la fila al CREAR un pendiente por primera vez (ej. submitTransferReceipt, doble submit de comprobante)
+- [feedback_input_validation_pattern.md](feedback_input_validation_pattern.md) — barrido preventivo: toda ruta de payments.routes.ts sin safeParse en query/body es sospechosa de filtrar errores crudos (Prisma, multipart)
+- [project_reconciliation_status_enum.md](project_reconciliation_status_enum.md) — ReconciliationStatus tiene 5 valores (incluye MANUAL), no 4; confirmar siempre contra schema.prisma
+- [feedback_memory_path.md](feedback_memory_path.md) — escribir la memoria SIEMPRE en la raíz del repo (.claude/agent-memory/), nunca dentro de apps/web ni apps/api; ya pasó 2 veces

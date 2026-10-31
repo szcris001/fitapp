@@ -951,6 +951,55 @@ describe('Fintoc: GET /api/payments/fintoc/movements — filtros, paginación, c
     expect(body.offset).toBe(0)
   })
 
+  it('status inválido → 400 "Datos inválidos", sin stack trace ni error crudo de Prisma', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/payments/fintoc/movements?status=ALGO_INVALIDO',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const body = res.json()
+    expect(body.error).toBe('Datos inválidos')
+    const raw = res.payload
+    expect(raw).not.toMatch(/PrismaClientValidationError/i)
+    expect(raw).not.toMatch(/at\s+.*\(.*:\d+:\d+\)/) // sin stack trace
+    expect(raw).not.toMatch(/\/home\/|\/apps\/api\/src/) // sin rutas absolutas del server
+  })
+
+  it('limit no numérico → 400 "Datos inválidos"', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/payments/fintoc/movements?limit=abc',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('Datos inválidos')
+  })
+
+  it('offset negativo → 400 "Datos inválidos"', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/payments/fintoc/movements?offset=-1',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('Datos inválidos')
+  })
+
+  it('limit fuera de rango (>100) → 400 "Datos inválidos"', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/payments/fintoc/movements?limit=500',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('Datos inválidos')
+  })
+
   it('aislamiento cross-gym: admin A NO ve movimientos de gym B', async () => {
     const res = await app.inject({
       method: 'GET',

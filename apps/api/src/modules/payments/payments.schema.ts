@@ -17,4 +17,10 @@ export const rejectTransferSchema = z.object({
   reason: z.string().max(500).nullish(),
 })
 
+export const listBankMovementsSchema = z.object({
+  status: z.enum(['PENDING', 'MATCHED', 'CONFIRMED', 'REJECTED', 'MANUAL']).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+})
+
 export type CreateCheckoutInput = z.infer<typeof createCheckoutSchema>

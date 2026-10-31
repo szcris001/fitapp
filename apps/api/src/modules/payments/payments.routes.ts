@@ -2,7 +2,7 @@ import path from 'path'
 import fs from 'fs'
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
-import { createCheckoutSchema, confirmTransferSchema, rejectTransferSchema } from './payments.schema'
+import { createCheckoutSchema, confirmTransferSchema, rejectTransferSchema, listBankMovementsSchema } from './payments.schema'
 import {
   createCheckoutSession, createSelfCheckout, registerManualPayment,
   handleStripeWebhook, getPaymentHistory, getMemberMemberships, getRevenueStats,
@@ -498,13 +498,10 @@ export async function paymentRoutes(app: FastifyInstance) {
   // GET /payments/fintoc/movements — lista movimientos con filtros opcionales
   app.get('/payments/fintoc/movements', { preHandler: requireAdmin }, async (request, reply) => {
     const admin = request.user as any
-    const query = request.query as any
+    const parsed = listBankMovementsSchema.safeParse(request.query)
+    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
-      const result = await listBankMovements(admin.gymId, {
-        status: query.status,
-        limit: query.limit ? parseInt(query.limit, 10) : undefined,
-        offset: query.offset ? parseInt(query.offset, 10) : undefined,
-      })
+      const result = await listBankMovements(admin.gymId, parsed.data)
       return reply.send(result)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
