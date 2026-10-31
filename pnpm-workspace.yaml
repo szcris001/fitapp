@@ -41,25 +41,25 @@ overrides:
   follow-redirects@1: ">=1.16.2 <2"
   vite@8: ">=8.3.3 <9"
   decode-uri-component@0: ">=0.5.1 <1"
+  node-forge@1: ">=1.4.1 <2"
 
 # Excepciones de pnpm audit (revisar en cada actualización de prisma/expo):
 # - GHSA-ggr8-5vv4-36mx deepmerge-ts: solo lo usa el CLI de Prisma al leer
 #   prisma.config.ts (archivo propio); el fix requiere deepmerge-ts 8 y prisma 7 usa 7.
 # - GHSA-5p2g-fcmc-qvqq / GHSA-w3rx-r6r6-pgpr image-size: lo usa metro (bundler de
 #   mobile) sobre los assets del propio repo; el fix requiere image-size 2.
-# - GHSA-86w9-cpqp-85rv node-forge: lo usa @expo/cli (tooling de build de mobile, no
-#   corre en producción); sin versión parcheada todavía ("Patched versions: <0.0.0").
 # - GHSA-vfj7-8cjw-p6xm braces: solo lo usa nodemon (dev, no corre en producción);
 #   sin versión parcheada todavía ("Patched versions: <0.0.0").
 # - GHSA-mrhx-c7xc-m3w5 zod@3.25.76: solo lo usa @expo/cli (tooling de build de mobile,
 #   no corre en producción); la versión de zod que SÍ corre en runtime (apps/api, 4.x)
 #   ya se actualizó a la parchada. El override simple no sirve acá porque son dos majors
 #   de zod resueltos en paralelo (3.x vía expo, 4.x directo en apps/api).
+# node-forge (GHSA-86w9-cpqp-85rv y las 3 nuevas de 2026-10-31) ya tiene parche
+# (>=1.4.1) — se sacó de acá y pasó a un override real arriba.
 auditConfig:
   ignoreGhsas:
     - GHSA-ggr8-5vv4-36mx
     - GHSA-5p2g-fcmc-qvqq
     - GHSA-w3rx-r6r6-pgpr
-    - GHSA-86w9-cpqp-85rv
     - GHSA-vfj7-8cjw-p6xm
     - GHSA-mrhx-c7xc-m3w5
