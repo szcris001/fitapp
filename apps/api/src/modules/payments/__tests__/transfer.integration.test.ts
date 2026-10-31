@@ -27,14 +27,22 @@
  *   - Borra usuarios y gyms en orden correcto por FK
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import Fastify, { FastifyInstance } from 'fastify'
 import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
 import bcrypt from 'bcryptjs'
 import { paymentRoutes } from '../payments.routes'
-import { submitTransferReceipt, confirmTransfer } from '../payments.service'
+import { submitTransferReceipt, confirmTransfer, rejectTransfer } from '../payments.service'
 import { prisma } from '../../../lib/prisma'
+
+// Mockeamos el envío de emails para poder contar llamadas (tests de concurrencia e
+// idempotencia de Bug 1/Bug 2) sin depender de Ethereal real.
+vi.mock('../../../lib/email', () => ({
+  sendPaymentConfirmation: vi.fn().mockResolvedValue(undefined),
+  sendPaymentRejection: vi.fn().mockResolvedValue(undefined),
+}))
+import { sendPaymentConfirmation, sendPaymentRejection } from '../../../lib/email'
 
 // ─── Constantes de fixtures ───────────────────────────────────────────────────
 
@@ -739,5 +747,233 @@ describe('Transfer: submit desactiva membresía activa previa', () => {
     expect(reloadedExisting!.status).toBe('INACTIVE')
     expect(confirmed.status).toBe('ACTIVE')
     expect(confirmed.startsAt.getTime()).toBe(endsAt.getTime())
+  })
+})
+
+// ─── Suite 8: Bug 1 (race condition) — confirm/reject concurrentes ───────────
+//
+// Antes del fix, dos PATCH /confirm (o /reject) simultáneos sobre la MISMA
+// transferencia PENDING_REVIEW pasaban los dos el chequeo `transferStatus !==
+// PENDING_REVIEW` antes de que ninguno hubiera escrito el update (check-then-act
+// clásico) y devolvían 200 OK las dos veces, recalculando el período y mandando
+// el email de confirmación dos veces. El fix usa updateMany({ where: { id,
+// transferStatus: 'PENDING_REVIEW' } }) para que el check-y-set sea atómico.
+
+describe('Transfer: Bug 1 — confirmar/rechazar dos veces en paralelo no es atómico', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => {
+    app = await buildApp()
+  })
+
+  afterAll(async () => {
+    await app.close()
+  })
+
+  it('2 PATCH /confirm concurrentes sobre la misma transferencia → solo uno tiene efecto real', async () => {
+    const membership = await submitTransferReceipt(
+      gymAId, memberAId, planId,
+      `/uploads/receipts/race-confirm-${Date.now()}.jpg`
+    )
+    createdMembershipIds.push(membership.id)
+
+    vi.mocked(sendPaymentConfirmation).mockClear()
+
+    const [res1, res2] = await Promise.all([
+      app.inject({
+        method: 'PATCH',
+        url: `/api/payments/transfer/${membership.id}/confirm`,
+        headers: { authorization: `Bearer ${adminAToken}` },
+        payload: {},
+      }),
+      app.inject({
+        method: 'PATCH',
+        url: `/api/payments/transfer/${membership.id}/confirm`,
+        headers: { authorization: `Bearer ${adminAToken}` },
+        payload: {},
+      }),
+    ])
+
+    const statusCodes = [res1.statusCode, res2.statusCode].sort()
+    // Una de las dos requests gana (200) y la otra pierde (400, "ya fue procesada")
+    expect(statusCodes).toEqual([200, 400])
+
+    const loser = res1.statusCode === 400 ? res1 : res2
+    expect(loser.json().error).toMatch(/ya fue procesada/i)
+
+    // El email de confirmación se mandó una sola vez, no dos
+    expect(sendPaymentConfirmation).toHaveBeenCalledTimes(1)
+
+    // La membresía quedó en el estado final correcto, sin rastro de doble procesamiento
+    const reloaded = await prisma.membership.findUnique({ where: { id: membership.id } })
+    expect(reloaded!.status).toBe('ACTIVE')
+    expect(reloaded!.transferStatus).toBe('CONFIRMED')
+  })
+
+  it('2 PATCH /reject concurrentes sobre la misma transferencia → solo uno tiene efecto real', async () => {
+    const membership = await submitTransferReceipt(
+      gymAId, memberAId, planId,
+      `/uploads/receipts/race-reject-${Date.now()}.jpg`
+    )
+    createdMembershipIds.push(membership.id)
+
+    vi.mocked(sendPaymentRejection).mockClear()
+
+    const [res1, res2] = await Promise.all([
+      app.inject({
+        method: 'PATCH',
+        url: `/api/payments/transfer/${membership.id}/reject`,
+        headers: { authorization: `Bearer ${adminAToken}` },
+        payload: { reason: 'Duplicado A' },
+      }),
+      app.inject({
+        method: 'PATCH',
+        url: `/api/payments/transfer/${membership.id}/reject`,
+        headers: { authorization: `Bearer ${adminAToken}` },
+        payload: { reason: 'Duplicado B' },
+      }),
+    ])
+
+    const statusCodes = [res1.statusCode, res2.statusCode].sort()
+    expect(statusCodes).toEqual([200, 400])
+
+    const loser = res1.statusCode === 400 ? res1 : res2
+    expect(loser.json().error).toMatch(/ya fue procesada/i)
+
+    // El email de rechazo se mandó una sola vez, no dos
+    expect(sendPaymentRejection).toHaveBeenCalledTimes(1)
+
+    const reloaded = await prisma.membership.findUnique({ where: { id: membership.id } })
+    expect(reloaded!.status).toBe('INACTIVE')
+    expect(reloaded!.transferStatus).toBe('REJECTED')
+  })
+})
+
+// ─── Suite 9: Bug 2 — el alumno se entera cuando le rechazan la transferencia ─
+
+describe('Transfer: Bug 2 — email de rechazo al alumno', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => {
+    app = await buildApp()
+  })
+
+  afterAll(async () => {
+    await app.close()
+  })
+
+  it('al rechazar, se llama a sendPaymentRejection con el motivo informado', async () => {
+    const membership = await submitTransferReceipt(
+      gymAId, memberAId, planId,
+      `/uploads/receipts/reject-email-${Date.now()}.jpg`
+    )
+    createdMembershipIds.push(membership.id)
+
+    vi.mocked(sendPaymentRejection).mockClear()
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/payments/transfer/${membership.id}/reject`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { reason: 'Comprobante no corresponde al monto del plan' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(sendPaymentRejection).toHaveBeenCalledTimes(1)
+    const call = vi.mocked(sendPaymentRejection).mock.calls[0]
+    expect(call[0]).toBe(gymAId)
+    expect(call[1]).toMatchObject({
+      memberEmail: 'qa-transfer-member-a@test.local',
+      reason: 'Comprobante no corresponde al monto del plan',
+    })
+  })
+
+  it('si sendPaymentRejection falla, el rechazo igual responde 200 (no rompe el flujo)', async () => {
+    const membership = await submitTransferReceipt(
+      gymAId, memberAId, planId,
+      `/uploads/receipts/reject-email-fail-${Date.now()}.jpg`
+    )
+    createdMembershipIds.push(membership.id)
+
+    vi.mocked(sendPaymentRejection).mockRejectedValueOnce(new Error('SMTP caído'))
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/payments/transfer/${membership.id}/reject`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {},
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().transferStatus).toBe('REJECTED')
+  })
+})
+
+// ─── Suite 10: Bug 3 — validación Zod en confirm/reject + sin fuga de stack trace ─
+
+describe('Transfer: Bug 3 — validación de body y sin fuga de stack trace de Prisma', () => {
+  let app: FastifyInstance
+  let membershipId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+
+    const membership = await submitTransferReceipt(
+      gymAId, memberAId, planId,
+      `/uploads/receipts/zod-validation-${Date.now()}.jpg`
+    )
+    membershipId = membership.id
+    createdMembershipIds.push(membershipId)
+  })
+
+  afterAll(async () => {
+    await app.close()
+  })
+
+  it('confirm con "notes" como objeto en vez de string → 400 genérico, sin stack trace de Prisma', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/payments/transfer/${membershipId}/confirm`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { notes: { a: 1 } },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const rawBody = JSON.stringify(res.json())
+    expect(rawBody).not.toMatch(/payments\.service\.ts/)
+    expect(rawBody).not.toMatch(/\.ts:\d+/)
+    expect(rawBody).not.toMatch(/node_modules/)
+
+    // La transferencia sigue intacta — nunca llegó a tocar la DB
+    const reloaded = await prisma.membership.findUnique({ where: { id: membershipId } })
+    expect(reloaded!.transferStatus).toBe('PENDING_REVIEW')
+  })
+
+  it('reject con "reason" como número en vez de string → 400 genérico, sin fuga de info', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/payments/transfer/${membershipId}/reject`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { reason: 12345 },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const rawBody = JSON.stringify(res.json())
+    expect(rawBody).not.toMatch(/payments\.service\.ts/)
+    expect(rawBody).not.toMatch(/\.ts:\d+/)
+
+    const reloaded = await prisma.membership.findUnique({ where: { id: membershipId } })
+    expect(reloaded!.transferStatus).toBe('PENDING_REVIEW')
+  })
+
+  it('confirm/reject con body vacío sigue funcionando (notes/reason son opcionales)', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/payments/transfer/${membershipId}/confirm`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: {},
+    })
+
+    expect(res.statusCode).toBe(200)
   })
 })

@@ -587,12 +587,12 @@ describe('WOD: GET /api/wods/:id — un WOD por id', () => {
     expect(res.statusCode).toBe(404)
   })
 
-  it('MEMBER no puede leer este endpoint (es de coach/admin) → 403', async () => {
+  it('MEMBER puede leer este endpoint → 200 (mismo nivel que /wods y /wods/class/:classId, el alumno lo necesita para ver el desglose por movimiento)', async () => {
     const res = await app.inject({
       method: 'GET', url: `/api/wods/${wodId}`,
       headers: { authorization: `Bearer ${memberAToken}` },
     })
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(200)
   })
 
   it('happy path → 200 con bloques, movimientos y classType', async () => {
@@ -1010,6 +1010,34 @@ describe('WOD: PUT /api/wods/:id — actualizar WOD', () => {
     const blocks = await prisma.wodBlock.findMany({ where: { wodId: wodToUpdateId } })
     expect(blocks).toHaveLength(0)
   })
+
+  it('cambiar la fecha a un día con otro WOD del mismo tipo de clase → 400, no lo oculta', async () => {
+    // Mismo chequeo que POST, pero disparado por PUT cambiando `date` — antes no
+    // existía y permitía 2 WODs activos el mismo día/tipo (uno quedaba oculto en
+    // ClassDetail.tsx sin ningún aviso, aunque seguía en la base) (QA 2026-10-30).
+    const otherDate = dateString(52)
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/wods',
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { classTypeId: classTypeAId, title: 'WOD del otro día', date: otherDate, blocks: [] },
+    })
+    expect(createRes.statusCode).toBe(201)
+    createdWodIds.push(createRes.json().id)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/wods/${wodToUpdateId}`,
+      headers: { authorization: `Bearer ${adminAToken}` },
+      payload: { title: 'Intento de colisión', date: otherDate, blocks: [] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/ya existe una planificación/i)
+
+    // El WOD original no debe haber cambiado — ni fecha ni título
+    const unchanged = await prisma.wod.findUnique({ where: { id: wodToUpdateId } })
+    expect(unchanged!.title).not.toBe('Intento de colisión')
+  })
 })
 
 // =============================================================================
@@ -1372,6 +1400,7 @@ describe('WOD: Estructura jerárquica blocks y movements', () => {
 describe('WOD: resultados usan el userId del JWT', () => {
   let app: FastifyInstance
   let wodId: string
+  let classId: string
 
   beforeAll(async () => {
     app = await buildApp()
@@ -1380,10 +1409,24 @@ describe('WOD: resultados usan el userId del JWT', () => {
     })
     wodId = wod.id
     createdWodIds.push(wodId)
+
+    // Clase de hoy ya empezada + reserva confirmada de memberA: requisito para
+    // poder registrar el resultado (checkCanRegisterResult).
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date(Date.now() - 5 * 60 * 1000), endsAt: new Date(Date.now() + 55 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    classId = cls.id
+    await prisma.booking.create({ data: { userId: memberAId, classId, status: 'CONFIRMED' } })
   })
 
   afterAll(async () => {
     await prisma.wodResult.deleteMany({ where: { wodId } })
+    await prisma.booking.deleteMany({ where: { classId } })
+    await prisma.class.delete({ where: { id: classId } })
     await app.close()
   })
 
@@ -1405,7 +1448,7 @@ describe('WOD: resultados usan el userId del JWT', () => {
       headers: { authorization: `Bearer ${memberAToken}` },
     })
     expect(res.statusCode).toBe(200)
-    const body = res.json()
+    const body = res.json().result
     expect(body.userId).toBe(memberAId)
     expect(body.rank).toBe(1)
     expect(body.totalInCategory).toBe(1)
@@ -1419,6 +1462,229 @@ describe('WOD: resultados usan el userId del JWT', () => {
     })
     expect(res.statusCode).toBe(201)
     expect(res.json().recordedBy).toBe(coachAId)
+  })
+})
+
+// ─── Suite: gate de elegibilidad — clase confirmada y ya empezada ────────────
+
+describe('WOD: POST/GET /wods/:id/results/me — solo si hay reserva confirmada en una clase ya empezada', () => {
+  let app: FastifyInstance
+  let wodId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const wod = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId: classTypeAId, title: 'WOD gate', date: new Date() },
+    })
+    wodId = wod.id
+    createdWodIds.push(wodId)
+  })
+
+  afterAll(async () => {
+    await prisma.wodResult.deleteMany({ where: { wodId } })
+    await app.close()
+  })
+
+  it('sin ninguna reserva ese día → 403 not_booked, y GET informa canRegister:false', async () => {
+    const post = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 100, rx: true },
+    })
+    expect(post.statusCode).toBe(403)
+    expect(post.json().blockedReason).toBe('not_booked')
+
+    const get = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(get.statusCode).toBe(200)
+    expect(get.json()).toEqual({ result: null, canRegister: false, blockedReason: 'not_booked' })
+  })
+
+  it('con reserva confirmada pero la clase todavía no empieza → 403 not_started', async () => {
+    const futureClass = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date(Date.now() + 60 * 60 * 1000), endsAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    await prisma.booking.create({ data: { userId: memberAId, classId: futureClass.id, status: 'CONFIRMED' } })
+
+    const post = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 100, rx: true },
+    })
+    expect(post.statusCode).toBe(403)
+    expect(post.json().blockedReason).toBe('not_started')
+
+    await prisma.booking.deleteMany({ where: { classId: futureClass.id } })
+    await prisma.class.delete({ where: { id: futureClass.id } })
+  })
+
+  it('reserva CANCELLED no cuenta, aunque la clase ya haya empezado → sigue 403', async () => {
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date(Date.now() - 5 * 60 * 1000), endsAt: new Date(Date.now() + 55 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    await prisma.booking.create({ data: { userId: memberAId, classId: cls.id, status: 'CANCELLED' } })
+
+    const post = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 100, rx: true },
+    })
+    expect(post.statusCode).toBe(403)
+    expect(post.json().blockedReason).toBe('not_booked')
+
+    await prisma.booking.deleteMany({ where: { classId: cls.id } })
+    await prisma.class.delete({ where: { id: cls.id } })
+  })
+
+  it('reserva ATTENDED en una clase ya empezada → puede registrar (201)', async () => {
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date(Date.now() - 5 * 60 * 1000), endsAt: new Date(Date.now() + 55 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    await prisma.booking.create({ data: { userId: memberAId, classId: cls.id, status: 'ATTENDED' } })
+
+    const post = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 100, rx: true },
+    })
+    expect(post.statusCode).toBe(201)
+
+    const get = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(get.json().canRegister).toBe(true)
+    expect(get.json().blockedReason).toBeNull()
+
+    await prisma.booking.deleteMany({ where: { classId: cls.id } })
+    await prisma.class.delete({ where: { id: cls.id } })
+  })
+
+  it('el coach puede registrar el resultado del alumno aunque el alumno no tenga reserva (gate es solo para /me)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results`,
+      headers: { authorization: `Bearer ${coachAToken}` },
+      payload: { userId: memberAId, score: 80, rx: true },
+    })
+    expect(res.statusCode).toBe(201)
+  })
+})
+
+// ─── Suite: desglose por movimiento (movementResults) en el resultado propio ──
+
+describe('WOD: POST /api/wods/:id/results/me — movementResults (desglose por movimiento)', () => {
+  let app: FastifyInstance
+  let wodId: string
+  let classId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    const wod = await prisma.wod.create({
+      data: { gymId: gymAId, classTypeId: classTypeAId, title: 'Barbara-like', date: new Date() },
+    })
+    wodId = wod.id
+    createdWodIds.push(wodId)
+
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date(Date.now() - 5 * 60 * 1000), endsAt: new Date(Date.now() + 55 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    classId = cls.id
+    await prisma.booking.create({ data: { userId: memberAId, classId, status: 'CONFIRMED' } })
+  })
+
+  afterAll(async () => {
+    await prisma.wodResult.deleteMany({ where: { wodId } })
+    await prisma.booking.deleteMany({ where: { classId } })
+    await prisma.class.delete({ where: { id: classId } })
+    await app.close()
+  })
+
+  it('guarda el resultado con movementResults → 201 y lo persiste', async () => {
+    const movementResults = [
+      { movementId: 'mv-pullup', movementName: 'Pull-up', value: '20x5' },
+      { movementId: 'mv-pushup', movementName: 'Push-up', value: '30x5' },
+    ]
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 100, rx: true, movementResults },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().movementResults).toEqual(movementResults)
+
+    const getRes = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(getRes.statusCode).toBe(200)
+    expect(getRes.json().result.movementResults).toEqual(movementResults)
+  })
+
+  it('guarda el resultado sin movementResults → sigue funcionando igual que antes (null)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 90, rx: true },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().movementResults).toBeNull()
+
+    const getRes = await app.inject({
+      method: 'GET', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    expect(getRes.json().result.movementResults).toBeNull()
+  })
+
+  it('reenviar el formulario sin movementResults borra un desglose previamente guardado (overwrite completo, no merge)', async () => {
+    await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 95, rx: true, movementResults: [{ movementId: 'mv-situp', movementName: 'Sit-up', value: '40x5' }] },
+    })
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 95, rx: true },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().movementResults).toBeNull()
+  })
+
+  it('movementResults con más de 500 chars en value → 400 (validación zod)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      payload: { score: 100, rx: true, movementResults: [{ movementId: 'mv-1', movementName: 'Pull-up', value: 'x'.repeat(501) }] },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('WOD de otro gym → 404, no se filtra por movementResults (aislamiento multi-tenant intacto)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/wods/${wodId}/results/me`,
+      headers: { authorization: `Bearer ${adminBToken}` },
+      payload: { score: 100, rx: true, movementResults: [{ movementId: 'mv-1', movementName: 'Pull-up', value: '20x5' }] },
+    })
+    expect(res.statusCode).toBe(404)
   })
 })
 
@@ -1911,6 +2177,7 @@ describe('WOD: /wod-results/me incluye benchmarkName solo si el WOD viene de un 
   let wodWithBenchmarkId: string
   let wodWithoutBenchmarkId: string
   let benchmarkId: string
+  let classId: string
 
   beforeAll(async () => {
     app = await buildApp()
@@ -1931,11 +2198,23 @@ describe('WOD: /wod-results/me incluye benchmarkName solo si el WOD viene de un 
     })
     wodWithoutBenchmarkId = wodPlain.id
     createdWodIds.push(wodWithoutBenchmarkId)
+
+    const cls = await prisma.class.create({
+      data: {
+        gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
+        startsAt: new Date(Date.now() - 5 * 60 * 1000), endsAt: new Date(Date.now() + 55 * 60 * 1000),
+        capacity: 10, frequency: 'ONCE',
+      },
+    })
+    classId = cls.id
+    await prisma.booking.create({ data: { userId: memberAId, classId, status: 'CONFIRMED' } })
   })
 
   afterAll(async () => {
     await prisma.wodResult.deleteMany({ where: { wodId: { in: [wodWithBenchmarkId, wodWithoutBenchmarkId] } } })
     await prisma.benchmark.delete({ where: { id: benchmarkId } })
+    await prisma.booking.deleteMany({ where: { classId } })
+    await prisma.class.delete({ where: { id: classId } })
     await app.close()
   })
 
@@ -1990,7 +2269,7 @@ describe('WOD: /wod-results/me incluye benchmarkName solo si el WOD viene de un 
       headers: { authorization: `Bearer ${memberAToken}` },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json().benchmarkId).toBe(benchmarkId)
-    expect(res.json().benchmarkName).toBe('QA Bench Historial')
+    expect(res.json().result.benchmarkId).toBe(benchmarkId)
+    expect(res.json().result.benchmarkName).toBe('QA Bench Historial')
   })
 })

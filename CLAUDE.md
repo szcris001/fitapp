@@ -84,7 +84,7 @@ Next.js App Router. Key areas:
 
 React Navigation (Stack + Bottom Tabs). Key files:
 - `store/auth.store.ts` — Zustand auth store (persisted to AsyncStorage)
-- `lib/api.ts` — Axios instance; **API URL is hardcoded** to a local network IP — update for your environment
+- `lib/api.ts` — Axios instance; API URL comes from `EXPO_PUBLIC_API_BASE` (`.env.local`, no versionado — ver `.env.example`), default producción si no está seteada
 - Screens in `screens/`
 
 ### Shared patterns

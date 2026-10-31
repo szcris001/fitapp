@@ -4,6 +4,7 @@ import {
   TouchableOpacity, ActivityIndicator, Alert, TextInput
 } from 'react-native'
 import api from '../../lib/api'
+import { alertButtons } from '../../lib/alert'
 
 export default function AssignStudentScreen({ route, navigation }: any) {
   const { classId, className } = route.params
@@ -39,7 +40,7 @@ export default function AssignStudentScreen({ route, navigation }: any) {
   }
 
   const handleAssign = async (userId: string, userName: string) => {
-    Alert.alert(
+    alertButtons(
       'Asignar alumno',
       `¿Inscribir a ${userName} en ${className}?`,
       [
@@ -50,11 +51,11 @@ export default function AssignStudentScreen({ route, navigation }: any) {
             setAssigning(userId)
             try {
               await api.post('/bookings/assign', { classId, userId })
-              Alert.alert('✅ Listo', `${userName} fue inscrito en la clase`, [
+              alertButtons('✅ Listo', `${userName} fue inscrito en la clase`, [
                 { text: 'OK', onPress: () => navigation.goBack() }
               ])
             } catch (err: any) {
-              Alert.alert('Error', err.response?.data?.error || 'No se pudo inscribir al alumno')
+              alertButtons('Error', err.response?.data?.error || 'No se pudo inscribir al alumno')
             } finally {
               setAssigning(null)
             }

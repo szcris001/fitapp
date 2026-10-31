@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useAuthStore } from '../../../../../store/auth.store'
 import api, { mediaUrl } from '../../../../../lib/api'
+import { GYM_TIMEZONE } from '../../../../../lib/gym-timezone'
 import { ChevronLeft, Plus, Trophy, Clock, Dumbbell, RotateCcw, X, Search, Pencil, Trash2 } from 'lucide-react'
 
 /* ─── Types ─────────────────────────────────────── */
@@ -67,7 +68,13 @@ function parseScore(raw: string, scoreType: string): number | null {
     const seconds = mmss ? Number(mmss[1]) * 60 + Number(mmss[2]) : Number(text)
     return Number.isFinite(seconds) && seconds > 0 ? seconds : null
   }
-  if (scoreType === 'CUSTOM') return Number.parseFloat(text.replace(',', '.')) || 0
+  // CUSTOM es texto libre sin campo numérico dedicado (a diferencia de mobile) — antes
+  // se intentaba sacar un número "de la nada" parseando el inicio del texto (ej. "7
+  // rondas..." → 7), guardando un score que parecía significar algo sin serlo: CUSTOM
+  // nunca se usa para rankear (computeRank/leaderboard lo ignoran) ni se muestra en
+  // ningún lado (formatScore devuelve scoreText tal cual). 0 explícito, sin fingir
+  // que hay un número real detrás (hallazgo QA 2026-10-30).
+  if (scoreType === 'CUSTOM') return 0
   const n = Number(text.replace(',', '.'))
   return Number.isFinite(n) && n >= 0 ? n : null
 }
@@ -555,8 +562,12 @@ export default function WodLeaderboardPage() {
         rx:     allEntries.filter(e => e.rx),
         scaled: allEntries.filter(e => !e.rx),
       })
-    } catch {
-      setError('No se pudo cargar el leaderboard. Verifica tu conexion o intenta de nuevo.')
+    } catch (err: any) {
+      setError(
+        err?.response?.status === 404
+          ? 'WOD no encontrado. No existe o no pertenece a tu gimnasio.'
+          : 'No se pudo cargar el leaderboard. Verifica tu conexion o intenta de nuevo.'
+      )
     } finally {
       setLoading(false)
     }
@@ -580,7 +591,7 @@ export default function WodLeaderboardPage() {
 
   const formatDate = (iso: string) => {
     try {
-      return new Date(iso).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      return new Date(iso).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: GYM_TIMEZONE })
     } catch {
       return iso
     }

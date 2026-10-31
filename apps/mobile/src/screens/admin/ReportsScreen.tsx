@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react'
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import api from '../../lib/api'
+import { formatMoney } from '../../lib/money'
 
 export default function ReportsScreen({ navigation }: any) {
   const [revenue, setRevenue] = useState<any>(null)
@@ -23,8 +24,9 @@ export default function ReportsScreen({ navigation }: any) {
 
   useFocusEffect(useCallback(() => { fetchData() }, []))
 
-  const fmt = (cents: number, currency = 'CLP') =>
-    `${currency} ${(cents / 100).toLocaleString('es-CL')}`
+  // Mismo bug que PaymentsScreen: dividir por 100 a mano escala mal un monto en
+  // CLP (sin decimales) — usar la unidad mínima ISO real (hallazgo QA 2026-10-30).
+  const fmt = (minor: number, currency = 'CLP') => formatMoney(minor, currency)
 
   const maxOccupancy = Math.max(...attendance.map(a => a.avgOccupancy), 1)
 

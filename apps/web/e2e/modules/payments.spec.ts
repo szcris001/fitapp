@@ -189,12 +189,14 @@ test.describe('PAY — transferencias', () => {
       const row = pendingRow(page, student.email)
       await expect(row).toBeVisible()
 
-      page.once('dialog', d => {
-        expect(d.type()).toBe('prompt')
-        d.accept(reason)
-      })
+      // El motivo ya no se pide con window.prompt() — abre un modal propio
+      // (ver apps/web/app/dashboard/payments/page.tsx, hallazgo QA 2026-10-30).
       const rejectRes = page.waitForResponse(r => r.url().includes(`/payments/transfer/${pending.id}/reject`))
       await row.getByRole('button', { name: 'Rechazar' }).click()
+      const modal = page.getByRole('heading', { name: 'Rechazar transferencia' })
+      await expect(modal).toBeVisible()
+      await page.getByPlaceholder('Ej: el comprobante no coincide con el monto del plan').fill(reason)
+      await page.getByRole('button', { name: 'Rechazar' }).last().click()
       expect((await rejectRes).status()).toBe(200)
       await expect(row).toHaveCount(0)
 

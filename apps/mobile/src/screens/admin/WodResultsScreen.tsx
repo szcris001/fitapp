@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons'
 import api from '../../lib/api'
 import { BottomSheet } from '../../components/BottomSheet'
 import { parseScoreInput } from '../../lib/wodScore'
+import { alertButtons } from '../../lib/alert'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function ResultForm({
 
   const getScore = (): { score: number; scoreText?: string } | null => {
     const input = scoreType === 'TIME' ? { mins, secs }
-      : scoreType === 'CUSTOM' ? { text: scoreText }
+      : scoreType === 'CUSTOM' ? { text: scoreText, value: customValue }
       : { value: scoreValue }
     const result = parseScoreInput(scoreType, input)
     if ('error' in result) return null
@@ -260,7 +261,7 @@ export default function WodResultsScreen({ route }: any) {
   }
 
   const handleDelete = (entry: Entry) => {
-    Alert.alert('Eliminar resultado', `¿Quitar el resultado de ${entry.user.name}?`, [
+    alertButtons('Eliminar resultado', `¿Quitar el resultado de ${entry.user.name}?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Eliminar', style: 'destructive',
@@ -269,7 +270,7 @@ export default function WodResultsScreen({ route }: any) {
             await api.delete(`/wods/${wodId}/results/${entry.userId}`)
             fetchData()
           } catch (err: any) {
-            Alert.alert('Error', err.response?.data?.error || 'No se pudo eliminar')
+            alertButtons('Error', err.response?.data?.error || 'No se pudo eliminar')
           }
         },
       },

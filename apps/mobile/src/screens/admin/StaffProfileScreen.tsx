@@ -4,11 +4,13 @@ import {
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BottomSheet } from '../../components/BottomSheet'
 import { useAuthStore } from '../../store/auth.store'
 import { useTheme } from '../../theme/ThemeContext'
 import api from '../../lib/api'
+import { alertButtons } from '../../lib/alert'
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: 'Administrador', COACH: 'Coach', SUPER_ADMIN: 'Super Admin',
@@ -16,6 +18,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 export default function StaffProfileScreen() {
   const { user, logout } = useAuthStore()
+  const navigation = useNavigation<any>()
   const insets = useSafeAreaInsets()
   const { theme } = useTheme()
   const c = theme.colors
@@ -104,11 +107,27 @@ export default function StaffProfileScreen() {
         </View>
       </View>
 
+      {/* ─── GESTIÓN ─── */}
+      {(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN') && (
+        <View style={s.section}>
+          <Text style={[s.sectionLabel, { color: c.text3 }]}>GESTIÓN</Text>
+          <View style={[s.settingsList, { borderColor: c.border }]}>
+            <TouchableOpacity style={s.settingRow} onPress={() => navigation.navigate('More')} activeOpacity={0.7}>
+              <View style={[s.settingIcon, { backgroundColor: '#8b5cf620' }]}>
+                <Ionicons name="grid-outline" size={16} color="#8b5cf6" />
+              </View>
+              <Text style={[s.settingLabel, { color: c.text1, flex: 1 }]}>Más (planes, pagos, reportes...)</Text>
+              <Ionicons name="chevron-forward" size={16} color={c.text3} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* ─── CERRAR SESIÓN ─── */}
       <View style={[s.section, { marginBottom: 40 }]}>
         <TouchableOpacity
           style={[s.logoutBtn, { borderColor: c.border }]}
-          onPress={() => Alert.alert('Cerrar sesión', '¿Estás seguro?', [
+          onPress={() => alertButtons('Cerrar sesión', '¿Estás seguro?', [
             { text: 'Cancelar', style: 'cancel' },
             { text: 'Salir', style: 'destructive', onPress: logout },
           ])}

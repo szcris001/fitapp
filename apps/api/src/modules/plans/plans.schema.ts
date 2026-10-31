@@ -28,15 +28,14 @@ export const createPlanSchema = z.object({
   autoRenewEnabled: z.boolean().default(false),
   autoRenewDaysBefore: z.number().int().min(1).max(30).default(3),
   // Tipos de clase que incluye el plan — vacío/omitido = sin restricción (accede a
-  // todos los tipos), para no romper gyms existentes que no configuren nada. La
-  // restricción puntual de una clase individual (Class.allowedPlans) sigue mandando
-  // por encima de esto cuando está seteada (ver classes.service.ts, canAccessClass).
+  // todos los tipos), para no romper gyms existentes que no configuren nada. Única
+  // fuente de verdad del acceso por plan (ver classes.service.ts, canAccessClass).
   classTypeIds: z.array(z.string().uuid()).optional(),
 }).transform(data => (data.isTrial ? { ...data, priceCents: 0 } : data))
 
 export const updatePlanSchema = z.object({
   name: z.string().min(2).max(100).optional(),
-  description: z.string().optional(),
+  description: z.string().nullish(),
   priceCents: z.number().int().min(0).max(MAX_PRICE_CENTS).optional(),
   currency: z.enum(PLAN_CURRENCIES).optional(),
   durationDays: z.number().int().min(1).max(730).optional(),
@@ -58,5 +57,20 @@ export const createMembershipSchema = z.object({
   status: z.enum(['ACTIVE', 'TRIAL']).default('ACTIVE'),
 })
 
+// Antes sin validar (cast de TypeScript sin chequeo en runtime): un status inválido
+// reventaba contra Prisma y el 400 devolvía el mensaje crudo del error (ruta del
+// archivo, línea, el objeto `data` completo) — fuga de detalles internos. Un
+// extendDays no-numérico (ej. "no-es-numero") pasaba la condición `data.extendDays
+// && data.extendDays > 0` como falso y hacía un no-op silencioso: el admin creía
+// haber extendido la membresía y no pasaba nada. Tope de 730 días (igual que
+// durationDays de un plan) evita un extendDays absurdo como 999999 → fecha en el
+// año 4764, que se veía tal cual en la lista de alumnos (QA 2026-10-30).
+export const updateMembershipSchema = z.object({
+  status: z.enum(['ACTIVE', 'INACTIVE', 'TRIAL']).optional(),
+  extendDays: z.number().int().positive().max(730).optional(),
+  reversalNotes: z.string().max(500).optional(),
+})
+
 export type CreatePlanInput = z.infer<typeof createPlanSchema>
 export type CreateMembershipInput = z.infer<typeof createMembershipSchema>
+export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>

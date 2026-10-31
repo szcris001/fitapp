@@ -199,8 +199,16 @@ async function runPendingConfirmExpiryJob() {
   })
 
   for (const booking of expired) {
-    // Cancelar la reserva expirada
-    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'CANCELLED' } })
+    // Cancelar la reserva expirada — updateMany con status:'PENDING_CONFIRM' en el
+    // where hace el check-y-set atómico: si el alumno llamó a confirmBooking justo
+    // en este momento y ya la pasó a CONFIRMED, count queda en 0 y no la pisamos ni
+    // promovemos a nadie más sobre un cupo que en realidad sigue ocupado (carrera
+    // confirmBooking vs. este cron, QA 2026-10-30).
+    const { count } = await prisma.booking.updateMany({
+      where: { id: booking.id, status: 'PENDING_CONFIRM' },
+      data: { status: 'CANCELLED' },
+    })
+    if (count === 0) continue
     if (booking.user.pushToken) {
       await sendPushNotification(
         booking.user.pushToken,

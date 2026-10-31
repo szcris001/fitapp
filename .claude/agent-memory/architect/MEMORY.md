@@ -9,3 +9,4 @@
 - [project_wod_benchmark_link.md](project_wod_benchmark_link.md) — Diseño Benchmark↔Wod aprobado 2026-10-19: Wod.benchmarkId SetNull, progreso vía join (sin duplicar BenchmarkResult), permisos de catálogo abiertos a authenticate
 - [project_benchmark_history_unified.md](project_benchmark_history_unified.md) — Historial unificado benchmarks (clase+personal) implementado 2026-10-19: getBenchmarkHistory merge sin esquema nuevo, GET /benchmarks/history/me complementa (no reemplaza) /wod-results/me
 - [project_wod_block_type.md](project_wod_block_type.md) — WodBlockType implementado 2026-10-20: enum WARMUP/SKILL_STRENGTH/WOD/COOLDOWN/OTHER, default OTHER, resuelve bug de applyBenchmark() pisando todos los bloques
+- [project_wod_movement_results.md](project_wod_movement_results.md) — WodResult.movementResults (Json, no tabla) implementado 2026-10-29: desglose informativo por movimiento, GET /wods/:id abierto a authenticate

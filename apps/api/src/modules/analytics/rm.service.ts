@@ -11,25 +11,36 @@ export async function getRmsByUser(userId: string, gymId: string) {
     orderBy: { recordedAt: 'desc' },
   })
 
+  // Agrupar por nombre normalizado (trim + minúsculas) — sin esto, "Back Squat",
+  // "back squat" y "Back Squat " (espacio de más) quedaban como 3 movimientos
+  // distintos en vez de 1 historial consolidado (QA 2026-10-30).
   const byMovement = new Map<string, typeof records>()
   for (const r of records) {
-    if (!byMovement.has(r.movementName)) byMovement.set(r.movementName, [])
-    byMovement.get(r.movementName)!.push(r)
+    const key = r.movementName.trim().toLowerCase()
+    if (!byMovement.has(key)) byMovement.set(key, [])
+    byMovement.get(key)!.push(r)
   }
 
-  return Array.from(byMovement.entries()).map(([movementName, history]) => ({
-    movementName,
-    currentRm: history[0].weightKg,
-    history: history.map(r => ({
-      id: r.id,
-      weightKg: r.weightKg,
-      recordedAt: r.recordedAt,
-      notes: r.notes,
-    })),
-    improvement: history.length > 1
-      ? +(history[0].weightKg - history[history.length - 1].weightKg).toFixed(1)
-      : 0,
-  }))
+  return Array.from(byMovement.values()).map((history) => {
+    // "Récord" es el mejor peso logrado, no el último registrado — con "más
+    // reciente" como actual, un día flojo (o una fecha mal puesta) enterraba el
+    // PR real sin ningún aviso (QA 2026-10-30). history ya viene ordenado por
+    // recordedAt desc (query de arriba), así que el último elemento es el primer
+    // registro histórico, usado para medir la mejora total.
+    const best = history.reduce((max, r) => (r.weightKg > max.weightKg ? r : max), history[0])
+    const oldest = history[history.length - 1]
+    return {
+      movementName: history[0].movementName,
+      currentRm: best.weightKg,
+      history: history.map(r => ({
+        id: r.id,
+        weightKg: r.weightKg,
+        recordedAt: r.recordedAt,
+        notes: r.notes,
+      })),
+      improvement: history.length > 1 ? +(best.weightKg - oldest.weightKg).toFixed(1) : 0,
+    }
+  })
 }
 
 export async function createRm(userId: string, gymId: string, data: CreateRmInput) {
@@ -40,7 +51,7 @@ export async function createRm(userId: string, gymId: string, data: CreateRmInpu
     return await prisma.rmRecord.create({
       data: {
         userId,
-        movementName: data.movementName,
+        movementName: data.movementName.trim(),
         weightKg: data.weightKg,
         notes: data.notes,
         recordedAt: data.recordedAt ? new Date(data.recordedAt) : new Date(),
@@ -120,7 +131,17 @@ export async function createGymnasticProgress(
         achievedAt: data.achievedAt ? new Date(data.achievedAt) : new Date(),
       },
     })
-  } catch (err) {
+  } catch (err: any) {
+    // Doble tap en mobile disparaba 2 POST casi simultáneos del mismo hito,
+    // creando 2 filas idénticas (sin @@unique no había nada que lo evitara) — la
+    // ficha del alumno en el panel web contaba filas crudas, inflando el número
+    // de hitos logrados (QA 2026-10-30). Idempotente: el segundo toque devuelve
+    // el mismo registro en vez de un error.
+    if (err?.code === 'P2002') {
+      return prisma.gymnasticProgress.findUniqueOrThrow({
+        where: { userId_skillName_milestone: { userId, skillName: data.skillName, milestone: data.milestone } },
+      })
+    }
     handlePrismaError(err)
   }
 }

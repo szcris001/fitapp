@@ -13,6 +13,8 @@ import { useTheme } from '../theme/ThemeContext'
 import api, { API_BASE as API_URL, mediaUrl } from '../lib/api'
 import { daysUntilLocal } from '../lib/membership-days'
 import { BottomSheet } from '../components/BottomSheet'
+import { alertButtons } from '../lib/alert'
+import { getGymTimezone, setGymTimezone, gymDayStr } from '../lib/gym-timezone'
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>()
@@ -122,7 +124,7 @@ export default function HomeScreen() {
         )
         const mine = wods
           .map((w: any, i: number) => {
-            const result = resultsRes[i]?.data
+            const result = resultsRes[i]?.data?.result
             if (!result) return null
             const classMatch = todayBookings.find((b: any) => b.classType?.id === w.classTypeId)
             return { wod: w, result, classStartsAt: classMatch?.startsAt ?? null }
@@ -138,6 +140,8 @@ export default function HomeScreen() {
         const url = a?.mobile_dashboard_bg ?? a?.dashboard_bg ?? null
         if (url) setDashboardBg(`${API_URL}${url}`)
       }).catch(() => {})
+
+      api.get('/gyms/me').then(r => setGymTimezone(r.data.timezone)).catch(() => {})
     } catch { }
     finally { setRefreshing(false) }
   }
@@ -157,7 +161,7 @@ export default function HomeScreen() {
   const closeClassModal = () => { setClassModal(null); setClassDetails(null) }
 
   const handleCancel = (classId: string) => {
-    Alert.alert('Cancelar reserva', '¿Estás seguro de cancelar?', [
+    alertButtons('Cancelar reserva', '¿Estás seguro de cancelar?', [
       { text: 'No', style: 'cancel' },
       {
         text: 'Sí, cancelar', style: 'destructive',
@@ -165,7 +169,7 @@ export default function HomeScreen() {
           try {
             await api.delete(`/bookings/${classId}`)
           } catch (err: any) {
-            Alert.alert('Error', err?.response?.data?.error || 'No se pudo cancelar')
+            alertButtons('Error', err?.response?.data?.error || 'No se pudo cancelar')
           } finally {
             closeClassModal()
             fetchData()
@@ -268,12 +272,6 @@ export default function HomeScreen() {
                     </View>
                   )}
                 </View>
-                <TouchableOpacity
-                  onPress={() => navigation.navigate('notifications')}
-                  style={s.notifBtn}
-                >
-                  <Text style={{ fontSize: 18 }}>🔔</Text>
-                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -286,12 +284,10 @@ export default function HomeScreen() {
           </Text>
           {todayClasses.length > 0 ? todayClasses.map((cl: any) => {
             const clDate = new Date(cl.startsAt)
-            const clDay = clDate.toISOString().split('T')[0]
-            const todayStr = new Date().toISOString().split('T')[0]
-            const isToday = clDay === todayStr
+            const isToday = gymDayStr(clDate) === gymDayStr(new Date())
             const dayLabel = isToday
               ? 'HOY'
-              : clDate.toLocaleDateString('es-CL', { weekday: 'short' }).toUpperCase()
+              : clDate.toLocaleDateString('es-CL', { weekday: 'short', timeZone: getGymTimezone() }).toUpperCase()
             return (
               <TouchableOpacity key={cl.id} onPress={() => openClassModal(cl)} activeOpacity={0.82}>
               <View style={[s.classRowShadow, { shadowColor: c.primary }]}>
@@ -300,7 +296,7 @@ export default function HomeScreen() {
                   <Text style={[s.classDay, { color: c.text1 }]}>{dayLabel}</Text>
                   <Text style={[s.classDot, { color: c.text1 }]}>·</Text>
                   <Text style={[s.classHour, { color: c.text1 }]}>
-                    {clDate.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                    {clDate.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: getGymTimezone() })}
                   </Text>
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -380,7 +376,7 @@ export default function HomeScreen() {
             {myTodayResults.map(({ wod, result, classStartsAt }: any) => {
               const accent = wod.classType?.color || c.primary
               const classTime = classStartsAt
-                ? new Date(classStartsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                ? new Date(classStartsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: getGymTimezone() })
                 : null
               return (
                 <TouchableOpacity
@@ -555,11 +551,11 @@ export default function HomeScreen() {
         <View style={{ paddingHorizontal: 24 }}>
           {/* Subtítulo fecha/hora */}
           <Text style={[s.modalSub, { color: c.text3, marginBottom: 8 }]}>
-            {classModal && new Date(classModal.startsAt).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
+            {classModal && new Date(classModal.startsAt).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: getGymTimezone() })}
             {' · '}
-            {classModal && new Date(classModal.startsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+            {classModal && new Date(classModal.startsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: getGymTimezone() })}
             {' — '}
-            {classModal && new Date(classModal.endsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+            {classModal && new Date(classModal.endsAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: getGymTimezone() })}
           </Text>
 
           {/* Coach */}

@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { prisma } from '../../lib/prisma'
 import * as mpClient from '../../lib/mp-client'
 import { emitirDTE, DteInput } from '../../lib/dte'
-import { sendPaymentConfirmation } from '../../lib/email'
+import { sendPaymentConfirmation, sendPaymentRejection } from '../../lib/email'
 import { nextMembershipPeriod } from '../../lib/membership'
 import { toMajorUnits } from '../../lib/money'
 import { HttpError } from '../../lib/http-error'
@@ -1205,7 +1205,18 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
     include: { user: true, plan: true },
   })
   if (!membership) throw new Error('Membresía no encontrada')
-  if (membership.transferStatus !== 'PENDING_REVIEW') throw new Error('Esta transferencia ya fue procesada')
+
+  // Reclamo atómico: el chequeo de estado (transferStatus === 'PENDING_REVIEW') y el
+  // set van en el mismo updateMany, así dos PATCH /confirm concurrentes sobre la misma
+  // transferencia no pasan los dos el chequeo antes de que ninguno haya escrito todavía
+  // (mismo patrón que confirmPendingBooking en classes.service.ts). Solo uno de los dos
+  // obtiene count === 1 y sigue de largo; el otro corta aquí sin recalcular el período
+  // ni mandar el email de nuevo.
+  const claimed = await prisma.membership.updateMany({
+    where: { id: membershipId, transferStatus: 'PENDING_REVIEW' },
+    data: { transferStatus: 'CONFIRMED' },
+  })
+  if (claimed.count === 0) throw new Error('Esta transferencia ya fue procesada')
 
   // Extiende desde la membresía vigente (si la hay) y la reemplaza, igual que los otros medios de pago
   const { startsAt, endsAt } = await nextMembershipPeriod(gymId, membership.userId, membership.plan.durationDays, { excludeId: membershipId })
@@ -1218,7 +1229,6 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
       where: { id: membershipId },
       data: {
         status: 'ACTIVE',
-        transferStatus: 'CONFIRMED',
         paidAt: new Date(),
         startsAt,
         endsAt,
@@ -1245,18 +1255,35 @@ export async function confirmTransfer(gymId: string, membershipId: string, notes
 export async function rejectTransfer(gymId: string, membershipId: string, reason?: string) {
   const membership = await prisma.membership.findFirst({
     where: { id: membershipId, user: { gymId } },
+    include: { user: true, plan: true },
   })
   if (!membership) throw new Error('Membresía no encontrada')
-  if (membership.transferStatus !== 'PENDING_REVIEW') throw new Error('Esta transferencia ya fue procesada')
 
-  return prisma.membership.update({
-    where: { id: membershipId },
+  // Mismo reclamo atómico que confirmTransfer: el chequeo de estado y el set de los
+  // campos finales van en el mismo updateMany, así dos PATCH /reject concurrentes
+  // sobre la misma transferencia no pasan los dos el chequeo.
+  const claimed = await prisma.membership.updateMany({
+    where: { id: membershipId, transferStatus: 'PENDING_REVIEW' },
     data: {
       status: 'INACTIVE',
       transferStatus: 'REJECTED',
       ...(reason && { paymentNotes: reason }),
     },
   })
+  if (claimed.count === 0) throw new Error('Esta transferencia ya fue procesada')
+
+  const updated = await prisma.membership.findUniqueOrThrow({ where: { id: membershipId } })
+
+  // Notificación email al alumno: que sepa que el comprobante fue rechazado y por qué
+  const { user, plan } = membership
+  sendPaymentRejection(gymId, {
+    memberName: user.name,
+    memberEmail: user.email,
+    planName: plan.name,
+    reason,
+  }).catch(() => {})
+
+  return updated
 }
 
 // ─── Gym Platform Subscription Checkout ──────────────────────────────────────

@@ -76,3 +76,19 @@ describe('POST /api/messages/email — por plan', () => {
     expect(res.json().totalRecipients).toBe(0)
   })
 })
+
+describe('POST /api/messages/email — target "individual" sin userId', () => {
+  it('no cae al destino genérico (todos los miembros del gym) — no envía a nadie', async () => {
+    // Antes, sin userId, caía al return del final de getTargetUsers (todos los
+    // miembros del gym) — un bypass de la UI mandaba el mensaje a TODO el gym en vez
+    // de a nadie (QA 2026-10-30).
+    sendBulkEmail.mockClear()
+    const res = await app.inject({
+      method: 'POST', url: '/api/messages/email', headers: { authorization: `Bearer ${adminToken}` },
+      payload: { target: 'individual', subject: 'Hola', body: 'Mensaje' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().totalRecipients).toBe(0)
+    expect(sendBulkEmail.mock.calls[0][1].recipients).toEqual([])
+  })
+})

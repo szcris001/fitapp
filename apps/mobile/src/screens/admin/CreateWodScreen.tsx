@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import api from '../../lib/api'
 import { BottomSheet } from '../../components/BottomSheet'
+import { alertButtons } from '../../lib/alert'
 
 interface Movement {
   movementName: string
@@ -176,7 +177,7 @@ export default function CreateWodScreen({ route, navigation }: any) {
     try {
       if (isEdit) {
         await api.put(`/wods/${wodId}`, body)
-        Alert.alert('WOD actualizado', '', [{ text: 'OK', onPress: () => navigation.goBack() }])
+        alertButtons('WOD actualizado', '', [{ text: 'OK', onPress: () => navigation.goBack() }])
       } else {
         const { data } = await api.post('/wods', body)
         navigation.replace('WodResults', {

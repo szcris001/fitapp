@@ -1,7 +1,11 @@
 import axios, { AxiosRequestConfig } from 'axios'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export const API_BASE = 'http://192.168.100.21:3001'
+// EXPO_PUBLIC_API_BASE se toma de .env.local (no versionado, ver .env.example)
+// en desarrollo, y de eas.json en builds EAS. Sin ninguno de los dos, el
+// default es producción — así un build sin configurar nunca apunta por
+// accidente a un ambiente de pruebas.
+export const API_BASE = process.env.EXPO_PUBLIC_API_BASE || 'https://api-production-ff3c.up.railway.app'
 const API_URL = `${API_BASE}/api`
 
 const api = axios.create({ baseURL: API_URL })

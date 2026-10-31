@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma'
-import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput } from './plans.schema'
+import { CreatePlanInput, UpdatePlanInput, CreateMembershipInput, UpdateMembershipInput } from './plans.schema'
 import { handlePrismaError } from '../../lib/prismaError'
 import { nextMembershipPeriod } from '../../lib/membership'
 import { addLocalDays, getGymTimezone, startOfGymDay } from '../../lib/gym-day'
@@ -14,8 +14,7 @@ export async function listPlans(gymId: string, includeInactive = false) {
   })
 }
 
-// Los tipos de clase llegan como IDs en el body: verificar que TODOS sean del gym del
-// token, mismo criterio que assertPlansBelongToGym en classes.service.ts.
+// Los tipos de clase llegan como IDs en el body: verificar que TODOS sean del gym del token.
 async function assertClassTypesBelongToGym(gymId: string, classTypeIds: string[]) {
   const uniqueIds = [...new Set(classTypeIds)]
   if (!uniqueIds.length) return
@@ -79,6 +78,7 @@ export async function assignMembership(gymId: string, data: CreateMembershipInpu
 
   const plan = await prisma.plan.findFirst({ where: { id: data.planId, gymId } })
   if (!plan) throw new Error('Plan no encontrado')
+  if (!plan.isActive) throw new Error('El plan está pausado — no se puede asignar')
 
   // El form web manda una fecha sola ("YYYY-MM-DD", el día elegido por el admin en la zona
   // del gym). new Date("2026-10-02") la interpreta como medianoche UTC, no medianoche Chile
@@ -138,6 +138,11 @@ export async function renewMembership(gymId: string, userId: string) {
     include: { plan: true },
   })
   if (!lastMembership) throw new Error('No hay membresía previa para renovar')
+  // Mismo chequeo que assignMembership — un plan pausado no admite nuevas altas NI
+  // renovaciones; si no, pausar un plan no servía para nada mientras quedara algún
+  // alumno con membresía en él (QA 2026-10-30, Cristian: confirmado que debe bloquear
+  // igual que asignar, no es un "legacy pricing" intencional).
+  if (!lastMembership.plan.isActive) throw new Error('El plan está pausado — no se puede renovar')
 
   // Renovar antes del vencimiento no hace perder los días que quedaban
   const { startsAt, endsAt } = await nextMembershipPeriod(gymId, userId, lastMembership.plan.durationDays)
@@ -171,11 +176,7 @@ export async function renewMembership(gymId: string, userId: string) {
 export async function updateMembership(
   gymId: string,
   membershipId: string,
-  data: {
-    status?: 'ACTIVE' | 'INACTIVE' | 'TRIAL'
-    extendDays?: number
-    reversalNotes?: string
-  },
+  data: UpdateMembershipInput,
 ) {
   // Verificar que la membresía pertenece a este gym (multi-tenancy)
   const membership = await prisma.membership.findFirst({

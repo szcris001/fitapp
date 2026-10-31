@@ -6,6 +6,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native'
 import api from '../../lib/api'
 import { toMajorUnits, toMinorUnits } from '../../lib/money'
+import { alertButtons } from '../../lib/alert'
 
 export default function PlansScreen({ navigation }: any) {
   const [plans, setPlans] = useState<any[]>([])
@@ -65,7 +66,7 @@ export default function PlansScreen({ navigation }: any) {
   }
 
   const handleDelete = (plan: any) => {
-    Alert.alert('Desactivar plan', `¿Desactivar "${plan.name}"?`, [
+    alertButtons('Desactivar plan', `¿Desactivar "${plan.name}"?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Desactivar', style: 'destructive', onPress: async () => {
@@ -73,7 +74,7 @@ export default function PlansScreen({ navigation }: any) {
             await api.delete(`/plans/${plan.id}`)
             fetchPlans()
           } catch (err: any) {
-            Alert.alert('Error', err.response?.data?.error || 'No se pudo desactivar')
+            alertButtons('Error', err.response?.data?.error || 'No se pudo desactivar')
           }
         }
       }

@@ -7,7 +7,7 @@ import { toMajorUnits } from '../../../lib/money'
 import {
   DollarSign, TrendingUp, BarChart2, Clock,
   AlertTriangle, Sparkles, CheckCircle2, Wallet, CreditCard,
-  Users, Activity, CalendarDays, Trophy,
+  Users, Activity, CalendarDays, Trophy, UserX,
 } from 'lucide-react'
 
 /* ─── Analytics helpers ─────────────────────────────────────────────────── */
@@ -582,7 +582,39 @@ export default function ReportsPage() {
                 </section>
               )}
 
-              {alerts.atRisk.length === 0 && alerts.expiringSoon.length === 0 && (
+              {alerts.inactive?.length > 0 && (
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <UserX className="w-4 h-4 text-slate-500" />
+                    <h2 className="text-base font-semibold" style={{ color: 'var(--text-2)' }}>Se fueron hace poco — {alerts.inactive.length}</h2>
+                  </div>
+                  <div className="space-y-3">
+                    {alerts.inactive.map((m: any) => (
+                      <div key={m.id} className="card rounded-xl p-4 border-l-4 border-l-slate-400 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sm font-semibold text-slate-600 shrink-0">
+                            {m.name[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm" style={{ color: 'var(--text-1)' }}>{m.name}</p>
+                            <p className="text-xs" style={{ color: 'var(--text-4)' }}>
+                              {m.plan ? `${m.plan} — ` : ''}se venció hace poco
+                            </p>
+                          </div>
+                        </div>
+                        <button onClick={() => router.push(`/dashboard/users/${m.id}`)}
+                          className="text-sm font-medium shrink-0 ml-4 transition-colors"
+                          style={{ color: 'var(--text-4)' }}
+                          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-1)')}
+                          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-4)')}
+                        >Ver alumno →</button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {alerts.atRisk.length === 0 && alerts.expiringSoon.length === 0 && (!alerts.inactive || alerts.inactive.length === 0) && (
                 <div className="card rounded-xl p-10 flex flex-col items-center gap-3 text-center">
                   <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
                     <CheckCircle2 className="w-6 h-6 text-green-500" />

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
-import { createPlanSchema, updatePlanSchema, createMembershipSchema } from './plans.schema'
+import { createPlanSchema, updatePlanSchema, createMembershipSchema, updateMembershipSchema } from './plans.schema'
 import { listPlans, createPlan, updatePlan, deactivatePlan, assignMembership, renewMembership, updateMembership } from './plans.service'
 
 export async function planRoutes(app: FastifyInstance) {
@@ -27,8 +27,7 @@ export async function planRoutes(app: FastifyInstance) {
       const plan = await createPlan(user.gymId, parsed.data)
       return reply.status(201).send(plan)
     } catch (err: any) {
-      // classTypeIds de otro gym es un 400 de validación, no un 5xx — mismo criterio
-      // que POST /classes con allowedPlanIds (classes.routes.ts).
+      // classTypeIds de otro gym es un 400 de validación, no un 5xx
       return reply.status(400).send({ error: err.message })
     }
   })
@@ -85,13 +84,12 @@ export async function planRoutes(app: FastifyInstance) {
   app.patch('/memberships/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const user = request.user as any
     const { id } = request.params as { id: string }
-    const body = request.body as {
-      status?: 'ACTIVE' | 'INACTIVE' | 'TRIAL'
-      extendDays?: number
-      reversalNotes?: string
+    const parsed = updateMembershipSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     }
     try {
-      const membership = await updateMembership(user.gymId, id, body)
+      const membership = await updateMembership(user.gymId, id, parsed.data)
       return reply.send(membership)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })

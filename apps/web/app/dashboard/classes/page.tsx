@@ -9,6 +9,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import listPlugin from '@fullcalendar/list'
+import { toGymFloatingIso } from '../../../lib/gym-timezone'
 
 interface Class {
   id: string; startsAt: string; endsAt: string; capacity: number
@@ -329,8 +330,8 @@ export default function ClassesPage() {
           events={filteredClasses.map(cls => ({
             id: cls.id,
             title: cls.classType.name,
-            start: cls.startsAt,
-            end: cls.endsAt,
+            start: toGymFloatingIso(cls.startsAt),
+            end: toGymFloatingIso(cls.endsAt),
             backgroundColor: (cls.classType.color || '#6366f1') + (selectedIds.has(cls.id) ? '66' : '33'),
             borderColor: cls.classType.color || '#6366f1',
             textColor: cls.classType.color || '#6366f1',
@@ -368,6 +369,7 @@ export default function ClassesPage() {
           slotMaxTime="22:00:00"
           allDaySlot={false}
           nowIndicator={true}
+          now={() => toGymFloatingIso(new Date().toISOString())}
           slotDuration="00:30:00"
           expandRows={true}
           firstDay={1}

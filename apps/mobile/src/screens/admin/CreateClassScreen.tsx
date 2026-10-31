@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import api from '../../lib/api'
 import { BottomSheet } from '../../components/BottomSheet'
+import { alertButtons } from '../../lib/alert'
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
@@ -65,9 +66,9 @@ export default function CreateClassScreen({ navigation }: any) {
     try {
       const { data } = await api.post('/classes', body)
       const msg = data.created ? `${data.created} clases creadas` : 'Clase creada'
-      Alert.alert('✅ ' + msg, '', [{ text: 'OK', onPress: () => navigation.goBack() }])
+      alertButtons('✅ ' + msg, '', [{ text: 'OK', onPress: () => navigation.goBack() }])
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.error || 'No se pudo crear la clase')
+      alertButtons('Error', err.response?.data?.error || 'No se pudo crear la clase')
     } finally { setSaving(false) }
   }
 

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { authenticate, requireAdmin, requireCoachOrAdmin } from '../../middlewares/auth.middleware'
-import { createClassTypeSchema, createClassSchema, bookingSchema, updateClassAllowedPlansSchema } from './classes.schema'
-import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin, assertPlansBelongToGym } from './classes.service'
+import { createClassTypeSchema, createClassSchema, bookingSchema } from './classes.schema'
+import { listClassTypes, createClassType, updateClassType, deleteClassType, listClasses, getClassById, createClass, bookClass, cancelBooking, confirmBooking, getAttendanceBySchedule, assignUserToClass, removeStudentByAdmin } from './classes.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
 import { HttpError } from '../../lib/http-error'
@@ -79,27 +79,6 @@ export async function classRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
     try {
       return reply.status(201).send(await createClass(user.gymId, parsed.data))
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
-    }
-  })
-
-  // Update allowed plans for a class (set replaces current list; empty array removes all restrictions)
-  app.put('/classes/:id/allowed-plans', { preHandler: requireCoachOrAdmin }, async (request, reply) => {
-    const user = request.user as any
-    const { id } = request.params as { id: string }
-    const parsed = updateClassAllowedPlansSchema.safeParse(request.body)
-    if (!parsed.success) return reply.status(400).send({ error: 'Datos inválidos', details: parsed.error.flatten() })
-    const cls = await prisma.class.findFirst({ where: { id, gymId: user.gymId } })
-    if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
-    try {
-      await assertPlansBelongToGym(user.gymId, parsed.data.allowedPlanIds)
-      const updated = await prisma.class.update({
-        where: { id },
-        data: { allowedPlans: { set: parsed.data.allowedPlanIds.map(planId => ({ id: planId })) } },
-        include: { allowedPlans: { select: { id: true, name: true } } },
-      })
-      return reply.send(updated)
     } catch (err: any) {
       return reply.status(400).send({ error: err.message })
     }
@@ -209,14 +188,6 @@ export async function classRoutes(app: FastifyInstance) {
       if (!ct) return reply.status(400).send({ error: 'El tipo de clase no pertenece a este gimnasio' })
     }
 
-    if (body.allowedPlanIds !== undefined) {
-      try {
-        await assertPlansBelongToGym(user.gymId, body.allowedPlanIds as string[])
-      } catch (err: any) {
-        return reply.status(400).send({ error: err.message })
-      }
-    }
-
     // Si el PATCH toca startsAt y/o endsAt, validar el par resultante (el que no se
     // envía mantiene su valor actual) — sin esto se puede dejar una clase con el fin
     // antes del inicio, invisible en el calendario (FullCalendar descarta end<=start).
@@ -237,11 +208,7 @@ export async function classRoutes(app: FastifyInstance) {
           ...(body.capacity && { capacity: Number(body.capacity) }),
           ...(body.coachId && { coachId: body.coachId }),
           ...(body.classTypeId && { classTypeId: body.classTypeId }),
-          ...(body.allowedPlanIds !== undefined && {
-            allowedPlans: { set: (body.allowedPlanIds as string[]).map(planId => ({ id: planId })) },
-          }),
         },
-        include: { allowedPlans: { select: { id: true, name: true } } },
       })
       return reply.send(updated)
     } catch (err) {
@@ -280,11 +247,26 @@ export async function classRoutes(app: FastifyInstance) {
     try {
       const booking = await prisma.booking.findFirst({
         where: { id: bookingId, class: { gymId: user.gymId } },
-        include: { class: { select: { startsAt: true } } },
+        include: { class: { select: { id: true, startsAt: true, capacity: true } } },
       })
       if (!booking) return reply.status(404).send({ error: 'Reserva no encontrada' })
       if (attended && booking.class.startsAt > new Date()) {
         return reply.status(409).send({ error: 'No se puede marcar asistencia antes de que la clase comience' })
+      }
+      // Al desmarcar, no asumir CONFIRMED a ciegas: si la reserva venía de WAITLIST
+      // (se marcó ATTENDED directamente, p.ej. QR/geo) y la clase ya está llena,
+      // volver a CONFIRMED generaría sobrecupo real. Se recalcula el cupo igual
+      // que al crear una reserva nueva (QA H01, qa/reports/2026-10-30-asistencia).
+      let newStatus: 'ATTENDED' | 'CONFIRMED' | 'WAITLIST' = 'ATTENDED'
+      if (!attended) {
+        const activeCount = await prisma.booking.count({
+          where: {
+            classId: booking.class.id,
+            status: { in: ['CONFIRMED', 'ATTENDED', 'PENDING_CONFIRM'] },
+            id: { not: bookingId },
+          },
+        })
+        newStatus = activeCount >= booking.class.capacity ? 'WAITLIST' : 'CONFIRMED'
       }
       try {
         const updated = await prisma.booking.update({
@@ -292,7 +274,7 @@ export async function classRoutes(app: FastifyInstance) {
           data: {
             attended,
             attendedAt: attended ? new Date() : null,
-            status: attended ? 'ATTENDED' : 'CONFIRMED',
+            status: newStatus,
           },
         })
         return reply.send(updated)
@@ -316,12 +298,12 @@ export async function classRoutes(app: FastifyInstance) {
     if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
 
     // Marcar ATTENDED a los que están en la lista
-    await prisma.booking.updateMany({
+    const { count } = await prisma.booking.updateMany({
       where: { classId, userId: { in: userIds }, status: { in: ['CONFIRMED', 'WAITLIST'] } },
       data: { status: 'ATTENDED', attended: true, attendedAt: new Date() },
     })
     // Los confirmados que NO están: quedan como estaban (no se descuentan)
-    return reply.send({ ok: true, marked: userIds.length })
+    return reply.send({ ok: true, marked: count })
   })
 
   // ─── Asistencia: QR — coach escanea QR del alumno ─────────────────────────
@@ -333,6 +315,11 @@ export async function classRoutes(app: FastifyInstance) {
 
     const cls = await prisma.class.findFirst({ where: { id: classId, gymId: user.gymId } })
     if (!cls) return reply.status(404).send({ error: 'Clase no encontrada' })
+    // Mismo resguardo que el modo manual (QA H05, qa/reports/2026-10-30-asistencia):
+    // sin esto, un coach podía escanear el QR de un alumno días antes de la clase.
+    if (cls.startsAt > new Date()) {
+      return reply.status(409).send({ error: 'No se puede marcar asistencia antes de que la clase comience' })
+    }
 
     // Verificar que el gym usa modo qr
     const gym = await prisma.gym.findUnique({ where: { id: user.gymId }, select: { attendanceMode: true } })

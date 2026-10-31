@@ -224,6 +224,17 @@ describe('Analytics RM: POST /api/rms/me', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('recordedAt en el futuro → 400', async () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/rms/me',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${memberAToken}` },
+      payload: JSON.stringify({ movementName: 'Deadlift', weightKg: 100, recordedAt: future }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('movementName demasiado corto (<2 chars) → 400', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -330,7 +341,7 @@ describe('Analytics RM: GET /api/rms/me', () => {
     expect(allWeights).not.toContain(110)
   })
 
-  it('respuesta agrupa por movimiento con currentRm = el más reciente (desc)', async () => {
+  it('respuesta agrupa por movimiento con currentRm = el mejor peso (no el más reciente)', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/rms/me',
@@ -341,8 +352,46 @@ describe('Analytics RM: GET /api/rms/me', () => {
 
     const cj = body.find((m: any) => m.movementName === 'Clean & Jerk')
     expect(cj).toBeDefined()
-    // El más reciente es 95 kg (2026-03-01 > 2026-02-01)
+    // El mejor es 95 kg — en este caso coincide con el más reciente
     expect(cj.currentRm).toBe(95)
+  })
+
+  it('un registro más reciente pero más flojo no tapa el mejor peso anterior', async () => {
+    // "Récord" es el mejor logrado, no el último intento — un día flojo no debe
+    // enterrar el PR real (QA 2026-10-30, antes currentRm = el más reciente).
+    const badDay = await prisma.rmRecord.create({
+      data: { userId: memberAId, movementName: 'Clean & Jerk', weightKg: 80, recordedAt: new Date('2026-04-01') },
+    })
+    createdRmIds.push(badDay.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/rms/me',
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    const cj = res.json().find((m: any) => m.movementName === 'Clean & Jerk')
+    expect(cj.currentRm).toBe(95)
+    expect(cj.history).toHaveLength(3)
+  })
+
+  it('mismo movimiento con mayúsculas/espacios distintos se agrupa en un solo historial', async () => {
+    const variants = await Promise.all([
+      prisma.rmRecord.create({ data: { userId: memberAId, movementName: 'snatch', weightKg: 60, recordedAt: new Date('2026-01-01') } }),
+      prisma.rmRecord.create({ data: { userId: memberAId, movementName: 'Snatch ', weightKg: 65, recordedAt: new Date('2026-01-10') } }),
+      prisma.rmRecord.create({ data: { userId: memberAId, movementName: 'SNATCH', weightKg: 62, recordedAt: new Date('2026-01-20') } }),
+    ])
+    createdRmIds.push(...variants.map(v => v.id))
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/rms/me',
+      headers: { authorization: `Bearer ${memberAToken}` },
+    })
+    const body = res.json()
+    const snatchGroups = body.filter((m: any) => m.movementName.trim().toLowerCase() === 'snatch')
+    expect(snatchGroups).toHaveLength(1)
+    expect(snatchGroups[0].history).toHaveLength(3)
+    expect(snatchGroups[0].currentRm).toBe(65)
   })
 
   it('respuesta incluye campo improvement (diferencia entre primer y último registro)', async () => {
@@ -578,6 +627,36 @@ describe('Analytics GymnasticProgress: POST /api/gymnastic-progress/me', () => {
     const body = res.json()
     expect(new Date(body.achievedAt).toISOString()).toBe('2026-04-01T12:00:00.000Z')
     createdGymnasticIds.push(body.id)
+  })
+
+  it('achievedAt en el futuro → 400', async () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/gymnastic-progress/me',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${memberAToken}` },
+      payload: JSON.stringify({ skillName: 'Handstand Walk', milestone: 'Fecha futura', achievedAt: future }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('marcar el mismo hito dos veces (doble tap) es idempotente, no falla ni duplica', async () => {
+    // Antes no había @@unique: 2 POST casi simultáneos del mismo hito creaban 2
+    // filas idénticas, inflando el conteo en la ficha del alumno (QA 2026-10-30).
+    const payload = JSON.stringify({ skillName: 'Double Under', milestone: 'Double under x50' })
+    const [res1, res2] = await Promise.all([
+      app.inject({ method: 'POST', url: '/api/gymnastic-progress/me', headers: { 'content-type': 'application/json', authorization: `Bearer ${memberAToken}` }, payload }),
+      app.inject({ method: 'POST', url: '/api/gymnastic-progress/me', headers: { 'content-type': 'application/json', authorization: `Bearer ${memberAToken}` }, payload }),
+    ])
+    expect(res1.statusCode).toBe(201)
+    expect(res2.statusCode).toBe(201)
+    expect(res1.json().id).toBe(res2.json().id)
+    createdGymnasticIds.push(res1.json().id)
+
+    const count = await prisma.gymnasticProgress.count({
+      where: { userId: memberAId, skillName: 'Double Under', milestone: 'Double under x50' },
+    })
+    expect(count).toBe(1)
   })
 
   it('múltiples registros del mismo skill son posibles (historial de progresión)', async () => {

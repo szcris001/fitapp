@@ -48,14 +48,30 @@ export async function getRetentionAlerts(gymId: string) {
         plan: { select: { name: true } },
       },
     }),
+    // "Se volvió inactivo hace poco" tiene que mirar cuándo cambió la MEMBRESÍA, no
+    // cuándo se editó por última vez la fila de User — el cron que vence membresías
+    // (runMembershipExpiryStatusJob) solo toca Membership, nunca User, así que
+    // filtrar por User.updatedAt casi nunca encontraba a nadie que de verdad hubiera
+    // dejado de ser alumno activo (y sí mostraba a cualquiera editado por otro
+    // motivo, ej. el admin le actualizó el teléfono) (QA 2026-10-30).
     prisma.user.findMany({
       where: {
         gymId,
         role: 'MEMBER',
-        memberships: { none: { status: 'ACTIVE' } },
-        updatedAt: { gte: fourteenDaysAgo },
+        AND: [
+          { memberships: { none: { status: { in: ['ACTIVE', 'TRIAL'] } } } },
+          { memberships: { some: { status: { in: ['INACTIVE', 'EXPIRED'] }, updatedAt: { gte: fourteenDaysAgo } } } },
+        ],
       },
-      select: { id: true, name: true, email: true },
+      select: {
+        id: true, name: true, email: true,
+        memberships: {
+          where: { status: { in: ['INACTIVE', 'EXPIRED'] } },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { endsAt: true, updatedAt: true, plan: { select: { name: true } } },
+        },
+      },
       take: 20,
     }),
   ])
@@ -77,7 +93,14 @@ export async function getRetentionAlerts(gymId: string) {
       endsAt: m.endsAt,
       daysLeft: daysBetweenGymLocal(new Date(), m.endsAt, timezone),
     })),
-    inactive: inactiveMembers,
+    inactive: inactiveMembers.map(m => ({
+      id: m.id,
+      name: m.name,
+      email: m.email,
+      plan: m.memberships[0]?.plan.name ?? null,
+      endsAt: m.memberships[0]?.endsAt ?? null,
+      becameInactiveAt: m.memberships[0]?.updatedAt ?? null,
+    })),
   }
 }
 

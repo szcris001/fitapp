@@ -31,7 +31,6 @@ export const createClassSchema = z.object({
   frequency: z.enum(['ONCE', 'RECURRING']).default('ONCE'),
   recurringDays: z.array(z.number().int().min(0).max(6)).optional(),
   recurringUntil: z.string().optional(),
-  allowedPlanIds: z.array(z.string().uuid()).optional(),
 }).refine(
   data => new Date(data.endsAt).getTime() > new Date(data.startsAt).getTime(),
   { error: 'La hora de término debe ser posterior a la de inicio', path: ['endsAt'] },
@@ -41,11 +40,6 @@ export const bookingSchema = z.object({
   classId: z.string().uuid(),
 })
 
-export const updateClassAllowedPlansSchema = z.object({
-  allowedPlanIds: z.array(z.string().uuid()),
-})
-
 export type CreateClassTypeInput = z.infer<typeof createClassTypeSchema>
 export type CreateClassInput = z.infer<typeof createClassSchema>
 export type BookingInput = z.infer<typeof bookingSchema>
-export type UpdateClassAllowedPlansInput = z.infer<typeof updateClassAllowedPlansSchema>

@@ -37,7 +37,12 @@ async function getTargetUsers(gymId: string, target: string, userId?: string, pl
       select: { id: true, name: true, email: true, pushToken: true },
     })
   }
-  if (target === 'individual' && userId) {
+  // Sin userId, "individual" caía al return genérico del final (todos los miembros del
+  // gym) — un bypass de la UI (o un bug futuro ahí) mandaba el mensaje a TODO el gym en
+  // vez de a nadie. Mismo criterio "fail closed" que ya tiene 'plan' sin planId arriba
+  // (QA 2026-10-30).
+  if (target === 'individual') {
+    if (!userId) return []
     return prisma.user.findMany({
       where: { id: userId, gymId },
       select: { id: true, name: true, email: true, pushToken: true },

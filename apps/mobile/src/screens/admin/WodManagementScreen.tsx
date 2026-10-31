@@ -6,6 +6,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import api from '../../lib/api'
+import { getGymTimezone } from '../../lib/gym-timezone'
 
 export default function WodManagementScreen({ navigation }: any) {
   const [wods, setWods] = useState<any[]>([])
@@ -53,7 +54,7 @@ export default function WodManagementScreen({ navigation }: any) {
               <View style={s.cardHeader}>
                 <Text style={s.cardType}>{wod.classType?.name}</Text>
                 <Text style={s.cardDate}>
-                  {new Date(wod.date).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}
+                  {new Date(wod.date).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', timeZone: getGymTimezone() })}
                 </Text>
               </View>
               <Text style={s.cardTitle}>{wod.title || 'Sin título'}</Text>

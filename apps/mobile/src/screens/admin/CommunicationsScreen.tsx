@@ -31,18 +31,25 @@ export default function CommunicationsScreen({ navigation }: any) {
   }, [target])
 
   const handleSend = async () => {
+    if (!subject.trim()) {
+      return Alert.alert('Error', channel === 'email' ? 'El asunto es obligatorio' : 'El título es obligatorio')
+    }
     if (!message.trim()) return Alert.alert('Error', 'El mensaje es obligatorio')
     if (target === 'individual' && !selectedMember) return Alert.alert('Error', 'Selecciona un miembro')
 
     setSending(true)
     try {
       const endpoint = channel === 'email' ? '/messages/email' : '/messages/push'
-      await api.post(endpoint, {
-        target,
-        userId: target === 'individual' ? selectedMember?.id : undefined,
-        subject: subject || undefined,
-        message,
-      })
+      const userId = target === 'individual' ? selectedMember?.id : undefined
+      // El backend espera campos distintos por canal (email: subject/body, push:
+      // title/message) — antes se mandaba siempre {subject, message}: a email le
+      // faltaba `body` y a push le faltaba `title` por completo (no había ni campo en
+      // la UI), así que los dos canales devolvían 400 "Datos inválidos" siempre, sin
+      // excepción (QA 2026-10-30).
+      const payload = channel === 'email'
+        ? { target, userId, subject, body: message }
+        : { target, userId, title: subject, message }
+      await api.post(endpoint, payload)
       Alert.alert('✅ Enviado', 'El mensaje fue enviado correctamente')
       setMessage(''); setSubject('')
     } catch (err: any) {
@@ -96,14 +103,16 @@ export default function CommunicationsScreen({ navigation }: any) {
         </TouchableOpacity>
       )}
 
-      {channel === 'email' && (
-        <>
-          <Text style={s.sectionLabel}>ASUNTO</Text>
-          <View style={s.inputWrap}>
-            <TextInput style={s.input} placeholder="Asunto del email" placeholderTextColor="#4b5563" value={subject} onChangeText={setSubject} />
-          </View>
-        </>
-      )}
+      <Text style={s.sectionLabel}>{channel === 'email' ? 'ASUNTO *' : 'TÍTULO *'}</Text>
+      <View style={s.inputWrap}>
+        <TextInput
+          style={s.input}
+          placeholder={channel === 'email' ? 'Asunto del email' : 'Título de la notificación'}
+          placeholderTextColor="#4b5563"
+          value={subject}
+          onChangeText={setSubject}
+        />
+      </View>
 
       <Text style={s.sectionLabel}>MENSAJE *</Text>
       <View style={s.inputWrap}>
