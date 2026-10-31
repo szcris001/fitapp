@@ -13,4 +13,4 @@ Si `count === 0` tras el `updateMany`, alguien más ya lo procesó — tirar el 
 
 **Cómo aplicar**: antes de tocar cualquier función de `payments.service.ts` que haga `findFirst` → chequeo de estado en JS → `update`, convertirla al patrón de claim atómico. Candidatos a revisar si aparece otro bug similar: `confirmBankMovement`/`rejectBankMovement` (Fintoc), cualquier otro `confirm*`/`reject*`/`approve*` en pagos que no use `updateMany` con el estado actual en el `where`.
 
-Ver [[email_rejection_pattern]] para el bug relacionado (falta de notificación al alumno) encontrado en la misma auditoría.
+Ver [[email_rejection_pattern]] para el bug relacionado (falta de notificación al alumno) encontrado en la misma auditoría. Ver [[create_side_duplicate_lock_pattern]] para el equivalente del lado de **crear** (no actualizar) cuando dos requests concurrentes compiten por ser la primera fila — encontrado después en `submitTransferReceipt` (QA H01, 2026-10-30), mismo día pero auditoría separada.
