@@ -145,6 +145,9 @@ describe('Gyms: POST /api/gyms/me/logo — rechaza archivos truncados por el lí
     })
 
     expect(res.statusCode).toBe(413)
+    // Mensaje en español, no el "request file too large" crudo de @fastify/multipart
+    // (QA 2026-10-30, hallazgo configuración H02).
+    expect(res.json().error).toBe('El archivo supera el tamaño máximo permitido (5MB)')
     expect(fs.existsSync(logoPath(gymId2, '.png'))).toBe(false)
     const gym = await prisma.gym.findUnique({ where: { id: gymId2 } })
     expect(gym?.logoUrl).toBeNull()

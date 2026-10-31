@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
 import api from '../../lib/api'
 import { toMajorUnits } from '../../lib/money'
+import { GYM_TIMEZONE } from '../../lib/gym-timezone'
 import {
   Users, UserCheck, UserX, CalendarDays,
   AlertTriangle, ArrowRight, Dumbbell,
@@ -269,7 +270,7 @@ const PERIODS: { key: Period; label: string }[] = [
 ]
 
 const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+  new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: GYM_TIMEZONE })
 
 const daysLeft = (endsAt: string) =>
   Math.ceil((new Date(endsAt).getTime() - Date.now()) / 86_400_000)

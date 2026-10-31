@@ -34,6 +34,7 @@ import bcrypt from 'bcryptjs'
 import { gymRoutes } from '../gyms.routes'
 import { skillRoutes } from '../skills.routes'
 import { prisma } from '../../../lib/prisma'
+import { startOfGymDay, gymLocalDate } from '../../../lib/gym-day'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -331,6 +332,17 @@ describe('PUT /api/gyms/me — actualizar settings del gym', () => {
     })
     expect(res.statusCode).toBe(403)
     expect(res.json().error).toMatch(/administrador/i)
+  })
+
+  it('name/phone con longitud excesiva → 400, no se guarda (QA 2026-10-30, hallazgo configuración H04)', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/gyms/me',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminAToken}` },
+      payload: JSON.stringify({ name: 'A'.repeat(5000), phone: '9'.repeat(100) }),
+    })
+    expect(res.statusCode).toBe(400)
+    const gym = await prisma.gym.findUnique({ where: { id: gymAId } })
+    expect(gym!.name.length).toBeLessThan(5000)
   })
 
   it('ADMIN actualiza nombre → 200, campo actualizado en DB', async () => {
@@ -1076,5 +1088,54 @@ describe('GET /api/gyms/me/stats — ingresos del mes y alumnos en riesgo', () =
     const body = res.json()
     expect(body.revenueMonth).toEqual([{ currency: 'CLP', amount: 40000 }])
     expect(body.atRiskMembers).toBe(1)
+  })
+})
+
+// ─── Suite: GET /gyms/me/occupancy — agrupado por día local del gym ──────────
+
+describe('GET /api/gyms/me/occupancy — un día de Chile no se parte en dos buckets', () => {
+  let app: FastifyInstance
+  let classTypeId: string
+
+  beforeAll(async () => {
+    app = await buildApp()
+    classTypeId = (await prisma.classType.create({
+      data: { gymId: gymAId, name: 'QA Occupancy', color: '#000000' },
+    })).id
+  })
+
+  afterAll(async () => {
+    await prisma.class.deleteMany({ where: { classTypeId } })
+    await prisma.classType.delete({ where: { id: classTypeId } })
+    await app.close()
+  })
+
+  it('dos clases del mismo día local (una antes y otra después de la medianoche UTC) quedan en un solo bucket', async () => {
+    // "Ayer" en la zona del gym, garantizado en el pasado para no depender de la hora
+    // a la que corra el test. Chile es UTC-3/-4, así que 00:30 y 23:30 locales de ese
+    // mismo día caen en dos días UTC distintos — antes esto creaba 2 buckets con la
+    // misma etiqueta y datos partidos (QA 2026-10-30, hallazgo dashboard H02).
+    const yesterday = gymLocalDate(new Date(Date.now() - 86_400_000), 'America/Santiago')
+    const dayStart = startOfGymDay(yesterday, 'America/Santiago')
+    const early = new Date(dayStart.getTime() + 30 * 60_000)        // 00:30 local
+    const late  = new Date(dayStart.getTime() + 23.5 * 3_600_000)   // 23:30 local
+
+    const c1 = await prisma.class.create({
+      data: { gymId: gymAId, classTypeId, coachId: adminAId, startsAt: early, endsAt: new Date(early.getTime() + 3_600_000), capacity: 10 },
+    })
+    const c2 = await prisma.class.create({
+      data: { gymId: gymAId, classTypeId, coachId: adminAId, startsAt: late, endsAt: new Date(late.getTime() + 3_600_000), capacity: 20 },
+    })
+
+    const res = await app.inject({
+      method: 'GET', url: '/api/gyms/me/occupancy?period=7d',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    const matching = body.history.filter((h: any) => h.capacity === 30)
+    expect(matching).toHaveLength(1) // no 2 buckets de 10 y 20 por separado
+
+    await prisma.class.deleteMany({ where: { id: { in: [c1.id, c2.id] } } })
   })
 })

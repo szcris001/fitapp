@@ -26,6 +26,22 @@ interface AuthState {
   switchSede: (targetGymId: string) => Promise<{ name: string; logoUrl?: string }>
 }
 
+// Decodifica el payload del JWT (sin verificar firma — alcanza para no confiar en
+// localStorage, que el usuario puede editar a mano). Si alguien fuerza `role: 'ADMIN'`
+// en `fitapp_user` sin tener un token real de admin, el panel quedaba a medio renderizar
+// (varias secciones 403 silenciosos) sin ningún aviso de "no autorizado" — la API ya
+// rechazaba todo correctamente, pero la UI confiaba ciegamente en el rol guardado
+// (QA 2026-10-30, hallazgo auth H02). El rol real del token manda sobre el guardado.
+function roleFromToken(token: string): { role: string; gymId: string | null } | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (typeof payload.role !== 'string') return null
+    return { role: payload.role, gymId: payload.gymId ?? null }
+  } catch {
+    return null
+  }
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
@@ -41,6 +57,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (token && userStr) {
       try {
         const user = JSON.parse(userStr)
+        const fromToken = roleFromToken(token)
+        if (fromToken && (fromToken.role !== user.role || fromToken.gymId !== user.gymId)) {
+          user.role = fromToken.role
+          user.gymId = fromToken.gymId
+          localStorage.setItem('fitapp_user', JSON.stringify(user))
+        }
         set({ token, refreshToken: refreshToken ?? null, user })
       } catch {}
     }

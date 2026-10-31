@@ -14,7 +14,20 @@ export function maskSecret(value: unknown): string {
 
 /** true si el valor recibido significa "conservar el guardado" */
 export function keepsStoredSecret(value: unknown): boolean {
-  return value === undefined || value === null || value === '' || (typeof value === 'string' && value.startsWith(MASK))
+  return value === undefined || value === '' || (typeof value === 'string' && value.startsWith(MASK))
+}
+
+/**
+ * true si el valor recibido significa "borrar la credencial guardada". Antes no
+ * existía ninguna forma de borrar un secreto ya guardado: "" y `undefined` siempre
+ * significaron "sin cambios" (protección contra que un campo vacío por accidente
+ * pisara el valor guardado), y no había una señal distinta para "quiero borrarlo
+ * de verdad" (QA 2026-10-30, hallazgo configuración H03). `null` explícito es esa
+ * señal — un `<input>` de texto nunca produce `null` por sí solo, solo el código
+ * de un botón "Borrar credencial" lo manda a propósito.
+ */
+export function wantsToClearSecret(value: unknown): boolean {
+  return value === null
 }
 
 // Campos de configuración de pasarela que no son secretos y se muestran tal cual
@@ -44,6 +57,7 @@ export function mergeGateways(stored: unknown, incoming: Gateways): Gateways {
     const next: GatewayConfig = { ...prev }
     for (const [k, v] of Object.entries(cfg)) {
       if (PUBLIC_GATEWAY_FIELDS.has(k)) next[k] = v
+      else if (wantsToClearSecret(v)) next[k] = ''
       else if (!keepsStoredSecret(v)) next[k] = v
     }
     merged[name] = next

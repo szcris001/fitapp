@@ -360,6 +360,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     ? user.name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
     : '?'
 
+  // "Modo TV" es una pantalla standalone a pantalla completa pensada para quedar
+  // prendida públicamente en el gym — vive bajo /dashboard por routing, pero no debe
+  // llevar el sidebar ni los datos de la sesión del admin logueado (QA 2026-10-30,
+  // hallazgo wods H03: antes se veía con el menú completo y "Nombre — email" visibles).
+  if (pathname.startsWith('/dashboard/wods/tv')) {
+    return <>{children}</>
+  }
+
   return (
     <div className="flex min-h-screen" style={{
       '--sidebar-width': collapsed ? '5rem' : '17rem',

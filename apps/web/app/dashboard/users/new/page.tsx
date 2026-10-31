@@ -176,7 +176,7 @@ export default function NewUserPage() {
                       <option value="">Sin plan por ahora</option>
                       {plans.map(p => (
                         <option key={p.id} value={p.id}>
-                          {p.name} — {toMajorUnits(p.priceCents, p.currency).toLocaleString()} {p.currency}
+                          {p.name} — ${toMajorUnits(p.priceCents, p.currency).toLocaleString('es-CL')}
                         </option>
                       ))}
                     </select>

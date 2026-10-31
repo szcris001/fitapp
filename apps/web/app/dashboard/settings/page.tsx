@@ -104,6 +104,37 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
+// Campo de credencial con un link "Borrar" para limpiar un valor ya guardado de
+// verdad (ver clearSecret/handleSaveGateways) — no solo vaciar el input, que ya
+// significa "sin cambios" por diseño.
+function SecretField({ label, placeholder, value, isCleared, onChange, onClear, onUndoClear }: {
+  label: string; placeholder: string; value: string; isCleared: boolean
+  onChange: (v: string) => void; onClear: () => void; onUndoClear: () => void
+}) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <FieldLabel>{label}</FieldLabel>
+        {isCleared ? (
+          <button type="button" onClick={onUndoClear}
+            style={{ fontSize: 11, color: 'var(--text-4)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 6 }}>
+            Deshacer
+          </button>
+        ) : value ? (
+          <button type="button" onClick={onClear}
+            style={{ fontSize: 11, color: 'var(--danger, #ef4444)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 6 }}>
+            Borrar
+          </button>
+        ) : null}
+      </div>
+      <input type="password" className="input" placeholder={isCleared ? 'se borrará al guardar' : placeholder}
+        disabled={isCleared}
+        value={value}
+        onChange={e => onChange(e.target.value)} />
+    </div>
+  )
+}
+
 // ── SectionCard ───────────────────────────────────────────────────────────────
 function SectionCard({ title, description, children }: {
   title: string; description?: string; children: React.ReactNode
@@ -230,6 +261,21 @@ export default function SettingsPage() {
     mercadopago: { enabled: false, accessToken: '' },
     mach:        { enabled: false, apiKey: '' },
   })
+  // Campos marcados para borrar ("gateway.campo") — un <input> de texto solo puede
+  // vaciarse a "", que ya significa "sin cambios" (protección contra pisar una
+  // credencial guardada por accidente). Antes no había forma de borrar una
+  // credencial ya guardada de verdad (QA 2026-10-30, hallazgo configuración H03).
+  const [clearedSecrets, setClearedSecrets] = useState<Set<string>>(new Set())
+  const clearSecret = (gateway: string, key: string) => {
+    setClearedSecrets(prev => new Set(prev).add(`${gateway}.${key}`))
+    setGatewaysForm(f => ({ ...f, [gateway]: { ...(f as any)[gateway], [key]: '' } }))
+  }
+  const unclearSecret = (gateway: string, key: string) => {
+    setClearedSecrets(prev => {
+      if (!prev.has(`${gateway}.${key}`)) return prev
+      const next = new Set(prev); next.delete(`${gateway}.${key}`); return next
+    })
+  }
 
   const router = useRouter()
 
@@ -439,7 +485,13 @@ export default function SettingsPage() {
   const handleSaveGateways = async () => {
     setSavingGateways(true)
     try {
-      await api.put('/gyms/me', { paymentGateways: gatewaysForm })
+      const payload: any = JSON.parse(JSON.stringify(gatewaysForm))
+      for (const path of clearedSecrets) {
+        const [gateway, key] = path.split('.')
+        if (payload[gateway]) payload[gateway][key] = null
+      }
+      await api.put('/gyms/me', { paymentGateways: payload })
+      setClearedSecrets(new Set())
       showToast('Pasarelas de pago guardadas')
     } catch (err: any) {
       showToast(err.response?.data?.error || 'Error al guardar', 'error')
@@ -950,17 +1002,22 @@ export default function SettingsPage() {
             enabled={gatewaysForm.stripe.enabled}
             onToggle={() => setGatewaysForm(f => ({ ...f, stripe: { ...f.stripe, enabled: !f.stripe.enabled } }))}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {[
-                { key: 'publishableKey', label: 'Publishable Key', placeholder: 'pk_live_...' },
-                { key: 'secretKey',      label: 'Secret Key',       placeholder: 'sk_live_...' },
-                { key: 'webhookSecret',  label: 'Webhook Secret',   placeholder: 'whsec_...' },
-              ].map(({ key, label, placeholder }) => (
-                <div key={key}>
-                  <FieldLabel>{label}</FieldLabel>
-                  <input type="password" className="input" placeholder={placeholder}
-                    value={(gatewaysForm.stripe as any)[key]}
-                    onChange={e => setGatewaysForm(f => ({ ...f, stripe: { ...f.stripe, [key]: e.target.value } }))} />
-                </div>
+              <div>
+                <FieldLabel>Publishable Key</FieldLabel>
+                <input type="password" className="input" placeholder="pk_live_..."
+                  value={gatewaysForm.stripe.publishableKey}
+                  onChange={e => setGatewaysForm(f => ({ ...f, stripe: { ...f.stripe, publishableKey: e.target.value } }))} />
+              </div>
+              {([
+                { key: 'secretKey',     label: 'Secret Key',     placeholder: 'sk_live_...' },
+                { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'whsec_...' },
+              ] as const).map(({ key, label, placeholder }) => (
+                <SecretField key={key} label={label} placeholder={placeholder}
+                  value={(gatewaysForm.stripe as any)[key]}
+                  isCleared={clearedSecrets.has(`stripe.${key}`)}
+                  onChange={v => { unclearSecret('stripe', key); setGatewaysForm(f => ({ ...f, stripe: { ...f.stripe, [key]: v } })) }}
+                  onClear={() => clearSecret('stripe', key)}
+                  onUndoClear={() => unclearSecret('stripe', key)} />
               ))}
             </div>
           </GatewayRow>
@@ -970,16 +1027,16 @@ export default function SettingsPage() {
             enabled={gatewaysForm.flow.enabled}
             onToggle={() => setGatewaysForm(f => ({ ...f, flow: { ...f.flow, enabled: !f.flow.enabled } }))}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              {[
+              {([
                 { key: 'apiKey',    label: 'API Key',    placeholder: 'Flow API Key' },
                 { key: 'secretKey', label: 'Secret Key', placeholder: 'Flow Secret Key' },
-              ].map(({ key, label, placeholder }) => (
-                <div key={key}>
-                  <FieldLabel>{label}</FieldLabel>
-                  <input type="password" className="input" placeholder={placeholder}
-                    value={(gatewaysForm.flow as any)[key]}
-                    onChange={e => setGatewaysForm(f => ({ ...f, flow: { ...f.flow, [key]: e.target.value } }))} />
-                </div>
+              ] as const).map(({ key, label, placeholder }) => (
+                <SecretField key={key} label={label} placeholder={placeholder}
+                  value={(gatewaysForm.flow as any)[key]}
+                  isCleared={clearedSecrets.has(`flow.${key}`)}
+                  onChange={v => { unclearSecret('flow', key); setGatewaysForm(f => ({ ...f, flow: { ...f.flow, [key]: v } })) }}
+                  onClear={() => clearSecret('flow', key)}
+                  onUndoClear={() => unclearSecret('flow', key)} />
               ))}
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', color: 'var(--text-2)' }}>
@@ -994,17 +1051,18 @@ export default function SettingsPage() {
             enabled={gatewaysForm.khipu.enabled}
             onToggle={() => setGatewaysForm(f => ({ ...f, khipu: { ...f.khipu, enabled: !f.khipu.enabled } }))}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {[
-                { key: 'receiverId', label: 'Receiver ID', placeholder: 'ID de cobrador' },
-                { key: 'secretKey',  label: 'Secret Key',  placeholder: 'Khipu Secret' },
-              ].map(({ key, label, placeholder }) => (
-                <div key={key}>
-                  <FieldLabel>{label}</FieldLabel>
-                  <input type="password" className="input" placeholder={placeholder}
-                    value={(gatewaysForm.khipu as any)[key]}
-                    onChange={e => setGatewaysForm(f => ({ ...f, khipu: { ...f.khipu, [key]: e.target.value } }))} />
-                </div>
-              ))}
+              <div>
+                <FieldLabel>Receiver ID</FieldLabel>
+                <input type="password" className="input" placeholder="ID de cobrador"
+                  value={gatewaysForm.khipu.receiverId}
+                  onChange={e => setGatewaysForm(f => ({ ...f, khipu: { ...f.khipu, receiverId: e.target.value } }))} />
+              </div>
+              <SecretField label="Secret Key" placeholder="Khipu Secret"
+                value={gatewaysForm.khipu.secretKey}
+                isCleared={clearedSecrets.has('khipu.secretKey')}
+                onChange={v => { unclearSecret('khipu', 'secretKey'); setGatewaysForm(f => ({ ...f, khipu: { ...f.khipu, secretKey: v } })) }}
+                onClear={() => clearSecret('khipu', 'secretKey')}
+                onUndoClear={() => unclearSecret('khipu', 'secretKey')} />
             </div>
           </GatewayRow>
 
@@ -1012,24 +1070,24 @@ export default function SettingsPage() {
           <GatewayRow label="Mercado Pago"
             enabled={gatewaysForm.mercadopago.enabled}
             onToggle={() => setGatewaysForm(f => ({ ...f, mercadopago: { ...f.mercadopago, enabled: !f.mercadopago.enabled } }))}>
-            <div>
-              <FieldLabel>Access Token</FieldLabel>
-              <input type="password" className="input" placeholder="APP_USR-..."
-                value={gatewaysForm.mercadopago.accessToken}
-                onChange={e => setGatewaysForm(f => ({ ...f, mercadopago: { ...f.mercadopago, accessToken: e.target.value } }))} />
-            </div>
+            <SecretField label="Access Token" placeholder="APP_USR-..."
+              value={gatewaysForm.mercadopago.accessToken}
+              isCleared={clearedSecrets.has('mercadopago.accessToken')}
+              onChange={v => { unclearSecret('mercadopago', 'accessToken'); setGatewaysForm(f => ({ ...f, mercadopago: { ...f.mercadopago, accessToken: v } })) }}
+              onClear={() => clearSecret('mercadopago', 'accessToken')}
+              onUndoClear={() => unclearSecret('mercadopago', 'accessToken')} />
           </GatewayRow>
 
           {/* MACH */}
           <GatewayRow label="MACH Business"
             enabled={gatewaysForm.mach.enabled}
             onToggle={() => setGatewaysForm(f => ({ ...f, mach: { ...f.mach, enabled: !f.mach.enabled } }))}>
-            <div>
-              <FieldLabel>API Key</FieldLabel>
-              <input type="password" className="input" placeholder="MACH API Key"
-                value={gatewaysForm.mach.apiKey}
-                onChange={e => setGatewaysForm(f => ({ ...f, mach: { ...f.mach, apiKey: e.target.value } }))} />
-            </div>
+            <SecretField label="API Key" placeholder="MACH API Key"
+              value={gatewaysForm.mach.apiKey}
+              isCleared={clearedSecrets.has('mach.apiKey')}
+              onChange={v => { unclearSecret('mach', 'apiKey'); setGatewaysForm(f => ({ ...f, mach: { ...f.mach, apiKey: v } })) }}
+              onClear={() => clearSecret('mach', 'apiKey')}
+              onUndoClear={() => unclearSecret('mach', 'apiKey')} />
           </GatewayRow>
 
           <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>

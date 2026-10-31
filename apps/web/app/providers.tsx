@@ -17,7 +17,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!user) return
+    // SUPER_ADMIN sin sede elegida (gymId null) no tiene gym propio — /gyms/me
+    // devuelve 404 en cada carga del panel hasta que hace switch-sede (QA 2026-10-30).
+    if (!user || !user.gymId) return
     api.get('/gyms/me').then(({ data }) => {
       if (data.brandColors) setCssColors(data.brandColors)
     }).catch(() => {})

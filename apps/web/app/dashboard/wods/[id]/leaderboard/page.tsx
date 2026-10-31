@@ -532,28 +532,19 @@ export default function WodLeaderboardPage() {
         lbScoreType = lb.scoreType ?? 'REPS'
       }
 
-      // Fetch wod details from the list to get title + date
-      const now = new Date()
-      const past = new Date(); past.setDate(now.getDate() - 365)
-      const future = new Date(); future.setDate(now.getDate() + 60)
-      const fmt = (d: Date) =>
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      // Fetch wod details directamente por id — antes se buscaba en un rango acotado
+      // de `GET /wods?from=...&to=...` (hoy-365 a hoy+60), así que un WOD planificado
+      // con más anticipación caía al fallback "WOD sin título" / fecha de hoy (QA
+      // 2026-10-30, hallazgo wods H02). GET /wods/:id no tiene esa ventana.
       try {
-        const wodsRes = await api.get(`/wods?from=${fmt(past)}&to=${fmt(future)}`)
-        const wods: any[] = Array.isArray(wodsRes.data) ? wodsRes.data : wodsRes.data?.wods ?? []
-        const found = wods.find(w => w.id === wodId)
-        if (found) {
-          setWod({
-            id: found.id,
-            title: found.title ?? null,
-            date: found.date,
-            scoreType: found.scoreType ?? lbScoreType,
-            classTypeId: found.classTypeId,
-          })
-        } else {
-          // Minimal WOD info from leaderboard meta
-          setWod({ id: lb.wodId ?? wodId, title: null, date: new Date().toISOString(), scoreType: lbScoreType, classTypeId: '' })
-        }
+        const { data: found } = await api.get(`/wods/${wodId}`)
+        setWod({
+          id: found.id,
+          title: found.title ?? null,
+          date: found.date,
+          scoreType: found.scoreType ?? lbScoreType,
+          classTypeId: found.classTypeId,
+        })
       } catch {
         setWod({ id: lb.wodId ?? wodId, title: null, date: new Date().toISOString(), scoreType: lbScoreType, classTypeId: '' })
       }

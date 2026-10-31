@@ -23,7 +23,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       // Imágenes: self + API (avatares/logos) + Unsplash (imágenes de disciplinas) + data URIs
       `img-src 'self' data: blob: ${apiOrigin} https://images.unsplash.com`,
-      "font-src 'self'",
+      "font-src 'self' data:",
       // API calls al backend
       `connect-src 'self' ${apiOrigin}`,
       // Logo animado del login (SVG servido por la API en un <iframe>)

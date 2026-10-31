@@ -295,6 +295,27 @@ describe('Transfer: POST /api/payments/transfer/receipt (multipart upload)', () 
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/plan no encontrado/i)
   })
+
+  // Hallazgo QA H02 (qa/reports/2026-10-30-2300/alumno-api.md): request sin
+  // Content-Type multipart hacía que (request as any).file() lanzara una excepción
+  // fuera del try/catch del handler, y el error handler global devolvía el stack
+  // trace completo de @fastify/multipart (incluyendo rutas absolutas del filesystem)
+  // en el body de la respuesta.
+  it('sin Content-Type multipart → 400 limpio, sin stack trace ni rutas de filesystem', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/payments/transfer/receipt?planId=' + planId,
+      headers: { authorization: `Bearer ${memberAToken}` },
+      // sin content-type multipart y sin payload multipart
+    })
+
+    expect(res.statusCode).toBe(400)
+    const rawBody = JSON.stringify(res.json())
+    expect(rawBody).not.toMatch(/\.ts:\d+/)
+    expect(rawBody).not.toMatch(/node_modules/)
+    expect(rawBody).not.toMatch(/\/home\//)
+    expect(res.json().error).toBe('No se recibió archivo')
+  })
 })
 
 // ─── Suite 2: Flujo feliz — lógica de negocio via service directo ─────────────
