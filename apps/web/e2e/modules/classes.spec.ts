@@ -151,6 +151,16 @@ async function openNewClass(page: Page, typeName: string, weeks: number) {
   return daysCard
 }
 
+/**
+ * Completa el selector de hora 24h (TimeInput24: 2 <select> por instancia, "Hora"/
+ * "Minutos" — ya no es un <input type="time"> nativo). `index` 0 = inicio, 1 = fin.
+ */
+async function fillTime24(page: Page, index: number, time: string) {
+  const [hh, mm] = time.split(':')
+  await page.getByLabel('Hora').nth(index).selectOption(hh)
+  await page.getByLabel('Minutos').nth(index).selectOption(mm)
+}
+
 /** Lunes local de la semana que está `weeks` semanas después de la actual */
 function mondayIn(weeks: number): string {
   const today = localDay(0)
@@ -172,8 +182,8 @@ test.describe('CLS — crear clases (admin)', () => {
 
     const daysCard = await openNewClass(page, type.name, weeks)
     await daysCard.getByRole('button').filter({ hasText: 'Mié' }).click()
-    await page.locator('input[type="time"]').nth(0).fill('07:00')
-    await page.locator('input[type="time"]').nth(1).fill('08:00')
+    await fillTime24(page, 0, '07:00')
+    await fillTime24(page, 1, '08:00')
     await page.locator('input[type="date"]').fill(wednesday)
     await page.getByRole('button', { name: /^Crear ~\d+ clases$/ }).click()
     await expect(page.getByText(/^1 clases? creadas?/)).toBeVisible()
@@ -196,8 +206,8 @@ test.describe('CLS — crear clases (admin)', () => {
     const daysCard = await openNewClass(page, type.name, weeks)
     await daysCard.getByRole('button').filter({ hasText: 'Lun' }).click()
     await daysCard.getByRole('button').filter({ hasText: 'Jue' }).click()
-    await page.locator('input[type="time"]').nth(0).fill('21:30')
-    await page.locator('input[type="time"]').nth(1).fill('22:30')
+    await fillTime24(page, 0, '21:30')
+    await fillTime24(page, 1, '22:30')
     await page.locator('input[type="date"]').fill(until)
     await page.getByRole('button', { name: /^Crear ~\d+ clases$/ }).click()
     await expect(page.getByText(/clases creadas exitosamente/)).toBeVisible()
@@ -228,8 +238,8 @@ test.describe('CLS — crear clase con el navegador en otra zona horaria (admin)
 
     const daysCard = await openNewClass(page, type.name, weeks)
     await daysCard.getByRole('button').filter({ hasText: 'Jue' }).click()
-    await page.locator('input[type="time"]').nth(0).fill('14:00')
-    await page.locator('input[type="time"]').nth(1).fill('15:00')
+    await fillTime24(page, 0, '14:00')
+    await fillTime24(page, 1, '15:00')
     await page.locator('input[type="date"]').fill(thursday)
     await page.getByRole('button', { name: /^Crear ~\d+ clases$/ }).click()
     await expect(page.getByText(/^1 clases? creadas?/)).toBeVisible()
