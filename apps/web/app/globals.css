@@ -111,6 +111,14 @@ html.dark {
   --glow:        0 0 32px rgba(249, 115, 22, 0.4);
   --gradient-btn: linear-gradient(135deg, #EA580C 0%, #FB923C 100%);
 }
+[data-sport="hyrox"] {
+  --primary:    #B91C1C;
+  --secondary:  #DC2626;
+  --accent:     #FCA5A5;
+  --primary-dim: rgba(185, 28, 28, 0.12);
+  --glow:        0 0 32px rgba(185, 28, 28, 0.4);
+  --gradient-btn: linear-gradient(135deg, #991B1B 0%, #DC2626 100%);
+}
 [data-sport="swimming"] {
   --primary:    #0EA5E9;
   --secondary:  #38BDF8;
@@ -162,6 +170,16 @@ html.dark[data-sport="crossfit"] {
   --border-2: rgba(249, 115, 22, 0.18);
   --glass-border: rgba(249, 115, 22, 0.15);
   --gradient-hero: linear-gradient(135deg, #0A0602 0%, #1E1208 100%);
+}
+html.dark[data-sport="hyrox"] {
+  --surface-base:    #0A0303;
+  --surface-card:    #150606;
+  --surface-sidebar: #0D0404;
+  --surface-hover:   #200909;
+  --border-1: rgba(185, 28, 28, 0.10);
+  --border-2: rgba(185, 28, 28, 0.18);
+  --glass-border: rgba(185, 28, 28, 0.15);
+  --gradient-hero: linear-gradient(135deg, #0A0303 0%, #200909 100%);
 }
 html.dark[data-sport="swimming"] {
   --surface-base:    #020810;
