@@ -1398,14 +1398,17 @@ describe('Class: POST /api/classes — clases recurrentes', () => {
     // Lunes y Miércoles de la semana que viene
     const nextMonday = new Date()
     const dayOfWeek = nextMonday.getUTCDay()
-    // Avanzar al próximo lunes (si hoy es lunes, usar el siguiente)
+    // Avanzar al próximo lunes (si hoy es lunes, usar el siguiente). setUTCDate (no
+    // setDate/getDate, que son hora local del proceso) para no desalinearse con
+    // getUTCDay() según la TZ del host — bug real que hacía fallar este test de
+    // forma intermitente según la TZ/hora en que corriera la suite.
     const daysToMonday = dayOfWeek === 1 ? 7 : (8 - dayOfWeek) % 7 || 7
-    nextMonday.setDate(nextMonday.getDate() + daysToMonday)
+    nextMonday.setUTCDate(nextMonday.getUTCDate() + daysToMonday)
     nextMonday.setUTCHours(8, 0, 0, 0)
 
     // recurringUntil: el domingo de la misma semana (6 días después del lunes)
     const sunday = new Date(nextMonday)
-    sunday.setDate(sunday.getDate() + 6)
+    sunday.setUTCDate(sunday.getUTCDate() + 6)
     const recurringUntil = sunday.toISOString().split('T')[0]
 
     const res = await app.inject({
@@ -1454,7 +1457,7 @@ describe('Class: POST /api/classes — clases recurrentes', () => {
     const nextTuesday = new Date()
     const dow = nextTuesday.getUTCDay()
     const daysToTuesday = dow === 2 ? 7 : (9 - dow) % 7 || 7
-    nextTuesday.setDate(nextTuesday.getDate() + daysToTuesday)
+    nextTuesday.setUTCDate(nextTuesday.getUTCDate() + daysToTuesday)
     nextTuesday.setUTCHours(9, 0, 0, 0)
 
     const recurringUntil = nextTuesday.toISOString().split('T')[0]
