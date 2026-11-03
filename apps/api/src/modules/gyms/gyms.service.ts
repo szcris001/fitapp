@@ -61,6 +61,9 @@ export async function getGym(gymId: string, { forAdmin = false }: { forAdmin?: b
       dteCiudad: true,
       // Configuración de pesos
       weightRounding: true,
+      // Insignia de constancia semestral
+      consistencyMinClasses: true,
+      consistencyIncentiveText: true,
       status: true,
       attendanceMode: true,
       gymLat: true,

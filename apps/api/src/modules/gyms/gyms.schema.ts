@@ -67,6 +67,9 @@ export const updateGymSchema = z.object({
   dteCiudad: z.string().optional(),
   // Configuración de pesos
   weightRounding: z.number().positive().optional(),
+  // Insignia de constancia semestral
+  consistencyMinClasses: z.number().int().min(1).max(500).optional(),
+  consistencyIncentiveText: z.string().max(500).optional(),
   // Asistencia
   attendanceMode: z.enum(['manual', 'auto', 'qr', 'geo']).optional(),
   gymLat: z.number().optional().nullable(),

@@ -59,6 +59,7 @@ export async function getUserById(gymId: string, userId: string) {
       gymnasticProgress: { orderBy: { achievedAt: 'desc' } },
       consistencyBadges: { orderBy: { periodStart: 'desc' } },
       pillarAwardsReceived: { include: { pillar: true }, orderBy: { awardedAt: 'desc' } },
+      gym: { select: { consistencyIncentiveText: true } },
       bookings: {
         where: { status: 'ATTENDED' },
         orderBy: { attendedAt: 'desc' },

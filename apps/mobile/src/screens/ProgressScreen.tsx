@@ -251,7 +251,9 @@ export default function ProgressScreen() {
               id: `badge-${b.id}`,
               awardedAt: b.awardedAt,
               title: `🏅 Constancia semestral — ${formatSemesterLabel(b.periodStart)}`,
-              subtitle: `Cargaste el 100% de tus resultados de WOD (${b.loggedCount}/${b.eligibleCount} clases)`,
+              subtitle: b.incentiveText
+                ? `Cargaste el 100% de tus resultados de WOD (${b.loggedCount}/${b.eligibleCount} clases) · 🎁 ${b.incentiveText}`
+                : `Cargaste el 100% de tus resultados de WOD (${b.loggedCount}/${b.eligibleCount} clases)`,
             })),
             ...pillarAwards.map(a => ({
               id: `pillar-${a.id}`,

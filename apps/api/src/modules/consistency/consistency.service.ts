@@ -5,6 +5,8 @@ export { DEFAULT_GYM_TIMEZONE }
 
 // Sin un mínimo, un alumno con 1 sola clase+resultado "ganaría" por una muestra
 // trivial. ~20 clases es aprox. asistencia semanal durante la mitad de un semestre.
+// Configurable por gym desde 2026-11 (Gym.consistencyMinClasses); este valor es
+// solo el default con el que nace cada gym y el que usan los tests.
 export const MIN_ELIGIBLE_CLASSES = 20
 
 export type SemesterWindow = { periodStart: Date; periodEnd: Date }
@@ -27,6 +29,7 @@ export async function calculateConsistency(
   userId: string,
   { periodStart, periodEnd }: SemesterWindow,
   timezone: string,
+  minEligibleClasses: number = MIN_ELIGIBLE_CLASSES,
 ) {
   const bookings = await prisma.booking.findMany({
     where: { userId, status: 'ATTENDED', class: { gymId, startsAt: { gte: periodStart, lt: periodEnd } } },
@@ -65,18 +68,20 @@ export async function calculateConsistency(
   return {
     eligibleCount,
     loggedCount,
-    qualifies: loggedCount === eligibleCount && eligibleCount >= MIN_ELIGIBLE_CLASSES,
+    qualifies: loggedCount === eligibleCount && eligibleCount >= minEligibleClasses,
   }
 }
 
 /** Calcula y otorga la insignia a cada MEMBER del gym que califique en la ventana dada. */
 export async function awardConsistencyBadgesForGym(gymId: string, window: SemesterWindow) {
   const timezone = await getGymTimezone(gymId)
+  const gym = await prisma.gym.findUnique({ where: { id: gymId }, select: { consistencyMinClasses: true } })
+  const minEligibleClasses = gym?.consistencyMinClasses ?? MIN_ELIGIBLE_CLASSES
   const members = await prisma.user.findMany({ where: { gymId, role: 'MEMBER' }, select: { id: true } })
 
   let awarded = 0
   for (const member of members) {
-    const result = await calculateConsistency(gymId, member.id, window, timezone)
+    const result = await calculateConsistency(gymId, member.id, window, timezone, minEligibleClasses)
     if (!result.qualifies) continue
     try {
       await prisma.consistencyBadge.create({

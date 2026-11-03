@@ -151,6 +151,44 @@ describe('calculateConsistency', () => {
   })
 })
 
+describe('calculateConsistency — umbral configurable', () => {
+  it('con un mínimo custom más bajo, un alumno que antes no calificaba ahora sí', async () => {
+    const user = await createUserFixture('CustomMin')
+    for (let i = 0; i < 5; i++) {
+      const cls = await createAttendedClass(classTypeWithWodId, user.id, i)
+      const wod = await createWodForDay(classTypeWithWodId, cls.startsAt)
+      await prisma.wodResult.create({ data: { gymId, wodId: wod.id, userId: user.id, recordedBy: user.id, score: 100 } })
+    }
+    const withDefault = await calculateConsistency(gymId, user.id, window, DEFAULT_GYM_TIMEZONE)
+    expect(withDefault.qualifies).toBe(false) // 5 < MIN_ELIGIBLE_CLASSES (20)
+
+    const withCustomMin = await calculateConsistency(gymId, user.id, window, DEFAULT_GYM_TIMEZONE, 5)
+    expect(withCustomMin.eligibleCount).toBe(5)
+    expect(withCustomMin.qualifies).toBe(true)
+  })
+})
+
+describe('awardConsistencyBadgesForGym — respeta Gym.consistencyMinClasses', () => {
+  it('otorga la insignia con el umbral configurado del gym, no el default fijo', async () => {
+    await prisma.gym.update({ where: { id: gymId }, data: { consistencyMinClasses: 5 } })
+    try {
+      const user = await createUserFixture('GymMin')
+      for (let i = 0; i < 5; i++) {
+        const cls = await createAttendedClass(classTypeWithWodId, user.id, i)
+        const wod = await createWodForDay(classTypeWithWodId, cls.startsAt)
+        await prisma.wodResult.create({ data: { gymId, wodId: wod.id, userId: user.id, recordedBy: user.id, score: 100 } })
+      }
+      const awarded = await awardConsistencyBadgesForGym(gymId, window)
+      expect(awarded).toBeGreaterThanOrEqual(1)
+      const badge = await prisma.consistencyBadge.findUnique({ where: { userId_periodStart: { userId: user.id, periodStart: window.periodStart } } })
+      expect(badge).not.toBeNull()
+      expect(badge!.eligibleCount).toBe(5)
+    } finally {
+      await prisma.gym.update({ where: { id: gymId }, data: { consistencyMinClasses: 20 } })
+    }
+  })
+})
+
 describe('awardConsistencyBadgesForGym', () => {
   it('otorga la insignia a quien califica y no duplica en una segunda corrida', async () => {
     const user = await createUserFixture('Award')
