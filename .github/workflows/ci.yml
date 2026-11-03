@@ -14,7 +14,7 @@ jobs:
   # ─── Auditoría de dependencias (CVEs High/Critical) ─────────────────────────
   security-audit:
     name: Security Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +34,7 @@ jobs:
   # ─── Lint (raíz, aplica a toda la monorepo) ──────────────────────────────────
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -58,7 +58,7 @@ jobs:
   # ─── Tests de API (PostgreSQL + Redis reales; la app corre como fitapp_app, bajo RLS) ─
   test-api:
     name: Test API
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -125,7 +125,7 @@ jobs:
   # ─── Build API ────────────────────────────────────────────────────────────────
   build-api:
     name: Build API
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test-api]
     steps:
       - uses: actions/checkout@v4
@@ -151,7 +151,7 @@ jobs:
   # ─── Build Web ────────────────────────────────────────────────────────────────
   build-web:
     name: Build Web
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # Next.js necesita la URL de la API en build time aunque sea placeholder
       NEXT_PUBLIC_API_URL: "https://api.fithub.app/api"
@@ -175,7 +175,7 @@ jobs:
   # ─── E2E Web (capa 1 de docs/TESTING_STRATEGY.md) ──────────────────────────────
   e2e-web:
     name: E2E Web
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test-api]
     services:
       postgres:

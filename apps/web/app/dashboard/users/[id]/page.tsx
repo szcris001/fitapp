@@ -1170,6 +1170,11 @@ export default function UserDetailPage() {
                       </div>
                     ))}
                   </div>
+                  {member.gym?.consistencyIncentiveText && (
+                    <p className="text-xs mt-3" style={{ color: 'var(--text-3)' }}>
+                      🎁 Premio: {member.gym.consistencyIncentiveText}
+                    </p>
+                  )}
                 </div>
               )}
 

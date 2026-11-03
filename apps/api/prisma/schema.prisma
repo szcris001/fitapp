@@ -8,86 +8,91 @@ datasource db {
 }
 
 model Gym {
-  id                     String                   @id @default(uuid())
-  name                   String
-  slug                   String                   @unique
-  logoUrl                String?
-  brandColors            Json                     @default("{\"accent\": \"#818cf8\", \"primary\": \"#6366f1\", \"secondary\": \"#4f46e5\"}")
-  bookingWindowDays      Int                      @default(1)
-  address                String?
-  phone                  String?
-  email                  String?
-  instagram              String?
-  facebook               String?
-  termsAndConditions     String?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  status                 GymStatus                @default(ACTIVE)
-  subscriptionPlan       String                   @default("trial")
-  bookingCutoffMins      Int                      @default(60)
-  cancelCutoffMins       Int                      @default(30)
-  bsaleBoletaTypeId      Int?
-  bsaleFacturaTypeId     Int?
-  bsaleOfficeId          Int?
-  bsalePriceListId       Int?
-  bsaleToken             String?
-  dteCiudad              String?
-  dteComuna              String?
-  dteDireccion           String?
-  dteGiro                String?
-  dteRazonSocial         String?
-  dteRut                 String?
-  expiryReminderDays     Int                      @default(3)
-  smtpFrom               String?
-  smtpHost               String?
-  smtpPass               String?
-  smtpPort               Int?
-  smtpUser               String?
-  emailExpiryBody        String?
-  emailExpirySubject     String?
-  emailPaymentBody       String?
-  emailPaymentSubject    String?
-  sportTheme             String                   @default("neutral")
-  paymentGateways        Json                     @default("{}")
-  ownerEmail             String?
-  deletedAt              DateTime?
-  country                String                   @default("CL")
-  bankAccount            Json                     @default("{}")
-  stripeCustomerId       String?
-  attendanceMode         String                   @default("manual")
-  gymLat                 Float?
-  gymLng                 Float?
-  gymRadiusMeters        Int                      @default(200)
-  waitlistConfirmEnabled Boolean                  @default(false)
-  waitlistConfirmMins    Int                      @default(30)
+  id                       String                   @id @default(uuid())
+  name                     String
+  slug                     String                   @unique
+  logoUrl                  String?
+  brandColors              Json                     @default("{\"accent\": \"#818cf8\", \"primary\": \"#6366f1\", \"secondary\": \"#4f46e5\"}")
+  bookingWindowDays        Int                      @default(1)
+  address                  String?
+  phone                    String?
+  email                    String?
+  instagram                String?
+  facebook                 String?
+  termsAndConditions       String?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  status                   GymStatus                @default(ACTIVE)
+  subscriptionPlan         String                   @default("trial")
+  bookingCutoffMins        Int                      @default(60)
+  cancelCutoffMins         Int                      @default(30)
+  bsaleBoletaTypeId        Int?
+  bsaleFacturaTypeId       Int?
+  bsaleOfficeId            Int?
+  bsalePriceListId         Int?
+  bsaleToken               String?
+  dteCiudad                String?
+  dteComuna                String?
+  dteDireccion             String?
+  dteGiro                  String?
+  dteRazonSocial           String?
+  dteRut                   String?
+  expiryReminderDays       Int                      @default(3)
+  smtpFrom                 String?
+  smtpHost                 String?
+  smtpPass                 String?
+  smtpPort                 Int?
+  smtpUser                 String?
+  emailExpiryBody          String?
+  emailExpirySubject       String?
+  emailPaymentBody         String?
+  emailPaymentSubject      String?
+  sportTheme               String                   @default("neutral")
+  paymentGateways          Json                     @default("{}")
+  ownerEmail               String?
+  deletedAt                DateTime?
+  country                  String                   @default("CL")
+  bankAccount              Json                     @default("{}")
+  stripeCustomerId         String?
+  attendanceMode           String                   @default("manual")
+  gymLat                   Float?
+  gymLng                   Float?
+  gymRadiusMeters          Int                      @default(200)
+  waitlistConfirmEnabled   Boolean                  @default(false)
+  waitlistConfirmMins      Int                      @default(30)
   // Horas de anticipación desde las que una reserva normal (no de lista de espera)
   // queda PENDING_CONFIRM en vez de CONFIRMED directo: el alumno debe confirmar
   // manualmente desde la app antes de que falten estas horas para la clase, o el
   // cupo se libera (runPendingConfirmExpiryJob). Evita que una membresía vencida
   // DESPUÉS de reservar deje el cupo tomado indefinidamente sin revalidarse — ver
   // confirmWaitlistBooking en classes.service.ts, que revalida membresía al confirmar.
-  preClassConfirmHours   Int                      @default(2)
-  weightRounding         Float                    @default(2.5)
-  timezone               String                   @default("America/Santiago")
-  bankMovements          BankMovement[]
-  benchmarks             Benchmark[]
-  benchmarkResults       BenchmarkResult[]
-  classes                Class[]
-  classTypes             ClassType[]
-  consistencyBadges      ConsistencyBadge[]
-  fintocLink             FintocLink?
-  fintocPaymentIntents   FintocPaymentIntent[]
-  skills                 GymSkill[]
-  subscriptions          GymSubscription[]
-  subPayments            GymSubscriptionPayment[]
-  movements              Movement[]
-  pillars                Pillar[]
-  pillarAwards           PillarAward[]
-  plans                  Plan[]
-  users                  User[]
-  wods                   Wod[]
-  wodResults             WodResult[]
-  paymentCheckouts       PaymentCheckout[]
+  preClassConfirmHours     Int                      @default(2)
+  weightRounding           Float                    @default(2.5)
+  timezone                 String                   @default("America/Santiago")
+  // Insignia de constancia semestral (carga de resultados de WOD): mínimo de
+  // clases con WOD para calificar, y texto libre del premio que el gym ofrece
+  // a quien califica (lo entrega a mano — no tiene efecto automático en el sistema).
+  consistencyMinClasses    Int                      @default(20)
+  consistencyIncentiveText String?
+  bankMovements            BankMovement[]
+  benchmarks               Benchmark[]
+  benchmarkResults         BenchmarkResult[]
+  classes                  Class[]
+  classTypes               ClassType[]
+  consistencyBadges        ConsistencyBadge[]
+  fintocLink               FintocLink?
+  fintocPaymentIntents     FintocPaymentIntent[]
+  skills                   GymSkill[]
+  subscriptions            GymSubscription[]
+  subPayments              GymSubscriptionPayment[]
+  movements                Movement[]
+  pillars                  Pillar[]
+  pillarAwards             PillarAward[]
+  plans                    Plan[]
+  users                    User[]
+  wods                     Wod[]
+  wodResults               WodResult[]
+  paymentCheckouts         PaymentCheckout[]
 }
 
 model User {
@@ -211,20 +216,20 @@ model ClassTypeBlock {
 }
 
 model Class {
-  id           String         @id @default(uuid())
-  gymId        String
-  classTypeId  String
-  coachId      String
-  startsAt     DateTime
-  endsAt       DateTime
-  capacity     Int
-  frequency    ClassFrequency @default(ONCE)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  bookings     Booking[]
-  classType    ClassType      @relation(fields: [classTypeId], references: [id])
-  coach        User           @relation("CoachClasses", fields: [coachId], references: [id])
-  gym          Gym            @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  id          String         @id @default(uuid())
+  gymId       String
+  classTypeId String
+  coachId     String
+  startsAt    DateTime
+  endsAt      DateTime
+  capacity    Int
+  frequency   ClassFrequency @default(ONCE)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  bookings    Booking[]
+  classType   ClassType      @relation(fields: [classTypeId], references: [id])
+  coach       User           @relation("CoachClasses", fields: [coachId], references: [id])
+  gym         Gym            @relation(fields: [gymId], references: [id], onDelete: Cascade)
 
   @@index([gymId, startsAt])
   @@index([gymId, classTypeId, startsAt])

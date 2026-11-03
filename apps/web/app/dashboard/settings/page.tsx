@@ -7,7 +7,7 @@ import { SPORT_THEMES, type SportTheme } from '../../../lib/themes'
 import {
   Building2, Sun, Moon, Calendar, Upload,
   CheckCircle, Bell, FileText, Palette, Receipt,
-  Settings2, CreditCard, Loader2, MapPin, Users,
+  Settings2, CreditCard, Loader2, MapPin, Users, Award,
 } from 'lucide-react'
 
 // ── Secciones de la nav lateral ───────────────────────────────────────────────
@@ -18,6 +18,7 @@ const SECTIONS = [
   { id: 'notificaciones', label: 'Notificaciones',      icon: Bell        },
   { id: 'asistencia',     label: 'Asistencia',          icon: MapPin      },
   { id: 'waitlist',       label: 'Lista de espera',     icon: Users       },
+  { id: 'reconocimientos', label: 'Reconocimientos',    icon: Award       },
   { id: 'facturacion',    label: 'Facturación',         icon: Receipt     },
   { id: 'pagos',          label: 'Pagos',               icon: CreditCard  },
   { id: 'avanzado',       label: 'Avanzado',            icon: Settings2   },
@@ -253,6 +254,11 @@ export default function SettingsPage() {
     waitlistConfirmMins: 30,
     preClassConfirmHours: 2,
   })
+  const [savingConsistency, setSavingConsistency] = useState(false)
+  const [consistencyForm, setConsistencyForm] = useState({
+    consistencyMinClasses: 20,
+    consistencyIncentiveText: '',
+  })
   const [savingGateways, setSavingGateways] = useState(false)
   const [gatewaysForm, setGatewaysForm] = useState({
     stripe:      { enabled: false, publishableKey: '', secretKey: '', webhookSecret: '' },
@@ -347,6 +353,10 @@ export default function SettingsPage() {
         waitlistConfirmEnabled: data.waitlistConfirmEnabled ?? false,
         waitlistConfirmMins: data.waitlistConfirmMins ?? 30,
         preClassConfirmHours: data.preClassConfirmHours ?? 2,
+      })
+      setConsistencyForm({
+        consistencyMinClasses: data.consistencyMinClasses ?? 20,
+        consistencyIncentiveText: data.consistencyIncentiveText || '',
       })
       if (data.sportTheme) setSportTheme(data.sportTheme as SportTheme)
       if (data.bankAccount) {
@@ -470,6 +480,19 @@ export default function SettingsPage() {
     } catch (err: any) {
       showToast(err.response?.data?.error || 'Error al guardar', 'error')
     } finally { setSavingWaitlist(false) }
+  }
+
+  const handleSaveConsistency = async () => {
+    setSavingConsistency(true)
+    try {
+      await api.put('/gyms/me', {
+        consistencyMinClasses: Number(consistencyForm.consistencyMinClasses),
+        consistencyIncentiveText: consistencyForm.consistencyIncentiveText,
+      })
+      showToast('Configuración de reconocimientos guardada')
+    } catch (err: any) {
+      showToast(err.response?.data?.error || 'Error al guardar', 'error')
+    } finally { setSavingConsistency(false) }
   }
 
   const handleSaveBank = async () => {
@@ -864,6 +887,39 @@ export default function SettingsPage() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <SaveButton saving={savingWaitlist} label={savingWaitlist ? 'Guardando...' : 'Guardar'} onClick={handleSaveWaitlist} />
+          </div>
+        </SectionCard>
+      </div>
+    )
+
+    // ── RECONOCIMIENTOS ───────────────────────────────────────────────────────
+    if (activeSection === 'reconocimientos') return (
+      <div>
+        <SectionCard title="Insignia de constancia semestral" description="Premia a los alumnos que cargan todos sus resultados de WOD en el semestre">
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>
+            Cada 1 de enero y 1 de julio se revisa a cada alumno: si asistió a clases con WOD planificado y cargó el 100% de sus resultados, recibe la insignia. Acá definís cuántas clases mínimo necesita para que cuente, y qué premio le ofrecés (lo entregás vos — no tiene efecto automático en pagos ni membresías).
+          </p>
+          <div style={{ padding: 16, borderRadius: 12, backgroundColor: 'var(--surface-base)', border: '1px solid var(--border-1)', marginBottom: 16 }}>
+            <FieldLabel>Mínimo de clases con WOD en el semestre</FieldLabel>
+            <input type="number" min={1} max={500} className="input"
+              value={consistencyForm.consistencyMinClasses}
+              onChange={e => setConsistencyForm(f => ({ ...f, consistencyMinClasses: Number(e.target.value) }))} />
+            <p style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 8 }}>
+              Un alumno con menos clases elegibles que esto en el semestre no califica, aunque haya cargado el 100%.
+            </p>
+          </div>
+          <div style={{ padding: 16, borderRadius: 12, backgroundColor: 'var(--surface-base)', border: '1px solid var(--border-1)' }}>
+            <FieldLabel>Premio (texto libre, visible para quien califica)</FieldLabel>
+            <textarea className="input" rows={3} maxLength={500}
+              placeholder='Ej. "1 mes de membresía gratis" o "Polera del box"'
+              value={consistencyForm.consistencyIncentiveText}
+              onChange={e => setConsistencyForm(f => ({ ...f, consistencyIncentiveText: e.target.value }))} />
+            <p style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 8 }}>
+              Se muestra junto a la insignia en la app y en la ficha del alumno. Dejalo vacío si no querés mostrar ningún premio.
+            </p>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <SaveButton saving={savingConsistency} label={savingConsistency ? 'Guardando...' : 'Guardar'} onClick={handleSaveConsistency} />
           </div>
         </SectionCard>
       </div>

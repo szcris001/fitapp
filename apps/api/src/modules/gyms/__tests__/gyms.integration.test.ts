@@ -275,6 +275,36 @@ describe('GET /api/gyms/me — devuelve datos del gym del token', () => {
     expect(gym?.weightRounding).toBe(2.5)
   })
 
+  it('GET /gyms/me incluye consistencyMinClasses (default 20) y consistencyIncentiveText (null por default)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/gyms/me',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.consistencyMinClasses).toBe(20)
+    expect(body.consistencyIncentiveText).toBeNull()
+  })
+
+  it('ADMIN actualiza consistencyMinClasses y consistencyIncentiveText → persistidos y devueltos', async () => {
+    const res = await app.inject({
+      method: 'PUT', url: '/api/gyms/me',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminAToken}` },
+      payload: JSON.stringify({ consistencyMinClasses: 10, consistencyIncentiveText: '1 mes gratis' }),
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().consistencyMinClasses).toBe(10)
+    expect(res.json().consistencyIncentiveText).toBe('1 mes gratis')
+
+    const gym = await prisma.gym.findUnique({ where: { id: gymAId }, select: { consistencyMinClasses: true, consistencyIncentiveText: true } })
+    expect(gym?.consistencyMinClasses).toBe(10)
+    expect(gym?.consistencyIncentiveText).toBe('1 mes gratis')
+
+    // Revertir para no afectar otros tests de este archivo que esperan el default
+    await prisma.gym.update({ where: { id: gymAId }, data: { consistencyMinClasses: 20, consistencyIncentiveText: null } })
+  })
+
   it('GET /gyms/me incluye campos SMTP (smtpHost, smtpPort, smtpUser, smtpFrom)', async () => {
     const res = await app.inject({
       method: 'GET',
