@@ -1871,7 +1871,7 @@ describe('WOD: GET /api/wods/class/:classId/my-loads — calculado y recomendado
     const cls = await prisma.class.create({
       data: {
         gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
-        startsAt: new Date('2026-12-01T13:00:00Z'), endsAt: new Date('2026-12-01T14:00:00Z'),
+        startsAt: new Date('2032-12-01T13:00:00Z'), endsAt: new Date('2032-12-01T14:00:00Z'),
         capacity: 10, frequency: 'ONCE',
       },
     })
@@ -1879,7 +1879,7 @@ describe('WOD: GET /api/wods/class/:classId/my-loads — calculado y recomendado
     const wod = await prisma.wod.create({
       data: {
         gymId: gymAId, classTypeId: classTypeAId, title: 'WOD cargas por género',
-        date: new Date('2026-12-01T03:00:00Z'), // inicio del 01-dic en Santiago
+        date: new Date('2032-12-01T03:00:00Z'), // inicio del 01-dic en Santiago; fecha lejana a propósito: las fechas relativas (dateString) de este archivo llegan a +207 días y chocarían
         blocks: { create: [{ title: 'Fuerza', order: 0, movements: { create: [
           { movementName: 'Squat', percentage: 50, order: 0 },
           { movementName: 'Thruster', weightRxM: 43, weightRxF: 29, order: 1 },
