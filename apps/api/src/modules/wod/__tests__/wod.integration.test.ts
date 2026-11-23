@@ -29,7 +29,7 @@ import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../../lib/prisma'
 import { wodRoutes } from '../wod.routes'
-import { gymDayStart, DEFAULT_GYM_TIMEZONE } from '../../../lib/gym-day'
+import { gymDayStart, gymDayRange, DEFAULT_GYM_TIMEZONE } from '../../../lib/gym-day'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -1534,10 +1534,15 @@ describe('WOD: POST/GET /wods/:id/results/me — solo si hay reserva confirmada 
   })
 
   it('con reserva confirmada pero la clase todavía no empieza → 403 not_started', async () => {
+    // Futura, pero el MISMO día local que el WOD: con "ahora + 1h" a las 23:xx (Chile) la
+    // clase caía al día siguiente y el gate respondía not_booked en vez de not_started.
+    const now = Date.now()
+    const endOfLocalDay = gymDayRange(new Date(now), DEFAULT_GYM_TIMEZONE).lt.getTime()
+    const startMs = Math.min(now + 60 * 60 * 1000, now + (endOfLocalDay - now) / 2)
     const futureClass = await prisma.class.create({
       data: {
         gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
-        startsAt: new Date(Date.now() + 60 * 60 * 1000), endsAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        startsAt: new Date(startMs), endsAt: new Date(startMs + 60 * 60 * 1000),
         capacity: 10, frequency: 'ONCE',
       },
     })
