@@ -6,6 +6,8 @@ import { MEDIA_SCOPE } from '../lib/media-token'
 const ALLOWED_SUSPENDED_PATHS = [
   '/api/auth/',
   '/api/gyms/me/subscription',
+  '/api/gyms/me/billing',
+  '/api/gym-billing/',
   '/api/payments/webhook',
   '/api/superadmin/',
 ]
@@ -22,6 +24,7 @@ const SUPER_ADMIN_NO_GYM_PATHS = [
   '/api/gyms/my-sedes',
   '/api/gyms/switch-sede',
   '/api/gyms/me/subscription',
+  '/api/gyms/me/billing',
 ]
 
 function isSuperAdminNoGymPath(url: string) {

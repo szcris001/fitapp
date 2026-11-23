@@ -68,6 +68,28 @@ export async function mediaRoutes(app: FastifyInstance) {
     return reply.send(fs.createReadStream(filepath))
   })
 
+  // Comprobantes de transferencia de la suscripción de plataforma (gym -> Tribu-Box):
+  // el SUPER_ADMIN los ve todos (aunque su token no tenga gymId); el ADMIN solo los de su gym.
+  app.get('/uploads/gym-billing/:gymId/:filename', { preHandler: authenticateMedia }, async (request, reply) => {
+    const user = request.user as { userId: string; gymId: string | null; role: string }
+    const { gymId, filename } = request.params as { gymId: string; filename: string }
+    const allowed = user.role === 'SUPER_ADMIN' || (user.role === 'ADMIN' && !!user.gymId && user.gymId === gymId)
+    if (!allowed) return reply.status(404).send({ error: 'Archivo no encontrado' })
+    if (/[/\\]|\.\.|\0/.test(gymId)) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+    const filepath = safeResolvePath(path.resolve(process.cwd(), 'uploads', 'gym-billing', gymId), filename)
+    if (!filepath) return reply.status(400).send({ error: 'Nombre de archivo inválido' })
+
+    const payment = await prisma.gymSubscriptionPayment.findFirst({
+      where: { gymId, receiptUrl: `/uploads/gym-billing/${gymId}/${filename}` },
+      select: { id: true },
+    })
+    const mime = RECEIPT_MIME[path.extname(filename).toLowerCase()]
+    if (!payment || !mime || !fs.existsSync(filepath)) return reply.status(404).send({ error: 'Archivo no encontrado' })
+    reply.header('Content-Type', mime)
+    reply.header('Cache-Control', 'private, no-store')
+    return reply.send(fs.createReadStream(filepath))
+  })
+
   app.get('/uploads/:filename', { preHandler: authenticateMedia }, async (request, reply) => {
     const { filename } = request.params as any
     const baseDir = path.resolve(process.cwd(), 'uploads')

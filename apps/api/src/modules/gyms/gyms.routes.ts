@@ -9,7 +9,7 @@ import { sendTestEmail } from '../../lib/email'
 import path from 'path'
 import fs from 'fs'
 import { z } from 'zod'
-import { createGymSubscriptionCheckout, getGymSubscriptionStatus } from '../payments/payments.service'
+import { getGymSubscriptionStatus } from '../payments/payments.service'
 import { signMediaToken } from '../../lib/media-token'
 import { canEnterSede, sedeRole } from '../../lib/sede-access'
 import { detectImageExt } from '../../lib/image-sniff'
@@ -289,16 +289,6 @@ export async function gymRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post('/gyms/me/subscription/checkout', { preHandler: requireAdmin }, async (request, reply) => {
-    const user = request.user as any
-    if (!user.gymId) return reply.status(400).send({ error: 'Sin gimnasio asociado' })
-    const { planId } = request.body as any
-    if (!planId) return reply.status(400).send({ error: 'planId requerido' })
-    try {
-      const result = await createGymSubscriptionCheckout(user.gymId, planId)
-      return reply.send(result)
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
-    }
-  })
+  // POST /gyms/me/subscription/checkout, GET /gyms/me/billing/gateways y /gyms/me/subscription/payments
+  // viven en modules/gym-billing/gym-billing.routes.ts
 }

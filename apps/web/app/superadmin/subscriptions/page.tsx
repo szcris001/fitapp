@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '../../../store/auth.store'
-import api from '../../../lib/api'
+import api, { mediaUrl } from '../../../lib/api'
 import { Plus, Pencil, Trash2, Save, X, Check, CreditCard, RefreshCw, ExternalLink } from 'lucide-react'
 import { PLAN_COLOR_PRESETS } from '../page'
 
@@ -27,7 +27,7 @@ function apiErr(err: any, fallback = 'Error inesperado') {
 
 type Plan = { id: string; slug: string; name: string; description: string | null; priceCLP: number; priceUSD: number; durationDays: number; features: string[]; isActive: boolean; isFree: boolean; color: string | null }
 type Sub  = { id: string; gymId: string; planId: string; status: string; startsAt: string; endsAt: string; gym: any; plan: Plan; payments: any[] }
-type Payment = { id: string; gymId: string; amount: number; currency: string; gateway: string; status: string; paidAt: string | null; notes: string | null; createdAt: string; gym: any }
+type Payment = { id: string; gymId: string; amount: number; currency: string; gateway: string; status: string; paidAt: string | null; notes: string | null; createdAt: string; gym: any; receiptUrl?: string | null; reference?: string | null; rejectionReason?: string | null }
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   ACTIVE:    { bg: '#14532d', color: '#4ade80' },
@@ -40,7 +40,7 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   REFUNDED:  { bg: '#1e293b', color: '#94a3b8' },
 }
 
-const GATEWAY_LABELS: Record<string, string> = { manual: 'Manual', stripe: 'Stripe 🔒', flow: 'Flow 🇨🇱' }
+const GATEWAY_LABELS: Record<string, string> = { manual: 'Manual', stripe: 'Stripe 🔒', flow: 'Flow 🇨🇱', transfer: 'Transferencia' }
 
 export default function SubscriptionsPage() {
   const { user, loadFromStorage } = useAuthStore()
@@ -148,7 +148,7 @@ export default function SubscriptionsPage() {
     setPayForm({ gateway: 'stripe', amount: String(sub.plan.priceCLP), email: sub.gym.ownerEmail ?? '', notes: '', paidAt: '' })
     try {
       const { data } = await api.get(`/superadmin/gym-payments/gateways/${sub.gymId}`)
-      setGymGateways(['stripe', ...data.gateways.filter((g: string) => g !== 'stripe')])
+      setGymGateways(['stripe', ...data.gateways.filter((g: string) => g !== 'stripe' && g !== 'flow' && g !== 'transfer')])
     } catch { setGymGateways(['stripe', 'manual']) }
   }
 
@@ -162,17 +162,6 @@ export default function SubscriptionsPage() {
         })
         window.open(data.checkoutUrl, '_blank')
         showToast('Link de pago Stripe generado — abierto en nueva pestaña', 'ok')
-        setPayModal(null)
-      } else if (payForm.gateway === 'flow') {
-        const { data } = await api.post('/superadmin/gym-payments/flow/create', {
-          gymId:          payModal.gymId,
-          planId:         payModal.planId,
-          subscriptionId: payModal.id,
-          amount:         Number(payForm.amount),
-          email:          payForm.email,
-        })
-        window.open(data.paymentUrl, '_blank')
-        showToast('Link de pago Flow generado — abierto en nueva pestaña', 'ok')
         setPayModal(null)
       } else {
         await api.post('/superadmin/gym-payments/manual', {
@@ -190,6 +179,34 @@ export default function SubscriptionsPage() {
       await fetchAll()
     } catch (err) { showToast(apiErr(err), 'err') }
     finally { setPaying(false) }
+  }
+
+  // ── Transferencias de suscripción: confirmar / rechazar ──
+  const [rejectTarget, setRejectTarget] = useState<Payment | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [actingId, setActingId] = useState<string | null>(null)
+
+  const handleConfirmTransfer = async (p: Payment) => {
+    if (!confirm(`¿Confirmar la transferencia de ${p.gym?.name ?? 'este gimnasio'} y activar su suscripción?`)) return
+    setActingId(p.id)
+    try {
+      await api.post(`/superadmin/gym-payments/${p.id}/confirm`, {})
+      showToast('Transferencia confirmada, suscripción activada', 'ok')
+      await fetchAll()
+    } catch (err) { showToast(apiErr(err), 'err') }
+    finally { setActingId(null) }
+  }
+
+  const handleRejectTransfer = async () => {
+    if (!rejectTarget) return
+    setActingId(rejectTarget.id)
+    try {
+      await api.post(`/superadmin/gym-payments/${rejectTarget.id}/reject`, { reason: rejectReason.trim() })
+      showToast('Transferencia rechazada', 'ok')
+      setRejectTarget(null); setRejectReason('')
+      await fetchAll()
+    } catch (err) { showToast(apiErr(err), 'err') }
+    finally { setActingId(null) }
   }
 
   // ── Assign subscription ──
@@ -513,7 +530,7 @@ export default function SubscriptionsPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b" style={{ borderColor: '#2d2d4e', backgroundColor: '#0f0f1a' }}>
-                {['Gimnasio', 'Monto', 'Gateway', 'Estado', 'Fecha', 'Notas'].map(h => (
+                {['Gimnasio', 'Monto', 'Gateway', 'Estado', 'Fecha', 'Notas', 'Acciones'].map(h => (
                   <th key={h} className="text-left text-xs font-semibold uppercase tracking-wide px-5 py-3.5" style={{ color: '#64748b' }}>{h}</th>
                 ))}
               </tr>
@@ -542,15 +559,55 @@ export default function SubscriptionsPage() {
                     <td className="px-5 py-4 text-sm" style={{ color: '#64748b' }}>
                       {p.paidAt ? new Date(p.paidAt).toLocaleDateString('es-CL') : new Date(p.createdAt).toLocaleDateString('es-CL')}
                     </td>
-                    <td className="px-5 py-4 text-sm" style={{ color: '#64748b' }}>{p.notes ?? '—'}</td>
+                    <td className="px-5 py-4 text-sm" style={{ color: '#64748b' }}>
+                      {p.rejectionReason ? `Rechazado: ${p.rejectionReason}` : (p.notes ?? p.reference ?? '—')}
+                    </td>
+                    <td className="px-5 py-4">
+                      {p.gateway === 'transfer' && p.status === 'PENDING' ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {p.receiptUrl ? (
+                            <a href={mediaUrl(p.receiptUrl)} target="_blank" rel="noreferrer"
+                              style={{ fontSize: 12, color: '#a78bfa', textDecoration: 'underline' }}>Ver comprobante</a>
+                          ) : (
+                            <span style={{ fontSize: 12, color: '#475569' }}>Sin comprobante</span>
+                          )}
+                          <button disabled={!p.receiptUrl || actingId === p.id} onClick={() => handleConfirmTransfer(p)}
+                            style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: '#14532d', color: '#4ade80', opacity: !p.receiptUrl ? 0.4 : 1 }}>
+                            Confirmar
+                          </button>
+                          <button disabled={actingId === p.id} onClick={() => { setRejectTarget(p); setRejectReason('') }}
+                            style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: '#450a0a', color: '#f87171' }}>
+                            Rechazar
+                          </button>
+                        </div>
+                      ) : '—'}
+                    </td>
                   </tr>
                 )
               })}
               {payments.length === 0 && (
-                <tr><td colSpan={6} className="text-center py-12 text-slate-600 text-sm">No hay pagos registrados</td></tr>
+                <tr><td colSpan={7} className="text-center py-12 text-slate-600 text-sm">No hay pagos registrados</td></tr>
               )}
             </tbody>
           </table>
+        </div>
+      )}
+      {rejectTarget && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ ...card, width: '100%', maxWidth: 440 }} className="p-5 space-y-4">
+            <p className="text-white font-semibold text-sm">Rechazar transferencia de {rejectTarget.gym?.name}</p>
+            <div>
+              <label style={lbl}>Motivo (lo verá el gimnasio)</label>
+              <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3} style={{ ...inp, resize: 'vertical' }} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setRejectTarget(null)} style={{ fontSize: 13, padding: '6px 14px', borderRadius: 8, border: '1px solid #2d2d4e', background: 'none', color: '#94a3b8', cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={handleRejectTransfer} disabled={rejectReason.trim().length < 3 || actingId === rejectTarget.id}
+                style={{ fontSize: 13, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', backgroundColor: '#dc2626', color: '#fff', opacity: rejectReason.trim().length < 3 ? 0.5 : 1 }}>
+                Rechazar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

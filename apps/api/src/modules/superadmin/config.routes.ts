@@ -15,6 +15,23 @@ async function getSettings() {
   })
 }
 
+// Lista explícita (nunca spread del modelo): PlatformSettings guarda billingGateways con
+// credenciales y un spread las filtraría en claro.
+function publicSettings(s: {
+  id: string; smtpHost: string | null; smtpPort: number | null; smtpUser: string | null
+  smtpFrom: string | null; subExpiryReminderDays: number; updatedAt: Date
+}) {
+  return {
+    id: s.id,
+    smtpHost: s.smtpHost,
+    smtpPort: s.smtpPort,
+    smtpUser: s.smtpUser,
+    smtpFrom: s.smtpFrom,
+    subExpiryReminderDays: s.subExpiryReminderDays,
+    updatedAt: s.updatedAt,
+  }
+}
+
 const updateSchema = z.object({
   smtpHost:             z.string().optional().nullable(),
   smtpPort:             z.number().int().optional().nullable(),
@@ -30,7 +47,7 @@ export async function platformConfigRoutes(app: FastifyInstance) {
     const s = await getSettings()
     const hasDbPass = !!s.smtpPass
     return reply.send({
-      ...s,
+      ...publicSettings(s),
       smtpHost: s.smtpHost ?? process.env.SMTP_HOST ?? null,
       smtpPort: s.smtpPort ?? (process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : null),
       smtpUser: s.smtpUser ?? process.env.SMTP_USER ?? null,
@@ -55,7 +72,7 @@ export async function platformConfigRoutes(app: FastifyInstance) {
       update: data,
     })
 
-    return reply.send({ ...updated, smtpPass: updated.smtpPass ? '••••••••' : null })
+    return reply.send({ ...publicSettings(updated), smtpPass: updated.smtpPass ? '••••••••' : null })
   })
 
   // POST — enviar correo de prueba con la config actual

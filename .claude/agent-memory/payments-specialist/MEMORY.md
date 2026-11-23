@@ -10,3 +10,4 @@
 - [feedback_input_validation_pattern.md](feedback_input_validation_pattern.md) — barrido preventivo: toda ruta de payments.routes.ts sin safeParse en query/body es sospechosa de filtrar errores crudos (Prisma, multipart)
 - [project_reconciliation_status_enum.md](project_reconciliation_status_enum.md) — ReconciliationStatus tiene 5 valores (incluye MANUAL), no 4; confirmar siempre contra schema.prisma
 - [feedback_memory_path.md](feedback_memory_path.md) — escribir la memoria SIEMPRE en la raíz del repo (.claude/agent-memory/), nunca dentro de apps/web ni apps/api; ya pasó 2 veces
+- [project_gym_billing_gateways.md](project_gym_billing_gateways.md) — Cobro a gyms (Flow/transferencia/Stripe env) 2026-11-22: decisiones D1-D5 y gotchas (Tx type, formbody, env en tests)

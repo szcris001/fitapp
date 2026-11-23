@@ -6,6 +6,7 @@ import api, { API_BASE, mediaUrl } from '../../lib/api'
 import { isCoachAllowedPath } from '../../lib/coach-access'
 import OnboardingWizard from './onboarding/OnboardingWizard'
 import CommandPalette from './components/CommandPalette'
+import SubscriptionPayModal from './components/SubscriptionPayModal'
 
 const DEFAULT_DASHBOARD_BG = 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1920&q=80'
 import {
@@ -143,7 +144,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [dashboardBg, setDashboardBg] = useState(DEFAULT_DASHBOARD_BG)
   const [platformLogo, setPlatformLogo] = useState(`${API_BASE}/uploads/assets/platform_logo.png`)
   const [subscription, setSubscription] = useState<any>(null)
-  const [checkingOut, setCheckingOut] = useState(false)
+  const [showSubPay, setShowSubPay] = useState(false)
   const [subToast, setSubToast] = useState<'success' | 'cancelled' | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const router = useRouter()
@@ -172,6 +173,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .catch(() => {})
 
     const savedCollapsed = localStorage.getItem('sidebar_collapsed')
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- preferencia guardada en localStorage, solo existe en el cliente (comportamiento previo)
     if (savedCollapsed === 'true') setCollapsed(true)
 
     const savedTheme = localStorage.getItem('fitapp_theme')
@@ -228,6 +230,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const params = new URLSearchParams(window.location.search)
     const subParam = params.get('subscription')
     if (subParam === 'success' || subParam === 'cancelled') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- lee ?subscription= de la URL al montar (comportamiento previo)
       setSubToast(subParam)
       // Limpiar el query param sin recargar
       const url = new URL(window.location.href)
@@ -272,6 +275,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )
     )
     if (activeParent) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sincroniza el menú con la ruta actual (comportamiento previo)
       setExpandedGroups(prev => new Set(prev).add(activeParent.href))
     }
   }, [pathname])
@@ -279,19 +283,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isCoach = user?.role === 'COACH'
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
 
-  const handleSubscriptionCheckout = async () => {
-    if (!subscription?.subscription?.planId) return
-    setCheckingOut(true)
-    try {
-      const { data } = await api.post('/gyms/me/subscription/checkout', {
-        planId: subscription.subscription.planId,
-      })
-      if (data.checkoutUrl) window.location.href = data.checkoutUrl
-    } catch {
-      alert('Error al generar el link de pago. Contacta a soporte.')
-    } finally {
-      setCheckingOut(false)
-    }
+  const handleSubscriptionCheckout = () => {
+    if (subscription?.subscription?.planId) setShowSubPay(true)
   }
 
   const navItems = allNavItems
@@ -333,7 +326,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try {
       await switchSede(targetGymId)
       setSedeDropOpen(false)
-      window.location.href = '/dashboard'
+      window.location.assign('/dashboard')
     } catch {
       setSwitchingTo(null)
     }
@@ -828,17 +821,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span>{msg}</span>
               <button
                 onClick={handleSubscriptionCheckout}
-                disabled={checkingOut}
-                className="shrink-0 px-4 py-1.5 rounded-lg text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-50"
+                className="shrink-0 px-4 py-1.5 rounded-lg text-xs font-bold transition-opacity hover:opacity-80"
                 style={{ backgroundColor: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)' }}
               >
-                {checkingOut ? 'Generando...' : 'Pagar ahora'}
+                Pagar ahora
               </button>
             </div>
           )
         })()}
         {children}
       </main>
+
+      {showSubPay && subscription?.subscription?.planId && (
+        <SubscriptionPayModal planId={subscription.subscription.planId} onClose={() => setShowSubPay(false)} />
+      )}
 
       {/* Onboarding wizard overlay */}
       {showOnboarding && (
