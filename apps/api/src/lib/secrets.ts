@@ -33,14 +33,22 @@ export function wantsToClearSecret(value: unknown): boolean {
 // Campos de configuración de pasarela que no son secretos y se muestran tal cual
 const PUBLIC_GATEWAY_FIELDS = new Set(['enabled', 'sandbox', 'publishableKey', 'receiverId', 'merchantId', 'accountId'])
 
+// Campos públicos de las pasarelas de cobro Tribu-Box -> gyms (PlatformSettings.billingGateways):
+// los datos bancarios de la transferencia se muestran tal cual; los secretos (apiKey,
+// secretKey, webhookSecret) siguen enmascarados.
+export const BILLING_PUBLIC_FIELDS = new Set([
+  'enabled', 'sandbox', 'publishableKey',
+  'bankName', 'accountType', 'accountNumber', 'holderName', 'holderRut', 'contactEmail', 'instructions',
+])
+
 type GatewayConfig = Record<string, unknown>
 type Gateways = Record<string, GatewayConfig>
 
-export function maskGateways(gateways: unknown): Gateways {
+export function maskGateways(gateways: unknown, publicFields: Set<string> = PUBLIC_GATEWAY_FIELDS): Gateways {
   const out: Gateways = {}
   for (const [name, cfg] of Object.entries((gateways ?? {}) as Gateways)) {
     out[name] = Object.fromEntries(
-      Object.entries(cfg ?? {}).map(([k, v]) => [k, PUBLIC_GATEWAY_FIELDS.has(k) ? v : maskSecret(v)]),
+      Object.entries(cfg ?? {}).map(([k, v]) => [k, publicFields.has(k) ? v : maskSecret(v)]),
     )
   }
   return out
@@ -50,13 +58,13 @@ export function maskGateways(gateways: unknown): Gateways {
  * Fusiona la configuración recibida con la guardada: las pasarelas que no vienen se
  * conservan y, dentro de cada una, los secretos enmascarados o vacíos mantienen su valor.
  */
-export function mergeGateways(stored: unknown, incoming: Gateways): Gateways {
+export function mergeGateways(stored: unknown, incoming: Gateways, publicFields: Set<string> = PUBLIC_GATEWAY_FIELDS): Gateways {
   const merged: Gateways = { ...((stored ?? {}) as Gateways) }
   for (const [name, cfg] of Object.entries(incoming)) {
     const prev = merged[name] ?? {}
     const next: GatewayConfig = { ...prev }
     for (const [k, v] of Object.entries(cfg)) {
-      if (PUBLIC_GATEWAY_FIELDS.has(k)) next[k] = v
+      if (publicFields.has(k)) next[k] = v
       else if (wantsToClearSecret(v)) next[k] = ''
       else if (!keepsStoredSecret(v)) next[k] = v
     }

@@ -24,6 +24,7 @@ import { emailTemplateRoutes, ensureSystemTemplates } from './modules/superadmin
 import { fitAppPlansRoutes, ensureFitAppPlans } from './modules/superadmin/fitapp-plans.routes'
 import { gymSubscriptionsRoutes } from './modules/superadmin/gym-subscriptions.routes'
 import { gymPaymentsRoutes } from './modules/superadmin/gym-payments.routes'
+import { gymBillingRoutes } from './modules/gym-billing/gym-billing.routes'
 import { platformAssetsRoutes } from './modules/superadmin/platform-assets.routes'
 import { skillRoutes } from './modules/gyms/skills.routes'
 import { benchmarkRoutes } from './modules/analytics/benchmark.routes'
@@ -198,6 +199,7 @@ app.register(emailTemplateRoutes, { prefix: '/api' })
 app.register(fitAppPlansRoutes, { prefix: '/api' })
 app.register(gymSubscriptionsRoutes, { prefix: '/api' })
 app.register(gymPaymentsRoutes, { prefix: '/api' })
+app.register(gymBillingRoutes, { prefix: '/api' })
 app.register(platformAssetsRoutes, { prefix: '/api' })
 app.register(skillRoutes, { prefix: '/api' })
 app.register(benchmarkRoutes, { prefix: '/api' })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { keepsStoredSecret, wantsToClearSecret, mergeGateways, maskSecret } from '../secrets'
+import { keepsStoredSecret, wantsToClearSecret, mergeGateways, maskSecret, maskGateways, BILLING_PUBLIC_FIELDS } from '../secrets'
 
 describe('keepsStoredSecret', () => {
   it('undefined, vacío o enmascarado → true (sin cambios)', () => {
@@ -52,5 +52,31 @@ describe('mergeGateways', () => {
 
   it('un campo público (ej. publishableKey) nunca se enmascara ni necesita null para cambiar', () => {
     expect(maskSecret('pk_live_abcd1234')).toBe('••••1234')
+  })
+})
+
+describe('BILLING_PUBLIC_FIELDS (pasarelas de cobro Tribu-Box -> gyms)', () => {
+  it('los datos bancarios de transfer se muestran tal cual y los secretos de flow se enmascaran', () => {
+    const masked = maskGateways({
+      flow: { enabled: true, sandbox: true, apiKey: 'FLOWKEY1234', secretKey: 'FLOWSECRET5678' },
+      transfer: { enabled: true, bankName: 'Banco X', accountNumber: '12345678', holderRut: '11.111.111-1' },
+    }, BILLING_PUBLIC_FIELDS)
+    expect(masked.flow).toEqual({ enabled: true, sandbox: true, apiKey: '••••1234', secretKey: '••••5678' })
+    expect(masked.transfer.accountNumber).toBe('12345678')
+    expect(masked.transfer.bankName).toBe('Banco X')
+  })
+
+  it('sin el set de campos públicos de billing, el comportamiento por defecto no cambia', () => {
+    expect(maskGateways({ transfer: { bankName: 'Banco X' } }).transfer.bankName).toBe('••••co X')
+  })
+
+  it('mergeGateways con billing: null borra el secreto, máscara conserva, campo público se reemplaza', () => {
+    const stored = { flow: { enabled: true, apiKey: 'KEY-1', secretKey: 'SEC-1' }, transfer: { bankName: 'A' } }
+    const merged = mergeGateways(stored, {
+      flow: { apiKey: '••••ey-1', secretKey: null }, transfer: { bankName: 'B' },
+    } as any, BILLING_PUBLIC_FIELDS)
+    expect(merged.flow.apiKey).toBe('KEY-1')
+    expect(merged.flow.secretKey).toBe('')
+    expect(merged.transfer.bankName).toBe('B')
   })
 })

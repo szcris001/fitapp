@@ -174,6 +174,8 @@ De paso, dos fixes de CI sin relación con la feature, encontrados porque bloque
 
 ## payments-specialist
 
+**2026-11-22 — Pasarelas de cobro Tribu-Box -> gyms, parte API/DB (rama `feat/gym-billing-gateways`, sin commit/push)**. Diseño: `docs/design/gym-billing-gateways.md`. Migración `20261122000000_add_billing_gateways` (aplicada en DB local con `migrate deploy`; `migrate dev` sigue roto por la shadow DB): `PlatformSettings.billingGateways Json?`, `GymSubscriptionPayment` +`reference/receiptUrl/rejectionReason/confirmedById/confirmedAt` + `@@unique([gateway, gatewayOrderId])`. Módulo nuevo `modules/gym-billing/` (resolver `billing-config.service.ts` = único punto de lectura/escritura de credenciales, listo para cifrar D1; `activation.service.ts` activación idempotente que crea fila `GymSubscription` NUEVA, D3/D5; `gym-billing.service.ts` Flow admin-initiated + confirm server-to-server, transferencia, expiración 7d D4; `gym-billing.routes.ts`). D2: Stripe de gyms solo por env (el webhook ahora crea/valida un `GymSubscriptionPayment` PENDING propio por `metadata.paymentId`, ya no hay fila placeholder EXPIRED). Fix del spread en `/superadmin/config` (lista explícita). `/superadmin/gym-payments/flow/create` eliminado; `/superadmin/gym-payments/flow/confirm` queda como alias hasta ~2026-12-06 (borrar entonces). `/manual` activa de verdad y valida gym+plan; `/refund` exige PAID. Comprobantes en `/uploads/gym-billing/<gymId>/<file>` (ruta nueva en `media.routes.ts`: SUPER_ADMIN ve todos, ADMIN solo su gym). Tests: `gym-billing/__tests__/gym-billing.integration.test.ts` (50) + 3 en `secrets.test.ts`; suite completa 1310/1310, `tsc --noEmit` limpio. Pendiente: web (orquestador), security antes de deploy (endpoint público nuevo + upload + credenciales), D1 cifrado, email de notificación (fase 2), retirar alias Flow, sondear idempotencia de Flow en sandbox real (bloqueado por alta de Flow). Para qa-engineer: agregar "Cobro a gyms (Flow/transferencia/Stripe env)" a QUALITY.md: cubierto por tests de integración, sin sandbox real.
+
 **Última actuación**: 2026-10-31 — hallazgo QA H02 del recorrido de conciliación (`qa/reports/2026-10-31-0801/conciliacion.md`, S3): `GET /payments/fintoc/movements` no validaba `status`/`limit`/`offset` con Zod — con `status=ALGO_INVALIDO`, `limit=abc` u `offset=-1` el `where.reconciliationStatus = status` crudo y el `parseInt` sin chequeo llegaban hasta Prisma, que devolvía su error nativo (con ruta absoluta del archivo del server) directo al cliente en el catch genérico `{ error: err.message }`. Cerrado.
 
 **[BUG-S3][CERRADO 2026-10-31] `GET /payments/fintoc/movements` sin validación Zod en query params → filtraba error crudo de Prisma**: agregado `listBankMovementsSchema` en `payments.schema.ts` (`status: z.enum(['PENDING','MATCHED','CONFIRMED','REJECTED','MANUAL'])`, `limit`/`offset` con `z.coerce.number()` — necesario porque llegan como string desde query string — `limit` acotado a 1-100, `offset` >= 0, ambos opcionales). La ruta ahora hace `safeParse(request.query)` y devuelve `400 { error: 'Datos inválidos', details: parsed.error.flatten() }` antes de llamar a `listBankMovements`, mismo patrón `safeParse` que ya usan `confirmTransferSchema`/`rejectTransferSchema` en este archivo y que usa el resto del repo (`auth.routes.ts`, `gyms.routes.ts`, `users.routes.ts`). Con el valor ya validado, la query a Prisma nunca se ejecuta con basura, así que el error crudo deja de poder escapar por esa vía.
@@ -308,6 +310,8 @@ De paso, dos fixes de CI sin relación con la feature, encontrados porque bloque
 ---
 
 ## architect
+
+**2026-11-22 — Diseño pasarelas de cobro Tribu-Box -> gyms** (PROPUESTO, sin implementar): `docs/design/gym-billing-gateways.md`. `PlatformSettings.billingGateways` (Json, fallback a env), campos nuevos en `GymSubscriptionPayment` + unique (gateway, gatewayOrderId), Flow iniciado por admin del gym con confirm idempotente, transferencia con comprobante confirmada por superadmin. Hallazgos: `/superadmin/config` filtraría secretos por spread; Flow confirm actual sin idempotencia ni activación real; renovación reutiliza fila de suscripción (pierde días/plan). Tocará: schema, `lib/secrets.ts`, `superadmin/{config,gym-payments}.routes.ts`, módulo nuevo `gym-billing`, `gyms.routes.ts`, web superadmin/config y suscripción del gym; Stripe en payments -> payments-specialist. Siguiente: responder decisiones abiertas D1-D5, luego implementar fases 1-2 en modo directo, payments-specialist fase 3, qa-engineer y security antes de deploy.
 
 **Última actuación**: 2026-10-04 — Diseño + implementación de cascade delete para `DELETE /superadmin/gyms/:id/permanent` (hallazgo QA H04, `qa/reports/2026-10-02-1141-staging/superadmin.md`).
 
@@ -888,7 +892,15 @@ Diseño aprobado y **migración ya aplicada en la DB local** (`prisma migrate de
 
 ## security
 
-**Última actuación**: 2026-10-06 — Fix de `pnpm audit --audit-level=high` bloqueando CI en `master` (PR #88, `fix/security-audit-high-vulns`, no mergeado aún).
+**Última actuación**: 2026-11-22 — Auditoría pre-deploy de `feat/gym-billing-gateways` (cobro Tribu-Box -> gyms: Flow/Stripe/transferencia). Veredicto: apto con condiciones (ver abajo). Sin críticos/altos de código.
+
+**Corregido**: ALTO `pnpm audit` (effect ReDoS vía prisma CLI) -> override `effect@3` en `pnpm-workspace.yaml` + lockfile (audit exit 0). BAJO: timeout 15 s (`AbortSignal`) en los fetch a Flow (create/getStatus) en `gym-billing.service.ts`; guard `https://` al redirigir en `SubscriptionPayModal.tsx`.
+
+**Pendiente / condiciones de deploy**: (1) pre-check de duplicados antes de la migración del unique `(gateway,gatewayOrderId)` (el webhook Stripe viejo no era idempotente: puede haber filas duplicadas); (2) credenciales `billingGateways` en claro en DB (decisión D1 abierta); (3) verificar `trustProxy` en prod (no está seteado: `req.ip` podría ser el del proxy y los rate limits compartirse); (4) retirar alias `/superadmin/gym-payments/flow/confirm` ~2026-12-06.
+
+---
+
+**Actuación anterior**: 2026-10-06 — Fix de `pnpm audit --audit-level=high` bloqueando CI en `master` (PR #88, `fix/security-audit-high-vulns`, no mergeado aún).
 
 **Hallazgos corregidos** (overrides en `pnpm-workspace.yaml`, patch dentro del mismo major):
 - ALTO: `source-map-js <1.2.2` (GHSA-68fv-2mgg-jv7q, DoS event-loop) vía `apps/api > @vitest/coverage-v8 > magicast` → `>=1.2.2 <2`

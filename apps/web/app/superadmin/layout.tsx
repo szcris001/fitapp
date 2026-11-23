@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthStore } from '../../store/auth.store'
-import { Shield, PlusCircle, LayoutGrid, LogOut, UserCog, Settings, CreditCard } from 'lucide-react'
+import { Shield, PlusCircle, LayoutGrid, LogOut, UserCog, Settings, CreditCard, Wallet } from 'lucide-react'
 
 function SuperAdminLogin() {
   const { login, isLoading } = useAuthStore()
@@ -104,6 +104,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     { label: 'Gimnasios',       href: '/superadmin',                   icon: LayoutGrid  },
     { label: 'Crear gimnasio',  href: '/superadmin/new',                icon: PlusCircle  },
     { label: 'Suscripciones',   href: '/superadmin/subscriptions',      icon: CreditCard  },
+    { label: 'Pasarelas de cobro', href: '/superadmin/pasarelas',       icon: Wallet      },
     { label: 'Configuración',   href: '/superadmin/config',             icon: Settings    },
     { label: 'Mi perfil',       href: '/superadmin/profile',            icon: UserCog     },
   ]

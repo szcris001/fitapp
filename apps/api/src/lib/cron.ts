@@ -5,6 +5,7 @@ import { sendPushNotification } from './push'
 import { chargeAutoRenewMembership } from '../modules/payments/payments.service'
 import { gymDayRangeFromToday, DEFAULT_GYM_TIMEZONE } from './gym-day'
 import { logger } from './logger'
+import { expireStaleTransferPayments } from '../modules/gym-billing/gym-billing.service'
 import { awardConsistencyBadgesForGym, semesterWindowsForYear } from '../modules/consistency/consistency.service'
 import { awardSemesterPillarsForGym, awardTenurePillarsForGym } from '../modules/pillars/pillars.service'
 
@@ -464,7 +465,23 @@ export async function runTenurePillarsJob() {
   }
 }
 
+/**
+ * Transferencias de suscripción (gym -> Tribu-Box) PENDING sin comprobante por más de
+ * 7 días pasan a FAILED con motivo (decisión D4).
+ */
+export async function runGymTransferExpiryJob() {
+  const n = await expireStaleTransferPayments()
+  if (n > 0) logger.info(`[Cron] ${n} transferencia(s) de suscripción expirada(s) sin comprobante`)
+  return n
+}
+
 export function startCronJobs() {
+  // Expirar transferencias de suscripción sin comprobante — diario 00:30
+  cron.schedule('30 0 * * *', async () => {
+    try { await runGymTransferExpiryJob() }
+    catch (err) { logger.error({ err }, '[Cron] Error expirando transferencias de suscripción') }
+  })
+
   // Expirar PENDING_CONFIRM — cada minuto
   cron.schedule('* * * * *', async () => {
     try { await runPendingConfirmExpiryJob() }

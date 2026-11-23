@@ -379,6 +379,7 @@ model PlatformSettings {
   smtpPass              String?
   smtpFrom              String?
   subExpiryReminderDays Int      @default(7)
+  billingGateways       Json?
   updatedAt             DateTime @updatedAt
 }
 
@@ -440,23 +441,30 @@ model GymSubscription {
 }
 
 model GymSubscriptionPayment {
-  id             String           @id @default(uuid())
-  gymId          String
-  subscriptionId String?
-  planId         String
-  amount         Int
-  currency       String           @default("CLP")
-  country        String           @default("CL")
-  gateway        String
-  gatewayOrderId String?
-  gatewayData    Json?
-  status         GymPaymentStatus @default(PENDING)
-  paidAt         DateTime?
-  notes          String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  gym            Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
-  subscription   GymSubscription? @relation(fields: [subscriptionId], references: [id])
+  id              String           @id @default(uuid())
+  gymId           String
+  subscriptionId  String?
+  planId          String
+  amount          Int
+  currency        String           @default("CLP")
+  country         String           @default("CL")
+  gateway         String
+  gatewayOrderId  String?
+  gatewayData     Json?
+  status          GymPaymentStatus @default(PENDING)
+  paidAt          DateTime?
+  notes           String?
+  reference       String?
+  receiptUrl      String?
+  rejectionReason String?
+  confirmedById   String?
+  confirmedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  gym             Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  subscription    GymSubscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@unique([gateway, gatewayOrderId])
 }
 
 model PasswordResetToken {

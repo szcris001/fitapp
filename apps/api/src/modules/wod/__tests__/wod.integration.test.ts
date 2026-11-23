@@ -29,7 +29,7 @@ import jwt from '@fastify/jwt'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../../lib/prisma'
 import { wodRoutes } from '../wod.routes'
-import { gymDayStart, DEFAULT_GYM_TIMEZONE } from '../../../lib/gym-day'
+import { gymDayStart, gymDayRange, DEFAULT_GYM_TIMEZONE } from '../../../lib/gym-day'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -1534,10 +1534,15 @@ describe('WOD: POST/GET /wods/:id/results/me — solo si hay reserva confirmada 
   })
 
   it('con reserva confirmada pero la clase todavía no empieza → 403 not_started', async () => {
+    // Futura, pero el MISMO día local que el WOD: con "ahora + 1h" a las 23:xx (Chile) la
+    // clase caía al día siguiente y el gate respondía not_booked en vez de not_started.
+    const now = Date.now()
+    const endOfLocalDay = gymDayRange(new Date(now), DEFAULT_GYM_TIMEZONE).lt.getTime()
+    const startMs = Math.min(now + 60 * 60 * 1000, now + (endOfLocalDay - now) / 2)
     const futureClass = await prisma.class.create({
       data: {
         gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
-        startsAt: new Date(Date.now() + 60 * 60 * 1000), endsAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        startsAt: new Date(startMs), endsAt: new Date(startMs + 60 * 60 * 1000),
         capacity: 10, frequency: 'ONCE',
       },
     })
@@ -1871,7 +1876,7 @@ describe('WOD: GET /api/wods/class/:classId/my-loads — calculado y recomendado
     const cls = await prisma.class.create({
       data: {
         gymId: gymAId, classTypeId: classTypeAId, coachId: coachAId,
-        startsAt: new Date('2026-12-01T13:00:00Z'), endsAt: new Date('2026-12-01T14:00:00Z'),
+        startsAt: new Date('2032-12-01T13:00:00Z'), endsAt: new Date('2032-12-01T14:00:00Z'),
         capacity: 10, frequency: 'ONCE',
       },
     })
@@ -1879,7 +1884,7 @@ describe('WOD: GET /api/wods/class/:classId/my-loads — calculado y recomendado
     const wod = await prisma.wod.create({
       data: {
         gymId: gymAId, classTypeId: classTypeAId, title: 'WOD cargas por género',
-        date: new Date('2026-12-01T03:00:00Z'), // inicio del 01-dic en Santiago
+        date: new Date('2032-12-01T03:00:00Z'), // inicio del 01-dic en Santiago; fecha lejana a propósito: las fechas relativas (dateString) de este archivo llegan a +207 días y chocarían
         blocks: { create: [{ title: 'Fuerza', order: 0, movements: { create: [
           { movementName: 'Squat', percentage: 50, order: 0 },
           { movementName: 'Thruster', weightRxM: 43, weightRxF: 29, order: 1 },

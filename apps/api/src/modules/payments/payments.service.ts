@@ -8,6 +8,7 @@ import { nextMembershipPeriod } from '../../lib/membership'
 import { toMajorUnits } from '../../lib/money'
 import { HttpError } from '../../lib/http-error'
 import { logger } from '../../lib/logger'
+import { activateGymSubscriptionInTx } from '../gym-billing/activation.service'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-02-25.clover',
@@ -226,12 +227,12 @@ export async function handleStripeWebhook(payload: Buffer, signature: string) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
-    const { type, gymId, planId, userId, subscriptionId } = session.metadata || {}
+    const { type, gymId, planId, userId, paymentId } = session.metadata || {}
 
     // Pago de suscripción de plataforma (gym paga a FitApp)
     if (type === 'gym_subscription') {
-      if (!gymId || !planId || !subscriptionId) return { received: true }
-      await activateGymSubscriptionFromStripe(gymId, subscriptionId, planId, session.id)
+      if (!gymId || !planId) return { received: true }
+      await activateGymSubscriptionFromStripe(gymId, planId, session.id, paymentId, session.amount_total)
       return { received: true, type: 'gym_subscription', gymId }
     }
 
@@ -1313,7 +1314,8 @@ export async function createGymSubscriptionCheckout(gymId: string, planId: strin
     prisma.fitAppPlan.findUnique({ where: { id: planId } }),
   ])
   if (!gym) throw new Error('Gimnasio no encontrado')
-  if (!fitPlan) throw new Error('Plan no encontrado')
+  if (!fitPlan || !fitPlan.isActive) throw new Error('Plan no encontrado')
+  if (fitPlan.isFree || fitPlan.priceCLP <= 0) throw new Error('El plan es gratuito, no requiere pago')
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
 
@@ -1329,53 +1331,50 @@ export async function createGymSubscriptionCheckout(gymId: string, planId: strin
     await prisma.gym.update({ where: { id: gymId }, data: { stripeCustomerId } })
   }
 
-  // Crear GymSubscription pendiente si no existe una activa/trial
-  let subscription = await prisma.gymSubscription.findFirst({
-    where: { gymId, status: { in: ['TRIAL', 'ACTIVE', 'EXPIRED'] } },
-    orderBy: { createdAt: 'desc' },
+  // Pago PENDING propio (ya no se crea una GymSubscription placeholder: la suscripción
+  // se crea al confirmarse el pago, ver gym-billing/activation.service.ts). Monto del servidor.
+  const payment = await prisma.gymSubscriptionPayment.create({
+    data: {
+      gymId, planId, amount: fitPlan.priceCLP, currency: 'CLP', country: gym.country,
+      gateway: 'stripe', status: 'PENDING',
+    },
   })
-  if (!subscription) {
-    const now = new Date()
-    subscription = await prisma.gymSubscription.create({
-      data: { gymId, planId, status: 'EXPIRED', startsAt: now, endsAt: now },
+
+  // CLP es zero-decimal en Stripe (no multiplicar x100)
+  let session: Stripe.Checkout.Session
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: stripeCustomerId,
+      line_items: [{
+        price_data: {
+          currency: 'clp',
+          product_data: {
+            name: `FitApp ${fitPlan.name}`,
+            description: `Suscripción plataforma — ${fitPlan.durationDays} días`,
+          },
+          unit_amount: fitPlan.priceCLP,
+        },
+        quantity: 1,
+      }],
+      metadata: { type: 'gym_subscription', gymId, planId, paymentId: payment.id },
+      success_url: `${frontendUrl}/dashboard/subscription?payment=${payment.id}&subscription=success`,
+      cancel_url: `${frontendUrl}/dashboard/subscription?subscription=cancelled`,
     })
+  } catch (err) {
+    await prisma.gymSubscriptionPayment.updateMany({
+      where: { id: payment.id, status: 'PENDING' },
+      data: { status: 'FAILED', rejectionReason: 'Stripe no pudo crear la sesión' },
+    })
+    throw err
   }
 
-  // Precio: CLP es zero-decimal en Stripe (no multiplicar x100), USD sí
-  const isZeroDecimal = ['CLP', 'JPY', 'KRW'].includes('CLP')
-  const unitAmount = isZeroDecimal ? fitPlan.priceCLP : fitPlan.priceUSD * 100
-
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    customer: stripeCustomerId,
-    line_items: [{
-      price_data: {
-        currency: 'clp',
-        product_data: {
-          name: `FitApp ${fitPlan.name}`,
-          description: `Suscripción plataforma — ${fitPlan.durationDays} días`,
-        },
-        unit_amount: unitAmount,
-      },
-      quantity: 1,
-    }],
-    metadata: {
-      type: 'gym_subscription',
-      gymId,
-      subscriptionId: subscription.id,
-      planId,
-    },
-    success_url: `${frontendUrl}/dashboard?subscription=success`,
-    cancel_url: `${frontendUrl}/dashboard?subscription=cancelled`,
+  await prisma.gymSubscriptionPayment.updateMany({
+    where: { id: payment.id, gymId },
+    data: { gatewayOrderId: session.id },
   })
 
-  // Guardar el checkout session id
-  await prisma.gymSubscription.update({
-    where: { id: subscription.id },
-    data: { stripeCheckoutSessionId: session.id },
-  })
-
-  return { checkoutUrl: session.url, sessionId: session.id }
+  return { checkoutUrl: session.url, sessionId: session.id, paymentId: payment.id }
 }
 
 export async function getGymSubscriptionStatus(gymId: string) {
@@ -1925,53 +1924,53 @@ export async function handleFintocWebhook(
   return importFintocMovements(gymId, rawMovements)
 }
 
+/**
+ * Webhook Stripe checkout.session.completed de una suscripción de plataforma.
+ * Idempotente: transición condicional PENDING -> PAID; solo con count===1 se activa.
+ * El pago se identifica por metadata.paymentId y se valida contra gymId/planId/session.id
+ * (metadata incorrecta de otro gym no activa nada). Sin paymentId (sesiones creadas antes
+ * de este cambio) se registra el pago por (gateway, session.id), protegido por el unique.
+ */
 export async function activateGymSubscriptionFromStripe(
   gymId: string,
-  subscriptionId: string,
   planId: string,
   stripeSessionId: string,
+  paymentId?: string,
+  amountTotal?: number | null,
 ) {
-  const fitPlan = await prisma.fitAppPlan.findUnique({ where: { id: planId } })
-  if (!fitPlan) return
+  await prisma.$transaction(async (tx) => {
+    let payment = paymentId
+      ? await tx.gymSubscriptionPayment.findFirst({ where: { id: paymentId, gymId, planId, gateway: 'stripe' } })
+      : await tx.gymSubscriptionPayment.findFirst({ where: { gateway: 'stripe', gatewayOrderId: stripeSessionId, gymId } })
 
-  const now = new Date()
+    if (payment && payment.gatewayOrderId && payment.gatewayOrderId !== stripeSessionId) {
+      logger.warn({ paymentId: payment.id }, '[stripe] gym_subscription: session.id no coincide con el pago, ignorado')
+      return
+    }
+    if (amountTotal != null && payment && payment.amount !== amountTotal) {
+      logger.warn({ paymentId: payment.id }, '[stripe] gym_subscription: monto no coincide, ignorado')
+      return
+    }
 
-  // Si hay suscripción vigente, extender desde su vencimiento
-  const currentSub = await prisma.gymSubscription.findFirst({
-    where: { gymId, status: { in: ['TRIAL', 'ACTIVE'] }, endsAt: { gt: now }, id: { not: subscriptionId } },
-    orderBy: { endsAt: 'desc' },
-  })
-  const baseDate = currentSub ? currentSub.endsAt : now
-  const endsAt = new Date(baseDate)
-  endsAt.setDate(endsAt.getDate() + fitPlan.durationDays)
+    if (!payment) {
+      if (paymentId) return // metadata apunta a un pago que no es de este gym/plan: no-op
+      // Sesión legacy (sin paymentId): crear el pago PAID; el unique (gateway, gatewayOrderId) lo hace idempotente
+      const fitPlan = await tx.fitAppPlan.findUnique({ where: { id: planId } })
+      const gym = await tx.gym.findUnique({ where: { id: gymId }, select: { country: true } })
+      if (!fitPlan || !gym) return
+      payment = await tx.gymSubscriptionPayment.create({
+        data: {
+          gymId, planId, amount: fitPlan.priceCLP, currency: 'CLP', country: gym.country,
+          gateway: 'stripe', gatewayOrderId: stripeSessionId, status: 'PENDING',
+        },
+      })
+    }
 
-  // Cancelar suscripciones anteriores activas
-  await prisma.gymSubscription.updateMany({
-    where: { gymId, status: { in: ['TRIAL', 'ACTIVE'] }, id: { not: subscriptionId } },
-    data: { status: 'CANCELLED' },
-  })
-
-  // Activar la suscripción pagada
-  await prisma.gymSubscription.update({
-    where: { id: subscriptionId },
-    data: { status: 'ACTIVE', startsAt: baseDate, endsAt, stripeCheckoutSessionId: stripeSessionId },
-  })
-
-  // Activar el gym
-  await prisma.gym.update({ where: { id: gymId }, data: { status: 'ACTIVE' } })
-
-  // Registrar el pago
-  await prisma.gymSubscriptionPayment.create({
-    data: {
-      gymId,
-      subscriptionId,
-      planId,
-      amount: fitPlan.priceCLP,
-      currency: 'CLP',
-      gateway: 'stripe',
-      gatewayOrderId: stripeSessionId,
-      status: 'PAID',
-      paidAt: now,
-    },
+    const claim = await tx.gymSubscriptionPayment.updateMany({
+      where: { id: payment.id, status: 'PENDING' },
+      data: { status: 'PAID', paidAt: new Date(), gatewayOrderId: stripeSessionId },
+    })
+    if (claim.count !== 1) return // reintento de Stripe: no-op
+    await activateGymSubscriptionInTx(tx, payment.id)
   })
 }
