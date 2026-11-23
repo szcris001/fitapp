@@ -119,6 +119,7 @@ const allNavItems: NavItem[] = [
       { label: 'Plantillas correo', href: '/dashboard/settings/email-templates',  coachAllowed: false },
       { label: 'Movimientos',       href: '/dashboard/settings/movements',        coachAllowed: false },
       { label: 'Pilares',           href: '/dashboard/settings/pillars',          coachAllowed: false },
+      { label: 'Mi suscripción',    href: '/dashboard/settings/subscription',     coachAllowed: false },
     ],
   },
 ]
