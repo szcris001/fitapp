@@ -11,6 +11,7 @@
 import { prisma } from '../../lib/prisma'
 import { BILLING_PUBLIC_FIELDS, maskGateways, maskSecret } from '../../lib/secrets'
 import { decryptJson, encryptJson } from '../../lib/field-crypto'
+import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from './chile-banks'
 
 const SETTINGS_ID = 'system'
 const CACHE_TTL_MS = 30_000
@@ -158,5 +159,6 @@ export async function getBillingGatewaysView() {
       transfer: { enabled: false, ...masked.transfer },
     },
     source: { flow: flow.source, stripe: stripe.source, transfer: transfer.source },
+    options: { banks: CHILE_BANKS, accountTypes: BANK_ACCOUNT_TYPES },
   }
 }

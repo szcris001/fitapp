@@ -29,6 +29,7 @@ type TransferCfg = {
 type BillingResponse = {
   gateways: { flow?: FlowCfg; stripe?: { enabled?: boolean }; transfer?: TransferCfg }
   source: { flow: Source; stripe: Source; transfer: Source }
+  options?: { banks: string[]; accountTypes: string[] }
 }
 
 function errMsg(err: any, fallback = 'Error inesperado'): string {
@@ -68,6 +69,7 @@ export default function BillingGatewaysPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
   const [source, setSource] = useState<BillingResponse['source']>({ flow: 'none', stripe: 'none', transfer: 'none' })
   const [stripeEnabled, setStripeEnabled] = useState(false)
+  const [options, setOptions] = useState<{ banks: string[]; accountTypes: string[] }>({ banks: [], accountTypes: [] })
 
   const [flow, setFlow] = useState({ enabled: false, sandbox: true })
   // Secretos: lo guardado llega enmascarado. `typed` = lo que escribe el usuario
@@ -90,6 +92,7 @@ export default function BillingGatewaysPage() {
     const f = data.gateways.flow ?? {}
     const t = data.gateways.transfer ?? {}
     setSource(data.source)
+    if (data.options) setOptions(data.options)
     setStripeEnabled(!!data.gateways.stripe?.enabled)
     setFlow({ enabled: !!f.enabled, sandbox: f.sandbox ?? true })
     setFlowMasked({ apiKey: f.apiKey ?? '', secretKey: f.secretKey ?? '' })
@@ -215,13 +218,28 @@ export default function BillingGatewaysPage() {
               ['bankName', 'Banco'], ['accountType', 'Tipo de cuenta'],
               ['accountNumber', 'N° de cuenta'], ['holderName', 'Titular'],
               ['holderRut', 'RUT titular'], ['contactEmail', 'Email de contacto'],
-            ] as const).map(([k, label]) => (
-              <div key={k}>
-                <label style={lbl}>{label}</label>
-                <input style={inp} value={transfer[k]}
-                  onChange={e => setTransfer(t => ({ ...t, [k]: e.target.value }))} />
-              </div>
-            ))}
+            ] as const).map(([k, label]) => {
+              const list = k === 'bankName' ? options.banks : k === 'accountType' ? options.accountTypes : null
+              return (
+                <div key={k}>
+                  <label style={lbl}>{label}</label>
+                  {list ? (
+                    <select style={inp} value={transfer[k]}
+                      onChange={e => setTransfer(t => ({ ...t, [k]: e.target.value }))}>
+                      <option value="">Selecciona…</option>
+                      {/* valor guardado antes de existir la lista cerrada: se muestra para poder reemplazarlo */}
+                      {transfer[k] && !list.includes(transfer[k]) && (
+                        <option value={transfer[k]}>{transfer[k]} (no está en la lista)</option>
+                      )}
+                      {list.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input style={inp} value={transfer[k]}
+                      onChange={e => setTransfer(t => ({ ...t, [k]: e.target.value }))} />
+                  )}
+                </div>
+              )
+            })}
             <div className="md:col-span-2">
               <label style={lbl}>Instrucciones (opcional)</label>
               <textarea style={{ ...inp, minHeight: 72, resize: 'vertical' }} value={transfer.instructions}
