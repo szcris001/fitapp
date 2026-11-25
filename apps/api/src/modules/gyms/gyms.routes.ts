@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify'
 import { MultipartFile } from '@fastify/multipart'
 import { authenticate, requireAdmin } from '../../middlewares/auth.middleware'
 import { updateGymSchema } from './gyms.schema'
+import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from '../../lib/chile-banks'
 import { getGym, updateGym, getGymStats, getClassOccupancy } from './gyms.service'
 import { prisma } from '../../lib/prisma'
 import { prismaErrorMessage } from '../../lib/prismaError'
@@ -120,6 +121,10 @@ export async function gymRoutes(app: FastifyInstance) {
     })
   })
 
+
+  // Opciones de las listas cerradas del formulario de cuenta bancaria (bancos CMF)
+  app.get('/gyms/bank-options', { preHandler: authenticate }, async (_req, reply) =>
+    reply.send({ banks: CHILE_BANKS, accountTypes: BANK_ACCOUNT_TYPES }))
 
   app.get('/gyms/me', { preHandler: authenticate }, async (request, reply) => {
     const user = request.user as any

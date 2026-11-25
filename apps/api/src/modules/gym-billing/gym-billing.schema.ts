@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from './chile-banks'
+import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from '../../lib/chile-banks'
 
 // Secreto: string = nuevo valor (o máscara/"" = conservar), null = borrar la credencial guardada
 const secret = z.string().max(300).nullable()

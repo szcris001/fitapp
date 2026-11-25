@@ -11,7 +11,7 @@
 import { prisma } from '../../lib/prisma'
 import { BILLING_PUBLIC_FIELDS, maskGateways, maskSecret } from '../../lib/secrets'
 import { decryptJson, encryptJson } from '../../lib/field-crypto'
-import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from './chile-banks'
+import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from '../../lib/chile-banks'
 
 const SETTINGS_ID = 'system'
 const CACHE_TTL_MS = 30_000
