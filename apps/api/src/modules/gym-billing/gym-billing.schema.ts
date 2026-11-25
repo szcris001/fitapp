@@ -1,8 +1,12 @@
 import { z } from 'zod'
+import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from '../../lib/chile-banks'
 
 // Secreto: string = nuevo valor (o máscara/"" = conservar), null = borrar la credencial guardada
 const secret = z.string().max(300).nullable()
 const text = (max: number) => z.string().max(max).nullable()
+// Lista cerrada ('' = sin elegir; null = borrar)
+const oneOf = <T extends readonly [string, ...string[]]>(values: T) =>
+  z.union([z.enum(values), z.literal('')]).nullable()
 
 export const flowBillingSchema = z.object({
   enabled:   z.boolean(),
@@ -13,8 +17,8 @@ export const flowBillingSchema = z.object({
 
 export const transferBillingSchema = z.object({
   enabled:       z.boolean(),
-  bankName:      text(100),
-  accountType:   text(50),
+  bankName:      oneOf(CHILE_BANKS),
+  accountType:   oneOf(BANK_ACCOUNT_TYPES),
   accountNumber: text(50),
   holderName:    text(120),
   holderRut:     text(20),

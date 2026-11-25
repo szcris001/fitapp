@@ -1169,3 +1169,41 @@ describe('GET /api/gyms/me/occupancy — un día de Chile no se parte en dos buc
     await prisma.class.deleteMany({ where: { id: { in: [c1.id, c2.id] } } })
   })
 })
+
+// ─── Cuenta bancaria del gym: banco y tipo de cuenta son lista cerrada (CMF) ──
+
+describe('PUT /api/gyms/me bankAccount — lista cerrada de bancos', () => {
+  let app: FastifyInstance
+
+  beforeAll(async () => { app = await buildApp() })
+  afterAll(async () => { await app.close() })
+
+  const put = (bankAccount: unknown) => app.inject({
+    method: 'PUT', url: '/api/gyms/me',
+    headers: { authorization: `Bearer ${adminAToken}` },
+    payload: { bankAccount } as any,
+  })
+
+  it('banco o tipo de cuenta fuera de la lista → 400', async () => {
+    expect((await put({ bank: 'Banco Inventado' })).statusCode).toBe(400)
+    expect((await put({ accountType: 'Cuenta Premium' })).statusCode).toBe(400)
+  })
+
+  it('banco y tipo válidos → 200 y quedan guardados', async () => {
+    const res = await put({ bank: 'BancoEstado', accountType: 'Cuenta RUT', accountNumber: '123' })
+    expect(res.statusCode).toBe(200)
+    const gym = await prisma.gym.findUnique({ where: { id: gymAId }, select: { bankAccount: true } })
+    expect((gym!.bankAccount as any).bank).toBe('BancoEstado')
+  })
+
+  it('GET /gyms/bank-options exige token y entrega las listas', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/gyms/bank-options' })).statusCode).toBe(401)
+    const res = await app.inject({
+      method: 'GET', url: '/api/gyms/bank-options',
+      headers: { authorization: `Bearer ${adminAToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().banks).toContain('Banco de Chile')
+    expect(res.json().accountTypes).toContain('Cuenta vista')
+  })
+})

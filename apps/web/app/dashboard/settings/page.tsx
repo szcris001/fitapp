@@ -240,6 +240,7 @@ export default function SettingsPage() {
   const [savingNotif, setSavingNotif] = useState(false)
   const [savingDte, setSavingDte] = useState(false)
   const [savingBank, setSavingBank] = useState(false)
+  const [bankOptions, setBankOptions] = useState<{ banks: string[]; accountTypes: string[] }>({ banks: [], accountTypes: [] })
   const [bankForm, setBankForm] = useState({
     ownerName: '', rut: '', bank: '', accountType: '', accountNumber: '', email: '',
   })
@@ -288,6 +289,10 @@ export default function SettingsPage() {
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type })
   }
+
+  useEffect(() => {
+    api.get('/gyms/bank-options').then(r => setBankOptions(r.data)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     loadFromStorage()
@@ -1034,9 +1039,24 @@ export default function SettingsPage() {
             ].map(({ key, label, placeholder }) => (
               <div key={key}>
                 <FieldLabel>{label}</FieldLabel>
-                <input type="text" className="input" placeholder={placeholder}
-                  value={(bankForm as any)[key]}
-                  onChange={e => setBankForm(f => ({ ...f, [key]: e.target.value }))} />
+                {(() => {
+                  const list = key === 'bank' ? bankOptions.banks : key === 'accountType' ? bankOptions.accountTypes : null
+                  const value: string = (bankForm as any)[key]
+                  if (!list) return (
+                    <input type="text" className="input" placeholder={placeholder}
+                      value={value}
+                      onChange={e => setBankForm(f => ({ ...f, [key]: e.target.value }))} />
+                  )
+                  return (
+                    <select className="input" value={value}
+                      onChange={e => setBankForm(f => ({ ...f, [key]: e.target.value }))}>
+                      <option value="">Selecciona…</option>
+                      {/* valor escrito a mano antes de existir la lista: hay que reemplazarlo para poder guardar */}
+                      {value && !list.includes(value) && <option value={value}>{value} (elige uno de la lista)</option>}
+                      {list.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  )
+                })()}
               </div>
             ))}
           </div>

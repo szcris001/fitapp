@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BANK_ACCOUNT_TYPES, CHILE_BANKS } from '../../lib/chile-banks'
 
 // name/phone/address sin límite dejaban guardar strings arbitrariamente largos (ej.
 // 5000 caracteres) sin rechazo — React ya escapa el HTML al renderizar (sin riesgo de
@@ -83,8 +84,9 @@ export const updateGymSchema = z.object({
   bankAccount: z.object({
     ownerName: z.string().optional(),
     rut: z.string().optional(),
-    bank: z.string().optional(),
-    accountType: z.string().optional(),
+    // Lista cerrada (bancos CMF); '' = sin elegir
+    bank: z.union([z.enum(CHILE_BANKS), z.literal('')]).optional(),
+    accountType: z.union([z.enum(BANK_ACCOUNT_TYPES), z.literal('')]).optional(),
     accountNumber: z.string().optional(),
     email: z.string().optional(),
   }).optional(),

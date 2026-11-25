@@ -53,7 +53,7 @@ function multipartBody(filename: string, mime: string, buf: Buffer) {
 }
 
 const BANK = {
-  enabled: true, bankName: 'Banco QA', accountType: 'Cuenta Corriente', accountNumber: '000123456',
+  enabled: true, bankName: 'Banco de Chile', accountType: 'Cuenta corriente', accountNumber: '000123456',
   holderName: 'Tribu Box SpA', holderRut: '76.000.000-0', contactEmail: 'pagos@tribu.test', instructions: 'Glosa = referencia',
 }
 
@@ -263,6 +263,15 @@ describe('config de pasarelas (superadmin)', () => {
     const t = await bearerPut({ transfer: { enabled: true, bankName: null, accountNumber: null, holderName: null, holderRut: null } })
     expect(t.statusCode).toBe(422)
     expect(t.json().missing).toEqual(expect.arrayContaining(['transfer.bankName', 'transfer.holderRut']))
+  })
+
+  it('banco y tipo de cuenta son lista cerrada: texto libre -> 400; GET expone las opciones', async () => {
+    expect((await bearerPut({ transfer: { bankName: 'Banco Inventado' } })).statusCode).toBe(400)
+    expect((await bearerPut({ transfer: { accountType: 'Cuenta Premium' } })).statusCode).toBe(400)
+    expect((await bearerPut({ transfer: { bankName: 'BancoEstado', accountType: 'Cuenta RUT' } })).statusCode).toBe(200)
+    const view = (await app.inject({ method: 'GET', url: '/api/superadmin/billing-gateways', headers: auth(tok.sa) })).json()
+    expect(view.options.banks).toContain('Banco de Chile')
+    expect(view.options.accountTypes).toContain('Cuenta vista')
   })
 
   it('body inválido (stripe no se configura por DB, campos desconocidos, tipos) -> 400', async () => {
