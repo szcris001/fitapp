@@ -49,7 +49,12 @@ if (!process.env.JWT_SECRET) {
 // Monitoreo de errores (no hace nada sin SENTRY_DSN)
 initSentry()
 
-const app = Fastify({ loggerInstance: logger })
+// En producción la API corre detrás del proxy de Railway (1 salto): sin esto `req.ip` es la IP
+// del proxy y los rate limits (login, webhooks) se compartirían entre todos los usuarios.
+// Se usa 1 (no `true`) para que un cliente no pueda falsear su IP con X-Forwarded-For.
+const trustProxy: boolean | ((address: string, hop: number) => boolean) =
+  process.env.NODE_ENV === 'production' ? (_address, hop) => hop < 1 : false
+const app = Fastify({ loggerInstance: logger, trustProxy })
 
 // ── Cabeceras de seguridad HTTP ───────────────────────────────────────────────
 app.register(helmet, {
