@@ -7,7 +7,7 @@ Lista viva de lo que hay que revisar de forma recurrente. Cada fila dice qué, c
 
 | Qué | Cómo | Dónde |
 |---|---|---|
-| **Lista de bancos de Chile** (transferencia de suscripción) | Comparar con la lista de la CMF y actualizar `CHILE_BANKS` y `CHILE_BANKS_REVIEWED_AT`. Vigilar fusiones y bajas (ej. Banco Security → BICE, autorizada en oct-2025, no está en la lista de vigentes). | `apps/api/src/lib/chile-banks.ts` · fuente: https://www.cmfchile.cl/portal/principal/623/w4-article-47003.html |
+| **Lista de instituciones de Chile** (bancos, cooperativas y emisores de prepago, para las cuentas de transferencia) | Comparar con las 3 tablas "Vigentes" de la CMF y actualizar `CHILE_BANKS` (y `CHILE_BANKS_REVIEWED_AT`). Vigilar fusiones, bajas y cambios de nombre. Banco Security quedó fuera a propósito (fusión con BICE autorizada oct-2025). | `apps/api/src/lib/chile-banks.ts` · fuentes: [bancos](https://www.cmfchile.cl/portal/principal/623/w4-article-47003.html), [cooperativas](https://www.cmfchile.cl/institucional/mercados/consulta.php?mercado=B&entidad=BCCOO&Estado=VI), [emisores de prepago](https://www.cmfchile.cl/institucional/mercados/consulta.php?mercado=B&Estado=VI&entidad=TPEEM) |
 | Rotar secretos de la plataforma | `JWT_SECRET`, contraseñas de `fitapp_app` y superadmin. Ojo: rotar `JWT_SECRET` desloguea a todos. | Variables de `api` en Railway |
 | Rotar credenciales de terceros **(pendiente desde el incidente de Railway, oct-2026)** | Stripe, Anthropic, Resend, Fintoc, Flow, Mercado Pago, desde el panel de cada proveedor. | Panel de cada proveedor + Variables en Railway |
 

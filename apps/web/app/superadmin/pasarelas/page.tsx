@@ -215,7 +215,7 @@ export default function BillingGatewaysPage() {
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {([
-              ['bankName', 'Banco'], ['accountType', 'Tipo de cuenta'],
+              ['bankName', 'Banco o institución'], ['accountType', 'Tipo de cuenta'],
               ['accountNumber', 'N° de cuenta'], ['holderName', 'Titular'],
               ['holderRut', 'RUT titular'], ['contactEmail', 'Email de contacto'],
             ] as const).map(([k, label]) => {

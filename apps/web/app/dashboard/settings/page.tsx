@@ -1032,7 +1032,7 @@ export default function SettingsPage() {
             {[
               { key: 'ownerName',     label: 'Nombre del titular',       placeholder: 'Box Atlético SpA' },
               { key: 'rut',           label: 'RUT',                       placeholder: '76.123.456-7' },
-              { key: 'bank',          label: 'Banco',                     placeholder: 'Banco Estado' },
+              { key: 'bank',          label: 'Banco o institución',                    placeholder: 'Banco Estado' },
               { key: 'accountType',   label: 'Tipo de cuenta',            placeholder: 'Cuenta Corriente' },
               { key: 'accountNumber', label: 'Número de cuenta',          placeholder: '00-123456-78' },
               { key: 'email',         label: 'Email para transferencia',  placeholder: 'pagos@mibox.cl' },
