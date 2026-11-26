@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "Tribu-Box",
+    "slug": "tribubox",
+    "scheme": "tribubox",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,8 +13,11 @@
         "NSPhotoLibraryUsageDescription": "Necesitamos acceso a tu galería para subir tu foto de perfil y comprobantes de pago.",
         "NSPhotoLibraryAddUsageDescription": "Necesitamos acceso a tu galería para guardar fotos.",
         "NSCameraUsageDescription": "Necesitamos acceso a tu cámara para escanear códigos QR de asistencia y tomar tu foto de perfil.",
-        "NSLocationWhenInUseUsageDescription": "Usamos tu ubicación para mostrarte el box de CrossFit más cercano a ti."
-      }
+        "NSLocationWhenInUseUsageDescription": "Usamos tu ubicación para mostrarte el box de CrossFit más cercano a ti.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "cl.tribubox.app",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -31,7 +35,9 @@
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS"
-      ]
+      ],
+      "package": "cl.tribubox.app",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -63,7 +69,7 @@
           "color": "#6366f1",
           "sounds": [],
           "androidMode": "default",
-          "androidCollapsedTitle": "FitApp"
+          "androidCollapsedTitle": "Tribu-Box"
         }
       ],
       [
