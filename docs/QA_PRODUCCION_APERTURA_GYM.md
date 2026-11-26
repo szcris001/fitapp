@@ -253,3 +253,100 @@ faltaba en la pantalla del alumno.
 próxima clase" ahora muestra "HOY 18:00 · Halterofilia · Reservado ✓".
 `pnpm typecheck` limpio. Sin test automatizado — no hay infraestructura de
 tests de componentes RN en el repo todavía.
+
+## Objetivo 3 — usabilidad del coach
+
+Probado en vivo en el emulador Android contra producción, login como
+`Juan Perez` (coach de `prueba4`, creado en Objetivo 1).
+
+### Hallazgo H-PROD-WEB-01 — no se podía resetear la contraseña de un coach/admin ya creado — **CORREGIDO** (PR #103)
+
+Encontrado por Cristian al crear el coach: `/dashboard/staff` solo
+permite setear la contraseña al crear, no hay forma de resetearla
+después desde Editar — aunque el backend ya soporta
+`POST /users/:id/reset-password` (mismo endpoint que ya usa
+`/dashboard/users/:id` para alumnos). Se agregó el mismo
+`ResetPasswordModal` a la página de staff. Detalle completo en el PR.
+
+**Nota aparte, no corregida**: `apps/mobile` no maneja
+`mustChangePassword` en ningún lado (ni coach ni alumno) — si alguien
+entra desde la app móvil después de un reset, no hay pantalla que lo
+obligue a cambiarla. Gap preexistente, pendiente de decidir si se
+aborda.
+
+### Hallazgo H-PROD-MOBILE-02 — "+ Agregar alumno" no exigía membresía activa — **CORREGIDO** (PR #105)
+
+Probando "+ Agregar alumno" en el detalle de una clase: se pudo
+inscribir a un alumno con membresía "Inactiva"/"Sin membresía" sin
+ningún error — a diferencia de cuando el alumno se reserva a sí mismo
+("No tienes una membresía activa"). Confirmado con Cristian que es un
+hueco, no comportamiento buscado: un alumno podía seguir yendo a
+clases indefinidamente sin renovar si el coach lo agregaba a mano cada
+vez. `assignUserToClass()` ahora exige la misma membresía activa que
+`bookClass()`. Detalle completo en el PR.
+
+### Hallazgo H-PROD-MOBILE-03 — el escáner QR de asistencia existe pero no tiene ningún botón que lleve a él — **documentado, no corregido**
+
+`QRScannerScreen.tsx` (lado coach) está completamente implementado
+(cámara, lectura de QR tipo `attendance`, llamada a
+`POST /classes/:classId/attendance/qr` — ese endpoint también existe y
+funciona) y registrado en el navigator (`AppNavigator.tsx`), pero
+**ningún lugar de la app llama `navigation.navigate('QRScanner')`** —
+ni el detalle de clase del coach (`ClassDetailAdminScreen.tsx`, que
+solo tiene "+ Agregar alumno" y "Eliminar clase") ni ningún otro lado.
+
+Es más: el lado alumno también existe y también está huérfano.
+`QRScreen.tsx` genera el QR del alumno (`{userId, type:'attendance'}`,
+mismo formato que espera el scanner del coach) con su UI completa —
+pero ni siquiera está importado en `AppNavigator.tsx`, no hay ni
+`Stack.Screen` para él. Es una función de punta a punta (ambos lados,
+UI + backend) completamente construida y coherente, pero 100%
+desconectada de la navegación en los dos extremos — probablemente
+quedó así a medio conectar. Cristian decidió dejarlo documentado por
+ahora, no conectar los botones todavía.
+
+### Verificado sin hallazgos — app del coach
+
+- **Login**: con `gymSlug` + email + password, funciona igual que
+  alumno/admin.
+- **Inicio**: "Clases de hoy" lista correctamente las clases del gym
+  con cupos (0/15, etc.).
+- **Alumnos**: lista con filtros (Todos/Activo/Prueba/Vencido),
+  búsqueda, detalle de alumno (vista de solo lectura — sin opciones de
+  edición financiera, correctamente acotada para el rol coach).
+- **Clases → Ver detalle y asistencia**: muestra inscritos/asistieron/
+  capacidad/en espera, aviso de "Asistencia automática — se marcará al
+  finalizar la clase", botones "+ Agregar alumno" (ver H-PROD-MOBILE-02)
+  y "Eliminar clase".
+- **WOD → Nuevo**: crear un WOD desde cero (tipo de clase, título,
+  fecha, bloque con movimiento) funciona de punta a punta — "WOD
+  creado". Edición de uno existente (bloques, movimientos, timecap)
+  también funciona.
+- **Más**: perfil y cerrar sesión — correctamente sin acceso a
+  Reportes/Pagos/Configuración (eso es solo admin).
+
+**Objetivo 3 completo** para lo que se pudo probar con un coach real
+sin pagos ni checkout.
+
+## Objetivo 2 (profundización) — más usabilidad del alumno
+
+Tras cerrar Objetivo 3, a pedido de Cristian se siguió probando a
+fondo la app del alumno (más allá de lo ya cubierto en Objetivo 2).
+
+### Hallazgo H-PROD-MOBILE-04 — la campana de notificaciones del home crashea al tocarla — **documentado, no corregido**
+
+Mismo patrón que H-PROD-MOBILE-03 (QR), pero más grave porque este
+botón sí es visible y alcanzable: **toda la pantalla de Inicio del
+alumno** tiene el ícono de campana (arriba a la derecha) que llama
+`navigation.navigate('notifications')` (`HomeScreen.tsx`). Ese screen
+name nunca se registró en `AppNavigator.tsx` — React Navigation tira
+el error "The action 'NAVIGATE' with payload..." visible en pantalla.
+Confirmado tocando la campana en vivo contra producción.
+
+`NotificationsScreen.tsx` sí existe como archivo y tiene UI completa,
+pero su contenido es enteramente mock/hardcodeado (notificaciones de
+ejemplo como "Nuevo récord personal — 80kg en Back Squat" que nunca
+pasó, guardadas en `AsyncStorage` la primera vez que se abre) — no
+está conectado a ningún dato real del backend. Cristian decidió
+dejarlo documentado por ahora, sin ocultar la campana ni conectar el
+mock.
