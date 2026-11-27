@@ -50,7 +50,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Necesitamos acceso a tu cámara para escanear códigos QR de asistencia."
+          "cameraPermission": "Necesitamos acceso a tu cámara para escanear códigos QR de asistencia.",
+          "recordAudioAndroid": false
         }
       ],
       [
@@ -73,6 +74,12 @@
       ],
       "expo-status-bar",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8028f4ec-f8aa-46db-8e4b-cbd6223733e3"
+      }
+    },
+    "owner": "crisriansz"
   }
 }
